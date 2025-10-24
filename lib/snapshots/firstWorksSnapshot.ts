@@ -28,9 +28,32 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // FirstWorks contract address
-const FIRSTWORKS_ADDRESS = process.env
-  .NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
-const MAINNET_RPC_URL = process.env.MAINNET_RPC_URL;
+const FIRSTWORKS_ADDRESS = process.env.CONTRACT_ADDRESS as `0x${string}`;
+const FIRSTWORKS_RPC_URL = process.env.FIRSTWORKS_RPC_URL;
+
+// Validate environment variables
+if (!FIRSTWORKS_ADDRESS) {
+  console.error("❌ Error: CONTRACT_ADDRESS is not set");
+  console.error("   Please add it to your .env.local file");
+  process.exit(1);
+}
+
+if (
+  !FIRSTWORKS_RPC_URL ||
+  FIRSTWORKS_RPC_URL === "your_ethereum_rpc_url_here"
+) {
+  console.error("❌ Error: FIRSTWORKS_RPC_URL is not set or using placeholder");
+  console.error(
+    "   Please add a valid Ethereum RPC URL to your .env.local file"
+  );
+  console.error(
+    "   Example: FIRSTWORKS_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
+  );
+  console.error("\n   Get a free RPC URL from:");
+  console.error("   - Alchemy: https://www.alchemy.com/");
+  console.error("   - Infura: https://www.infura.io/");
+  process.exit(1);
+}
 
 /**
  * Interface for holder data
@@ -62,7 +85,7 @@ export interface FirstWorksSnapshot {
 function createClient() {
   return createPublicClient({
     chain: mainnet,
-    transport: http(MAINNET_RPC_URL),
+    transport: http(FIRSTWORKS_RPC_URL),
   });
 }
 

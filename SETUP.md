@@ -46,7 +46,7 @@ This API allows users who own FirstWorks NFTs to perform "blessings" (think of t
    PRIVY_APP_SECRET=your_privy_app_secret_here
 
    # FirstWorks NFT Contract
-   NEXT_PUBLIC_CONTRACT_ADDRESS=0x8F814c7C75C5E9e0EDe0336F535604B1915C1985
+   CONTRACT_ADDRESS=0x8F814c7C75C5E9e0EDe0336F535604B1915C1985
    MAINNET_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
    ```
 
@@ -264,7 +264,7 @@ jobs:
       - run: npm install
       - run: npm run snapshot:generate
         env:
-          NEXT_PUBLIC_CONTRACT_ADDRESS: ${{ secrets.CONTRACT_ADDRESS }}
+          CONTRACT_ADDRESS: ${{ secrets.CONTRACT_ADDRESS }}
           MAINNET_RPC_URL: ${{ secrets.RPC_URL }}
 ```
 
