@@ -18,9 +18,18 @@ app.get('/', (c) => {
     version: '1.0.0',
     status: 'healthy',
     endpoints: {
-      blessings: '/api/blessings',
-      eligibility: '/api/blessings/eligibility',
-      stats: '/api/blessings/stats',
+      // Blessing Actions
+      performBlessing: 'POST /api/blessings',
+      checkEligibility: 'GET /api/blessings/eligibility',
+      getStats: 'GET /api/blessings/stats',
+
+      // Retrieve Blessings
+      getAllBlessings: 'GET /api/blessings/all',
+      getBlessingsByTarget: 'GET /api/blessings/target/:targetId',
+      getBlessingsByWallet: 'GET /api/blessings/wallet/:walletAddress',
+
+      // Admin
+      reloadSnapshot: 'POST /api/blessings/reload-snapshot',
     }
   })
 })

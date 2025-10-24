@@ -106,12 +106,118 @@ blessings.post("/", withAuth, async (c) => {
         targetId,
         remainingBlessings: result.remainingBlessings,
         message: "Blessing performed successfully",
+        blessing: result.blessing,
       },
     });
   } catch (error) {
     console.error("Error performing blessing:", error);
     return c.json(
       { error: "Failed to perform blessing", details: String(error) },
+      500
+    );
+  }
+});
+
+/**
+ * GET /blessings/all
+ * Get all blessing records with optional filters and pagination
+ *
+ * Query parameters:
+ * - walletAddress: Filter by wallet address
+ * - targetId: Filter by target ID
+ * - limit: Number of results per page (default: 50)
+ * - offset: Pagination offset (default: 0)
+ * - sortOrder: "asc" or "desc" (default: "desc" - most recent first)
+ */
+blessings.get("/all", async (c) => {
+  try {
+    const walletAddress = c.req.query("walletAddress");
+    const targetId = c.req.query("targetId");
+    const limit = parseInt(c.req.query("limit") || "50");
+    const offset = parseInt(c.req.query("offset") || "0");
+    const sortOrder = c.req.query("sortOrder") as "asc" | "desc" | undefined;
+
+    const result = blessingService.getAllBlessings({
+      walletAddress,
+      targetId,
+      limit,
+      offset,
+      sortOrder,
+    });
+
+    return c.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("Error fetching blessings:", error);
+    return c.json(
+      { error: "Failed to fetch blessings", details: String(error) },
+      500
+    );
+  }
+});
+
+/**
+ * GET /blessings/target/:targetId
+ * Get all blessings for a specific target/creation
+ */
+blessings.get("/target/:targetId", async (c) => {
+  try {
+    const targetId = c.req.param("targetId");
+
+    if (!targetId) {
+      return c.json({ error: "targetId is required" }, 400);
+    }
+
+    const blessingsForTarget =
+      blessingService.getBlessingsForTarget(targetId);
+    const blessingCount = blessingService.getBlessingCountForTarget(targetId);
+
+    return c.json({
+      success: true,
+      data: {
+        targetId,
+        blessings: blessingsForTarget,
+        count: blessingCount,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching target blessings:", error);
+    return c.json(
+      { error: "Failed to fetch target blessings", details: String(error) },
+      500
+    );
+  }
+});
+
+/**
+ * GET /blessings/wallet/:walletAddress
+ * Get all blessings performed by a specific wallet
+ */
+blessings.get("/wallet/:walletAddress", async (c) => {
+  try {
+    const walletAddress = c.req.param("walletAddress");
+
+    if (!walletAddress) {
+      return c.json({ error: "walletAddress is required" }, 400);
+    }
+
+    const blessingsByWallet =
+      blessingService.getBlessingsByWallet(walletAddress);
+
+    return c.json({
+      success: true,
+      data: {
+        walletAddress,
+        blessings: blessingsByWallet,
+        count: blessingsByWallet.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching wallet blessings:", error);
+    return c.json(
+      { error: "Failed to fetch wallet blessings", details: String(error) },
       500
     );
   }

@@ -84,6 +84,15 @@ curl http://localhost:3000/api/blessings \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_PRIVY_TOKEN" \
   -d '{"targetId": "post_123"}'
+
+# Get all blessings (no auth required)
+curl http://localhost:3000/api/blessings/all
+
+# Get blessings for a specific target (no auth required)
+curl http://localhost:3000/api/blessings/target/post_123
+
+# Get blessings by a specific wallet (no auth required)
+curl http://localhost:3000/api/blessings/wallet/0x1234...
 ```
 
 ## Client Integration Example

@@ -257,7 +257,14 @@ performBlessing('post_123');
   "data": {
     "targetId": "post_123",
     "remainingBlessings": 2,
-    "message": "Blessing performed successfully"
+    "message": "Blessing performed successfully",
+    "blessing": {
+      "id": "blessing_1729785600000_abc123",
+      "walletAddress": "0x1234567890abcdef1234567890abcdef12345678",
+      "targetId": "post_123",
+      "timestamp": "2025-10-24T15:30:00.000Z",
+      "nftCount": 5
+    }
   }
 }
 ```
@@ -280,7 +287,218 @@ performBlessing('post_123');
 
 ---
 
-### 5. Reload NFT Snapshot (Admin)
+### 5. Get All Blessings
+
+**Endpoint:** `GET /api/blessings/all`
+
+**Description:** Get all blessing records with optional filters and pagination
+
+**Authentication:** None required (public endpoint)
+
+**Query Parameters:**
+- `walletAddress` (optional) - Filter by wallet address
+- `targetId` (optional) - Filter by target ID
+- `limit` (optional) - Number of results per page (default: 50)
+- `offset` (optional) - Pagination offset (default: 0)
+- `sortOrder` (optional) - "asc" or "desc" (default: "desc" - most recent first)
+
+**cURL Examples:**
+
+Get all blessings (default 50 most recent):
+```bash
+curl http://localhost:3000/api/blessings/all
+```
+
+Get blessings for a specific wallet:
+```bash
+curl "http://localhost:3000/api/blessings/all?walletAddress=0x1234..."
+```
+
+Get blessings for a specific target:
+```bash
+curl "http://localhost:3000/api/blessings/all?targetId=post_123"
+```
+
+Get with pagination:
+```bash
+curl "http://localhost:3000/api/blessings/all?limit=10&offset=0"
+```
+
+**JavaScript/TypeScript Example:**
+```typescript
+async function getAllBlessings(options?: {
+  walletAddress?: string;
+  targetId?: string;
+  limit?: number;
+  offset?: number;
+  sortOrder?: "asc" | "desc";
+}) {
+  const params = new URLSearchParams();
+
+  if (options?.walletAddress) params.append('walletAddress', options.walletAddress);
+  if (options?.targetId) params.append('targetId', options.targetId);
+  if (options?.limit) params.append('limit', options.limit.toString());
+  if (options?.offset) params.append('offset', options.offset.toString());
+  if (options?.sortOrder) params.append('sortOrder', options.sortOrder);
+
+  const response = await fetch(
+    `http://localhost:3000/api/blessings/all?${params.toString()}`
+  );
+
+  return await response.json();
+}
+
+// Usage examples
+const allBlessings = await getAllBlessings();
+const userBlessings = await getAllBlessings({ walletAddress: '0x1234...' });
+const postBlessings = await getAllBlessings({ targetId: 'post_123' });
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "blessings": [
+      {
+        "id": "blessing_1729785600000_abc123",
+        "walletAddress": "0x1234567890abcdef1234567890abcdef12345678",
+        "targetId": "post_123",
+        "timestamp": "2025-10-24T15:30:00.000Z",
+        "nftCount": 5
+      },
+      {
+        "id": "blessing_1729785500000_def456",
+        "walletAddress": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+        "targetId": "post_456",
+        "timestamp": "2025-10-24T15:28:20.000Z",
+        "nftCount": 3
+      }
+    ],
+    "total": 2,
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
+---
+
+### 6. Get Blessings for a Target
+
+**Endpoint:** `GET /api/blessings/target/:targetId`
+
+**Description:** Get all blessings for a specific target/creation (e.g., post, artwork, etc.)
+
+**Authentication:** None required (public endpoint)
+
+**cURL Example:**
+```bash
+curl http://localhost:3000/api/blessings/target/post_123
+```
+
+**JavaScript/TypeScript Example:**
+```typescript
+async function getBlessingsForTarget(targetId: string) {
+  const response = await fetch(
+    `http://localhost:3000/api/blessings/target/${targetId}`
+  );
+
+  return await response.json();
+}
+
+// Usage
+const result = await getBlessingsForTarget('post_123');
+console.log(`${result.data.count} total blessings`);
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "targetId": "post_123",
+    "blessings": [
+      {
+        "id": "blessing_1729785600000_abc123",
+        "walletAddress": "0x1234567890abcdef1234567890abcdef12345678",
+        "targetId": "post_123",
+        "timestamp": "2025-10-24T15:30:00.000Z",
+        "nftCount": 5
+      },
+      {
+        "id": "blessing_1729785500000_xyz789",
+        "walletAddress": "0x9876543210fedcba9876543210fedcba98765432",
+        "targetId": "post_123",
+        "timestamp": "2025-10-24T15:25:00.000Z",
+        "nftCount": 2
+      }
+    ],
+    "count": 2
+  }
+}
+```
+
+---
+
+### 7. Get Blessings by Wallet
+
+**Endpoint:** `GET /api/blessings/wallet/:walletAddress`
+
+**Description:** Get all blessings performed by a specific wallet address
+
+**Authentication:** None required (public endpoint)
+
+**cURL Example:**
+```bash
+curl http://localhost:3000/api/blessings/wallet/0x1234567890abcdef1234567890abcdef12345678
+```
+
+**JavaScript/TypeScript Example:**
+```typescript
+async function getBlessingsByWallet(walletAddress: string) {
+  const response = await fetch(
+    `http://localhost:3000/api/blessings/wallet/${walletAddress}`
+  );
+
+  return await response.json();
+}
+
+// Usage
+const result = await getBlessingsByWallet('0x1234...');
+console.log(`User has blessed ${result.data.count} items`);
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "walletAddress": "0x1234567890abcdef1234567890abcdef12345678",
+    "blessings": [
+      {
+        "id": "blessing_1729785600000_abc123",
+        "walletAddress": "0x1234567890abcdef1234567890abcdef12345678",
+        "targetId": "post_123",
+        "timestamp": "2025-10-24T15:30:00.000Z",
+        "nftCount": 5
+      },
+      {
+        "id": "blessing_1729785400000_ghi012",
+        "walletAddress": "0x1234567890abcdef1234567890abcdef12345678",
+        "targetId": "post_789",
+        "timestamp": "2025-10-24T15:26:40.000Z",
+        "nftCount": 5
+      }
+    ],
+    "count": 2
+  }
+}
+```
+
+---
+
+### 8. Reload NFT Snapshot (Admin)
 
 **Endpoint:** `POST /api/blessings/reload-snapshot`
 

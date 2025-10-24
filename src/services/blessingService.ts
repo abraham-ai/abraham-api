@@ -34,11 +34,26 @@ interface UserBlessingData {
 }
 
 /**
+ * Individual blessing record
+ */
+export interface BlessingRecord {
+  id: string; // Unique blessing ID
+  walletAddress: string; // Address that performed the blessing
+  targetId: string; // ID of the creation/content that was blessed
+  timestamp: string; // ISO timestamp of when the blessing occurred
+  nftCount: number; // Number of NFTs owned at time of blessing
+}
+
+/**
  * Blessing tracking service
  */
 class BlessingService {
   // In-memory storage: walletAddress -> UserBlessingData
   private blessingData: Map<string, UserBlessingData> = new Map();
+
+  // Store all blessing records
+  private blessingRecords: BlessingRecord[] = [];
+
   private snapshot: FirstWorksSnapshot | null = null;
   private lastSnapshotLoad: number = 0;
   private readonly SNAPSHOT_CACHE_MS = 5 * 60 * 1000; // Reload snapshot every 5 minutes
@@ -46,6 +61,13 @@ class BlessingService {
   constructor() {
     // Initialize snapshot on construction
     this.loadSnapshot();
+  }
+
+  /**
+   * Generate a unique blessing ID
+   */
+  private generateBlessingId(): string {
+    return `blessing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
   /**
@@ -190,7 +212,7 @@ class BlessingService {
   }
 
   /**
-   * Perform a blessing (decrements remaining blessings)
+   * Perform a blessing (decrements remaining blessings and stores the record)
    */
   async performBlessing(
     walletAddress: string,
@@ -198,6 +220,7 @@ class BlessingService {
   ): Promise<{
     success: boolean;
     remainingBlessings: number;
+    blessing?: BlessingRecord;
     error?: string;
   }> {
     // Check eligibility first
@@ -217,6 +240,17 @@ class BlessingService {
 
     const remainingBlessings = data.maxBlessings - data.usedBlessings;
 
+    // Create and store the blessing record
+    const blessingRecord: BlessingRecord = {
+      id: this.generateBlessingId(),
+      walletAddress: walletAddress.toLowerCase(),
+      targetId,
+      timestamp: new Date().toISOString(),
+      nftCount: data.nftCount,
+    };
+
+    this.blessingRecords.push(blessingRecord);
+
     console.log(
       `✅ Blessing performed: ${walletAddress} -> ${targetId} (${remainingBlessings} remaining)`
     );
@@ -224,6 +258,7 @@ class BlessingService {
     return {
       success: true,
       remainingBlessings,
+      blessing: blessingRecord,
     };
   }
 
@@ -248,6 +283,93 @@ class BlessingService {
       periodStart: data.periodStart,
       periodEnd: data.periodEnd,
     };
+  }
+
+  /**
+   * Get all blessing records with optional filters
+   */
+  getAllBlessings(options?: {
+    walletAddress?: string;
+    targetId?: string;
+    limit?: number;
+    offset?: number;
+    sortOrder?: "asc" | "desc";
+  }): {
+    blessings: BlessingRecord[];
+    total: number;
+    limit: number;
+    offset: number;
+  } {
+    let filteredBlessings = [...this.blessingRecords];
+
+    // Filter by wallet address
+    if (options?.walletAddress) {
+      const addressLower = options.walletAddress.toLowerCase();
+      filteredBlessings = filteredBlessings.filter(
+        (b) => b.walletAddress === addressLower
+      );
+    }
+
+    // Filter by targetId
+    if (options?.targetId) {
+      filteredBlessings = filteredBlessings.filter(
+        (b) => b.targetId === options.targetId
+      );
+    }
+
+    // Sort by timestamp (default: most recent first)
+    const sortOrder = options?.sortOrder || "desc";
+    filteredBlessings.sort((a, b) => {
+      const timeA = new Date(a.timestamp).getTime();
+      const timeB = new Date(b.timestamp).getTime();
+      return sortOrder === "desc" ? timeB - timeA : timeA - timeB;
+    });
+
+    const total = filteredBlessings.length;
+    const offset = options?.offset || 0;
+    const limit = options?.limit || total;
+
+    // Apply pagination
+    const paginatedBlessings = filteredBlessings.slice(offset, offset + limit);
+
+    return {
+      blessings: paginatedBlessings,
+      total,
+      limit,
+      offset,
+    };
+  }
+
+  /**
+   * Get blessings for a specific target
+   */
+  getBlessingsForTarget(targetId: string): BlessingRecord[] {
+    return this.blessingRecords
+      .filter((b) => b.targetId === targetId)
+      .sort(
+        (a, b) =>
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+  }
+
+  /**
+   * Get blessings by a specific wallet
+   */
+  getBlessingsByWallet(walletAddress: string): BlessingRecord[] {
+    const addressLower = walletAddress.toLowerCase();
+    return this.blessingRecords
+      .filter((b) => b.walletAddress === addressLower)
+      .sort(
+        (a, b) =>
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+  }
+
+  /**
+   * Get blessing count for a target
+   */
+  getBlessingCountForTarget(targetId: string): number {
+    return this.blessingRecords.filter((b) => b.targetId === targetId).length;
   }
 
   /**
