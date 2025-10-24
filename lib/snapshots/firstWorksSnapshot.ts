@@ -16,8 +16,6 @@
  * - Update snapshot every 24 hours
  */
 
-// Load environment variables from .env.local or .env
-import dotenv from "dotenv";
 import { createPublicClient, http } from "viem";
 import { mainnet } from "viem/chains";
 import { AbrahamFirstWorks } from "../abi/firstWorks.js";
@@ -26,9 +24,14 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 
-// Load .env.local first, fall back to .env
-dotenv.config({ path: ".env.local" });
-dotenv.config(); // This won't override existing variables
+// Load environment variables from .env files in development
+// In production (Vercel), environment variables are provided by the platform
+if (process.env.NODE_ENV !== 'production') {
+  // Dynamically import dotenv only in development
+  const { default: dotenv } = await import('dotenv');
+  dotenv.config({ path: '.env.local' });
+  dotenv.config();
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -40,28 +43,33 @@ const FIRSTWORKS_ADDRESS =
   "0x8F814c7C75C5E9e0EDe0336F535604B1915C1985";
 const FIRSTWORKS_RPC_URL = process.env.FIRSTWORKS_RPC_URL;
 
-// Validate environment variables
-if (!FIRSTWORKS_ADDRESS) {
-  console.error("❌ Error: CONTRACT_ADDRESS is not set");
-  console.error("   Please add it to your .env.local file");
-  process.exit(1);
-}
+/**
+ * Validate environment variables (only when running as script)
+ */
+function validateEnvironmentVariables(): void {
+  if (!FIRSTWORKS_ADDRESS) {
+    console.error("❌ Error: CONTRACT_ADDRESS is not set");
+    console.error("   Please add it to your .env.local file or Vercel environment variables");
+    process.exit(1);
+  }
 
-if (
-  !FIRSTWORKS_RPC_URL ||
-  FIRSTWORKS_RPC_URL === "your_ethereum_rpc_url_here"
-) {
-  console.error("❌ Error: FIRSTWORKS_RPC_URL is not set or using placeholder");
-  console.error(
-    "   Please add a valid Ethereum RPC URL to your .env.local file"
-  );
-  console.error(
-    "   Example: FIRSTWORKS_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
-  );
-  console.error("\n   Get a free RPC URL from:");
-  console.error("   - Alchemy: https://www.alchemy.com/");
-  console.error("   - Infura: https://www.infura.io/");
-  process.exit(1);
+  if (
+    !FIRSTWORKS_RPC_URL ||
+    FIRSTWORKS_RPC_URL === "your_ethereum_rpc_url_here"
+  ) {
+    console.error("❌ Error: FIRSTWORKS_RPC_URL is not set or using placeholder");
+    console.error(
+      "   Please add a valid Ethereum RPC URL to your .env.local file"
+    );
+    console.error("   Or set it in Vercel environment variables dashboard");
+    console.error(
+      "   Example: FIRSTWORKS_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
+    );
+    console.error("\n   Get a free RPC URL from:");
+    console.error("   - Alchemy: https://www.alchemy.com/");
+    console.error("   - Infura: https://www.infura.io/");
+    process.exit(1);
+  }
 }
 
 /**
@@ -345,5 +353,7 @@ export function getNFTsForAddress(
 
 // Allow running as a script
 if (import.meta.url === `file://${process.argv[1]}`) {
+  // Validate environment variables before running
+  validateEnvironmentVariables();
   new FirstWorksSnapshotGenerator().run();
 }

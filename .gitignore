@@ -30,4 +30,6 @@ lerna-debug.log*
 .vercel
 
 # snapshots (generated)
-lib/snapshots/*.json
+# Keep latest.json for Vercel deployment, ignore timestamped snapshots
+lib/snapshots/snapshot-*.json
+!lib/snapshots/latest.json

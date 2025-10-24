@@ -1,0 +1,28 @@
+{
+  "contractAddress": "0x8F814c7C75C5E9e0EDe0336F535604B1915C1985",
+  "contractName": "Abraham Covenant",
+  "totalSupply": 5,
+  "timestamp": "2025-10-24T16:29:28.905Z",
+  "blockNumber": 23648521,
+  "holders": [
+    {
+      "address": "0x8f814c7c75c5e9e0ede0336f535604b1915c1985",
+      "balance": 4,
+      "tokenIds": [
+        1,
+        2,
+        3,
+        4
+      ]
+    }
+  ],
+  "totalHolders": 1,
+  "holderIndex": {
+    "0x8f814c7c75c5e9e0ede0336f535604b1915c1985": [
+      1,
+      2,
+      3,
+      4
+    ]
+  }
+}
