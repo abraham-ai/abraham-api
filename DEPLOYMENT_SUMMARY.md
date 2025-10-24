@@ -73,12 +73,12 @@ const { default: dotenv } = await import("dotenv");
 
 All these must be set in Vercel dashboard:
 
-| Variable                       | Example                                         | Where to Get                                       |
-| ------------------------------ | ----------------------------------------------- | -------------------------------------------------- |
-| `PRIVY_APP_ID`                 | `cm3uattds...`                                  | https://dashboard.privy.io                         |
-| `PRIVY_APP_SECRET`             | `2We3ZeBBJ...`                                  | https://dashboard.privy.io                         |
-| `NEXT_PUBLIC_CONTRACT_ADDRESS` | `0x8F814c7C75C5E9e0EDe0336F535604B1915C1985`    | Contract address (hardcoded)                       |
-| `FIRSTWORKS_RPC_URL`           | `https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY` | https://www.alchemy.com/ or https://www.infura.io/ |
+| Variable             | Example                                         | Where to Get                                       |
+| -------------------- | ----------------------------------------------- | -------------------------------------------------- |
+| `PRIVY_APP_ID`       | `cm3uattds...`                                  | https://dashboard.privy.io                         |
+| `PRIVY_APP_SECRET`   | `2We3ZeBBJ...`                                  | https://dashboard.privy.io                         |
+| `CONTRACT_ADDRESS`   | `0x8F814c7C75C5E9e0EDe0336F535604B1915C1985`    | Contract address (hardcoded)                       |
+| `FIRSTWORKS_RPC_URL` | `https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY` | https://www.alchemy.com/ or https://www.infura.io/ |
 
 ## How to Deploy to Vercel
 

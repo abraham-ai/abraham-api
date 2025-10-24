@@ -39,12 +39,12 @@ Set up a separate service (GitHub Actions, cron job, etc.) to generate and uploa
 2. Navigate to **Settings** → **Environment Variables**
 3. Add the following variables:
 
-| Variable Name                  | Value                                                                | Environment                      |
-| ------------------------------ | -------------------------------------------------------------------- | -------------------------------- |
-| `PRIVY_APP_ID`                 | Your Privy App ID                                                    | Production, Preview, Development |
-| `PRIVY_APP_SECRET`             | Your Privy App Secret                                                | Production, Preview, Development |
-| `NEXT_PUBLIC_CONTRACT_ADDRESS` | `0x8F814c7C75C5E9e0EDe0336F535604B1915C1985`                         | Production, Preview, Development |
-| `FIRSTWORKS_RPC_URL`           | Your RPC URL (e.g., `https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY`) | Production, Preview, Development |
+| Variable Name        | Value                                                                | Environment                      |
+| -------------------- | -------------------------------------------------------------------- | -------------------------------- |
+| `PRIVY_APP_ID`       | Your Privy App ID                                                    | Production, Preview, Development |
+| `PRIVY_APP_SECRET`   | Your Privy App Secret                                                | Production, Preview, Development |
+| `CONTRACT_ADDRESS`   | `0x8F814c7C75C5E9e0EDe0336F535604B1915C1985`                         | Production, Preview, Development |
+| `FIRSTWORKS_RPC_URL` | Your RPC URL (e.g., `https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY`) | Production, Preview, Development |
 
 **Important:**
 
@@ -57,7 +57,7 @@ Set up a separate service (GitHub Actions, cron job, etc.) to generate and uploa
 # Set production environment variables
 vercel env add PRIVY_APP_ID
 vercel env add PRIVY_APP_SECRET
-vercel env add NEXT_PUBLIC_CONTRACT_ADDRESS
+vercel env add CONTRACT_ADDRESS
 vercel env add FIRSTWORKS_RPC_URL
 ```
 
@@ -196,7 +196,7 @@ jobs:
 
       - name: Generate snapshot
         env:
-          NEXT_PUBLIC_CONTRACT_ADDRESS: ${{ secrets.CONTRACT_ADDRESS }}
+          CONTRACT_ADDRESS: ${{ secrets.CONTRACT_ADDRESS }}
           FIRSTWORKS_RPC_URL: ${{ secrets.FIRSTWORKS_RPC_URL }}
         run: npm run snapshot:generate
 
@@ -239,10 +239,10 @@ crontab -e
 
 ## Environment Variables Reference
 
-| Variable                       | Required | Description                      | Example                                         |
-| ------------------------------ | -------- | -------------------------------- | ----------------------------------------------- |
-| `PRIVY_APP_ID`                 | Yes      | Privy App ID from dashboard      | `cm3uattds...`                                  |
-| `PRIVY_APP_SECRET`             | Yes      | Privy App Secret                 | `2We3ZeBBJ...`                                  |
-| `NEXT_PUBLIC_CONTRACT_ADDRESS` | Yes      | FirstWorks contract address      | `0x8F814c7C75C5E9e0EDe0336F535604B1915C1985`    |
-| `FIRSTWORKS_RPC_URL`           | Yes      | Ethereum RPC endpoint            | `https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY` |
-| `PORT`                         | No       | Server port (auto-set by Vercel) | `3000`                                          |
+| Variable             | Required | Description                      | Example                                         |
+| -------------------- | -------- | -------------------------------- | ----------------------------------------------- |
+| `PRIVY_APP_ID`       | Yes      | Privy App ID from dashboard      | `cm3uattds...`                                  |
+| `PRIVY_APP_SECRET`   | Yes      | Privy App Secret                 | `2We3ZeBBJ...`                                  |
+| `CONTRACT_ADDRESS`   | Yes      | FirstWorks contract address      | `0x8F814c7C75C5E9e0EDe0336F535604B1915C1985`    |
+| `FIRSTWORKS_RPC_URL` | Yes      | Ethereum RPC endpoint            | `https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY` |
+| `PORT`               | No       | Server port (auto-set by Vercel) | `3000`                                          |

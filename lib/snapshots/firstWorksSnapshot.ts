@@ -26,10 +26,10 @@ import { dirname } from "path";
 
 // Load environment variables from .env files in development
 // In production (Vercel), environment variables are provided by the platform
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== "production") {
   // Dynamically import dotenv only in development
-  const { default: dotenv } = await import('dotenv');
-  dotenv.config({ path: '.env.local' });
+  const { default: dotenv } = await import("dotenv");
+  dotenv.config({ path: ".env.local" });
   dotenv.config();
 }
 
@@ -38,7 +38,7 @@ const __dirname = dirname(__filename);
 
 // FirstWorks contract address (try both env var names for flexibility)
 const FIRSTWORKS_ADDRESS =
-  (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`) ||
+  (process.env.CONTRACT_ADDRESS as `0x${string}`) ||
   (process.env.CONTRACT_ADDRESS as `0x${string}`) ||
   "0x8F814c7C75C5E9e0EDe0336F535604B1915C1985";
 const FIRSTWORKS_RPC_URL = process.env.FIRSTWORKS_RPC_URL;
@@ -49,7 +49,9 @@ const FIRSTWORKS_RPC_URL = process.env.FIRSTWORKS_RPC_URL;
 function validateEnvironmentVariables(): void {
   if (!FIRSTWORKS_ADDRESS) {
     console.error("❌ Error: CONTRACT_ADDRESS is not set");
-    console.error("   Please add it to your .env.local file or Vercel environment variables");
+    console.error(
+      "   Please add it to your .env.local file or Vercel environment variables"
+    );
     process.exit(1);
   }
 
@@ -57,7 +59,9 @@ function validateEnvironmentVariables(): void {
     !FIRSTWORKS_RPC_URL ||
     FIRSTWORKS_RPC_URL === "your_ethereum_rpc_url_here"
   ) {
-    console.error("❌ Error: FIRSTWORKS_RPC_URL is not set or using placeholder");
+    console.error(
+      "❌ Error: FIRSTWORKS_RPC_URL is not set or using placeholder"
+    );
     console.error(
       "   Please add a valid Ethereum RPC URL to your .env.local file"
     );
