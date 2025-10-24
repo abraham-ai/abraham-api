@@ -1,3 +1,10 @@
+// Load environment variables from .env.local or .env
+import dotenv from 'dotenv';
+
+// Load .env.local first, fall back to .env
+dotenv.config({ path: '.env.local' });
+dotenv.config(); // This won't override existing variables
+
 import { serve } from '@hono/node-server'
 import app from './index.js'
 

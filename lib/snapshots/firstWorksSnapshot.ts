@@ -16,6 +16,8 @@
  * - Update snapshot every 24 hours
  */
 
+// Load environment variables from .env.local or .env
+import dotenv from "dotenv";
 import { createPublicClient, http } from "viem";
 import { mainnet } from "viem/chains";
 import { AbrahamFirstWorks } from "../abi/firstWorks.js";
@@ -24,11 +26,18 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 
+// Load .env.local first, fall back to .env
+dotenv.config({ path: ".env.local" });
+dotenv.config(); // This won't override existing variables
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// FirstWorks contract address
-const FIRSTWORKS_ADDRESS = process.env.CONTRACT_ADDRESS as `0x${string}`;
+// FirstWorks contract address (try both env var names for flexibility)
+const FIRSTWORKS_ADDRESS =
+  (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`) ||
+  (process.env.CONTRACT_ADDRESS as `0x${string}`) ||
+  "0x8F814c7C75C5E9e0EDe0336F535604B1915C1985";
 const FIRSTWORKS_RPC_URL = process.env.FIRSTWORKS_RPC_URL;
 
 // Validate environment variables

@@ -6,12 +6,14 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "snapshot:generate": "tsx lib/snapshots/firstWorksSnapshot.ts",
+    "test:env": "tsx scripts/test-env.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.5",
     "@privy-io/server-auth": "^1.32.5",
+    "dotenv": "^17.2.3",
     "hono": "^4.10.2",
     "viem": "^2.38.4"
   },
