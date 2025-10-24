@@ -28,8 +28,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // FirstWorks contract address
-const FIRSTWORKS_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
-const FIRSTWORKS_RPC_URL = process.env.FIRSTWORKS_RPC_URL;
+const FIRSTWORKS_ADDRESS = process.env
+  .NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
+const MAINNET_RPC_URL = process.env.MAINNET_RPC_URL;
 
 /**
  * Interface for holder data
@@ -61,7 +62,7 @@ export interface FirstWorksSnapshot {
 function createClient() {
   return createPublicClient({
     chain: mainnet,
-    transport: http(FIRSTWORKS_RPC_URL),
+    transport: http(MAINNET_RPC_URL),
   });
 }
 
@@ -82,7 +83,7 @@ export class FirstWorksSnapshotGenerator {
    * Step 1: Get contract metadata
    */
   private async getContractMetadata() {
-    console.log("=Ê Getting FirstWorks contract metadata...");
+    console.log("=ï¿½ Getting FirstWorks contract metadata...");
 
     const [name, symbol, totalSupply] = await Promise.all([
       this.client.readContract({
@@ -118,7 +119,7 @@ export class FirstWorksSnapshotGenerator {
   private async getAllOwners(
     totalSupply: number
   ): Promise<Map<string, number[]>> {
-    console.log("\n= Fetching token ownership...");
+    console.log("\n=Fetching token ownership...");
 
     const holders = new Map<string, number[]>();
     const batchSize = 50; // Process 50 tokens at a time
@@ -177,7 +178,7 @@ export class FirstWorksSnapshotGenerator {
       }
     }
 
-    console.log(`\n Completed ownership scan:`);
+    console.log(`\n Completed ownership scan:`);
     console.log(`   - Total tokens: ${totalSupply}`);
     console.log(`   - Successful: ${successCount}`);
     console.log(`   - Failed: ${errorCount}`);
@@ -190,7 +191,7 @@ export class FirstWorksSnapshotGenerator {
    * Step 3: Generate snapshot
    */
   async generateSnapshot(): Promise<FirstWorksSnapshot> {
-    console.log("=€ Starting FirstWorks snapshot generation...\n");
+    console.log("=ï¿½ Starting FirstWorks snapshot generation...\n");
 
     try {
       // Get contract metadata
@@ -230,7 +231,7 @@ export class FirstWorksSnapshotGenerator {
         holderIndex,
       };
 
-      console.log("\n=Ë Snapshot Summary:");
+      console.log("\n=ï¿½ Snapshot Summary:");
       console.log(`   Total Holders: ${snapshot.totalHolders}`);
       console.log(`   Total NFTs: ${snapshot.totalSupply}`);
       console.log(
@@ -253,12 +254,12 @@ export class FirstWorksSnapshotGenerator {
 
     // Save full snapshot
     await fs.promises.writeFile(filepath, JSON.stringify(snapshot, null, 2));
-    console.log(`\n=¾ Snapshot saved: ${filepath}`);
+    console.log(`\n=ï¿½ Snapshot saved: ${filepath}`);
 
     // Also save as "latest" for easy access
     const latestPath = path.join(this.snapshotDir, "latest.json");
     await fs.promises.writeFile(latestPath, JSON.stringify(snapshot, null, 2));
-    console.log(`=¾ Latest snapshot: ${latestPath}`);
+    console.log(`=ï¿½ Latest snapshot: ${latestPath}`);
 
     return filepath;
   }
@@ -272,7 +273,7 @@ export class FirstWorksSnapshotGenerator {
       await this.saveSnapshot(snapshot);
 
       console.log("\n( Snapshot generation completed successfully!");
-      console.log(`=Á Snapshots directory: ${this.snapshotDir}`);
+      console.log(`=ï¿½ Snapshots directory: ${this.snapshotDir}`);
     } catch (error) {
       console.error("L Snapshot process failed:", error);
       process.exit(1);

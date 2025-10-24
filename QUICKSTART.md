@@ -5,15 +5,18 @@
 A complete NFT-based blessing system with:
 
 1. **Privy Authentication Middleware** ([src/middleware/auth.ts](src/middleware/auth.ts))
+
    - Verifies Privy JWT tokens
    - Extracts wallet addresses from authenticated users
 
 2. **NFT Snapshot Generator** ([lib/snapshots/firstWorksSnapshot.ts](lib/snapshots/firstWorksSnapshot.ts))
+
    - Fetches all FirstWorks NFT ownership data
    - Saves to `lib/snapshots/latest.json`
    - Should be run daily via cron
 
 3. **Blessing Service** ([src/services/blessingService.ts](src/services/blessingService.ts))
+
    - Tracks blessings per user
    - Enforces: N NFTs = N blessings per 24 hours
    - Resets at midnight UTC daily
@@ -33,11 +36,12 @@ cp .env.example .env
 ```
 
 Edit `.env` and add:
+
 ```env
 NEXT_PUBLIC_PRIVY_APP_ID=your_privy_app_id
 PRIVY_APP_SECRET=your_privy_app_secret
 NEXT_PUBLIC_CONTRACT_ADDRESS=0x8F814c7C75C5E9e0EDe0336F535604B1915C1985
-FIRSTWORKS_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
+MAINNET_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
 ```
 
 ### 2. Generate Initial NFT Snapshot
@@ -49,6 +53,7 @@ npm run snapshot:generate
 ```
 
 This will:
+
 - Fetch all NFT ownership from the FirstWorks contract
 - Save to `lib/snapshots/latest.json`
 - Take a few minutes to complete
@@ -86,7 +91,7 @@ curl http://localhost:3000/api/blessings \
 ### React + Privy
 
 ```typescript
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "@privy-io/react-auth";
 
 function BlessingButton({ targetId }: { targetId: string }) {
   const { getAccessToken } = usePrivy();
@@ -94,11 +99,11 @@ function BlessingButton({ targetId }: { targetId: string }) {
   async function handleBless() {
     const token = await getAccessToken();
 
-    const response = await fetch('https://your-api.com/api/blessings', {
-      method: 'POST',
+    const response = await fetch("https://your-api.com/api/blessings", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ targetId }),
     });
@@ -139,6 +144,7 @@ crontab -e
 ## Production Considerations
 
 1. **Storage**: Currently uses in-memory storage. For production:
+
    - Use Redis for distributed caching
    - Use PostgreSQL/MongoDB for persistent storage
 
@@ -180,19 +186,23 @@ abraham-api/
 ## Troubleshooting
 
 ### "No snapshot found" Error
+
 - Run `npm run snapshot:generate` first
 - Verify RPC URL is correct in `.env`
 
 ### "Invalid authentication token" Error
+
 - Check Privy credentials in `.env`
 - Ensure client is sending valid Privy JWT
 
 ### "Wallet address not found" Error
+
 - User needs to connect wallet in Privy first
 
 ## Need Help?
 
 See [SETUP.md](./SETUP.md) for detailed documentation including:
+
 - API endpoint specifications
 - Deployment guides (Vercel, Docker)
 - Advanced configuration options

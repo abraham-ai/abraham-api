@@ -19,11 +19,13 @@ This API allows users who own FirstWorks NFTs to perform "blessings" (think of t
 ## Installation
 
 1. **Clone the repository** (if not already done)
+
    ```bash
    cd abraham-api
    ```
 
 2. **Install dependencies**
+
    ```bash
    npm install
    ```
@@ -31,11 +33,13 @@ This API allows users who own FirstWorks NFTs to perform "blessings" (think of t
 3. **Set up environment variables**
 
    Copy the example environment file:
+
    ```bash
    cp .env.example .env
    ```
 
    Edit `.env` and fill in your values:
+
    ```env
    # Privy Authentication
    NEXT_PUBLIC_PRIVY_APP_ID=your_privy_app_id_here
@@ -43,7 +47,7 @@ This API allows users who own FirstWorks NFTs to perform "blessings" (think of t
 
    # FirstWorks NFT Contract
    NEXT_PUBLIC_CONTRACT_ADDRESS=0x8F814c7C75C5E9e0EDe0336F535604B1915C1985
-   FIRSTWORKS_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
+   MAINNET_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
    ```
 
 ## Initial Setup: Generate NFT Snapshot
@@ -55,6 +59,7 @@ npm run snapshot:generate
 ```
 
 This will:
+
 - Fetch all NFT ownership data from the FirstWorks contract
 - Save it to `lib/snapshots/latest.json`
 - Take a few minutes depending on the total supply
@@ -64,11 +69,13 @@ This will:
 ## Running the Server
 
 ### Development mode (with hot reload)
+
 ```bash
 npm run dev
 ```
 
 ### Production mode
+
 ```bash
 npm start
 ```
@@ -78,11 +85,13 @@ The server will start on port 3000 (or your configured port).
 ## API Endpoints
 
 ### Base URL
+
 ```
 http://localhost:3000
 ```
 
 ### Health Check
+
 ```http
 GET /
 ```
@@ -100,6 +109,7 @@ Authorization: Bearer <your_privy_jwt_token>
 ### Blessing Endpoints
 
 #### 1. Check Eligibility
+
 Check if the authenticated user can perform blessings.
 
 ```http
@@ -108,6 +118,7 @@ Authorization: Bearer <token>
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -124,6 +135,7 @@ Authorization: Bearer <token>
 ```
 
 #### 2. Get Blessing Stats
+
 Get detailed blessing statistics for the authenticated user.
 
 ```http
@@ -132,6 +144,7 @@ Authorization: Bearer <token>
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -147,6 +160,7 @@ Authorization: Bearer <token>
 ```
 
 #### 3. Perform a Blessing
+
 Perform a blessing on a target item.
 
 ```http
@@ -160,6 +174,7 @@ Content-Type: application/json
 ```
 
 **Success Response:**
+
 ```json
 {
   "success": true,
@@ -172,6 +187,7 @@ Content-Type: application/json
 ```
 
 **Error Response (No blessings remaining):**
+
 ```json
 {
   "success": false,
@@ -181,6 +197,7 @@ Content-Type: application/json
 ```
 
 #### 4. Reload Snapshot (Admin)
+
 Force reload the NFT snapshot without restarting the server.
 
 ```http
@@ -219,6 +236,7 @@ crontab -e
 ```
 
 Add this line to run daily at 1 AM:
+
 ```
 0 1 * * * cd /path/to/abraham-api && npm run snapshot:generate
 ```
@@ -232,7 +250,7 @@ name: Generate NFT Snapshot
 
 on:
   schedule:
-    - cron: '0 1 * * *' # Daily at 1 AM UTC
+    - cron: "0 1 * * *" # Daily at 1 AM UTC
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -242,12 +260,12 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: "18"
       - run: npm install
       - run: npm run snapshot:generate
         env:
           NEXT_PUBLIC_CONTRACT_ADDRESS: ${{ secrets.CONTRACT_ADDRESS }}
-          FIRSTWORKS_RPC_URL: ${{ secrets.RPC_URL }}
+          MAINNET_RPC_URL: ${{ secrets.RPC_URL }}
 ```
 
 ## Client Integration
@@ -255,18 +273,18 @@ jobs:
 ### JavaScript/TypeScript Example
 
 ```typescript
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy } from "@privy-io/react-auth";
 
 const { getAccessToken } = usePrivy();
 
 async function performBlessing(targetId: string) {
   const token = await getAccessToken();
 
-  const response = await fetch('https://your-api.com/api/blessings', {
-    method: 'POST',
+  const response = await fetch("https://your-api.com/api/blessings", {
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ targetId }),
   });
@@ -274,7 +292,9 @@ async function performBlessing(targetId: string) {
   const result = await response.json();
 
   if (result.success) {
-    console.log(`Blessing successful! ${result.data.remainingBlessings} remaining`);
+    console.log(
+      `Blessing successful! ${result.data.remainingBlessings} remaining`
+    );
   } else {
     console.error(`Blessing failed: ${result.error}`);
   }
@@ -284,8 +304,8 @@ async function performBlessing(targetId: string) {
 ### React Hook Example
 
 ```typescript
-import { useState, useEffect } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
+import { useState, useEffect } from "react";
+import { usePrivy } from "@privy-io/react-auth";
 
 export function useBlessingEligibility() {
   const { getAccessToken, authenticated } = usePrivy();
@@ -299,11 +319,14 @@ export function useBlessingEligibility() {
       setLoading(true);
       const token = await getAccessToken();
 
-      const response = await fetch('https://your-api.com/api/blessings/eligibility', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      const response = await fetch(
+        "https://your-api.com/api/blessings/eligibility",
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
 
       const result = await response.json();
       setEligibility(result.data);
@@ -322,11 +345,13 @@ export function useBlessingEligibility() {
 ### Vercel (Recommended for Hono)
 
 1. Install Vercel CLI:
+
    ```bash
    npm i -g vercel
    ```
 
 2. Deploy:
+
    ```bash
    vercel
    ```
@@ -353,6 +378,7 @@ CMD ["npm", "start"]
 ```
 
 Build and run:
+
 ```bash
 docker build -t abraham-api .
 docker run -p 3000:3000 --env-file .env abraham-api
@@ -361,14 +387,17 @@ docker run -p 3000:3000 --env-file .env abraham-api
 ## Troubleshooting
 
 ### "No snapshot found" error
+
 - Run `npm run snapshot:generate` first
 - Check that `.env` has correct RPC URL and contract address
 
 ### "Invalid authentication token" error
+
 - Verify Privy App ID and App Secret are correct
 - Ensure the client is sending a valid Privy JWT token
 
 ### "Wallet address not found" error
+
 - User must have a connected wallet in Privy
 - Verify the user has completed wallet connection
 
