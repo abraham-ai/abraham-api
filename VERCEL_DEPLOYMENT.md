@@ -14,6 +14,7 @@ This guide will help you deploy the Abraham API to Vercel.
 **The NFT snapshot CANNOT be generated on Vercel's serverless functions** due to timeout limitations (10 seconds for Hobby plan, 60 seconds for Pro). You have two options:
 
 ### Option 1: Pre-generate Snapshot (Recommended)
+
 Generate the snapshot locally and commit it to your repository:
 
 ```bash
@@ -27,6 +28,7 @@ git push
 ```
 
 ### Option 2: External Snapshot Generation
+
 Set up a separate service (GitHub Actions, cron job, etc.) to generate and upload snapshots periodically.
 
 ## Step 1: Set Environment Variables in Vercel
@@ -37,14 +39,15 @@ Set up a separate service (GitHub Actions, cron job, etc.) to generate and uploa
 2. Navigate to **Settings** → **Environment Variables**
 3. Add the following variables:
 
-| Variable Name | Value | Environment |
-|--------------|-------|-------------|
-| `NEXT_PUBLIC_PRIVY_APP_ID` | Your Privy App ID | Production, Preview, Development |
-| `PRIVY_APP_SECRET` | Your Privy App Secret | Production, Preview, Development |
-| `NEXT_PUBLIC_CONTRACT_ADDRESS` | `0x8F814c7C75C5E9e0EDe0336F535604B1915C1985` | Production, Preview, Development |
-| `FIRSTWORKS_RPC_URL` | Your RPC URL (e.g., `https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY`) | Production, Preview, Development |
+| Variable Name                  | Value                                                                | Environment                      |
+| ------------------------------ | -------------------------------------------------------------------- | -------------------------------- |
+| `PRIVY_APP_ID`                 | Your Privy App ID                                                    | Production, Preview, Development |
+| `PRIVY_APP_SECRET`             | Your Privy App Secret                                                | Production, Preview, Development |
+| `NEXT_PUBLIC_CONTRACT_ADDRESS` | `0x8F814c7C75C5E9e0EDe0336F535604B1915C1985`                         | Production, Preview, Development |
+| `FIRSTWORKS_RPC_URL`           | Your RPC URL (e.g., `https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY`) | Production, Preview, Development |
 
 **Important:**
+
 - Click "All" for environment selection to apply to all environments
 - Never commit `.env.local` or `.env` files with secrets to git
 
@@ -52,7 +55,7 @@ Set up a separate service (GitHub Actions, cron job, etc.) to generate and uploa
 
 ```bash
 # Set production environment variables
-vercel env add NEXT_PUBLIC_PRIVY_APP_ID
+vercel env add PRIVY_APP_ID
 vercel env add PRIVY_APP_SECRET
 vercel env add NEXT_PUBLIC_CONTRACT_ADDRESS
 vercel env add FIRSTWORKS_RPC_URL
@@ -126,6 +129,7 @@ curl https://YOUR_VERCEL_URL.vercel.app/api/blessings/eligibility \
 **Cause:** Environment variables are not set in Vercel dashboard.
 
 **Solution:**
+
 1. Go to Vercel Dashboard → Settings → Environment Variables
 2. Add `FIRSTWORKS_RPC_URL` with your Alchemy/Infura URL
 3. Redeploy: `vercel --prod` or trigger redeploy in dashboard
@@ -135,6 +139,7 @@ curl https://YOUR_VERCEL_URL.vercel.app/api/blessings/eligibility \
 **Cause:** The snapshot file doesn't exist in your deployment.
 
 **Solution:**
+
 1. Generate snapshot locally: `npm run snapshot:generate`
 2. Commit the file: `git add lib/snapshots/latest.json && git commit -m "Add snapshot"`
 3. Push and redeploy
@@ -150,11 +155,14 @@ curl https://YOUR_VERCEL_URL.vercel.app/api/blessings/eligibility \
 Update the CORS configuration in [src/index.ts](src/index.ts):
 
 ```typescript
-app.use('*', cors({
-  origin: ['https://yourdomain.com', 'https://your-frontend.vercel.app'],
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-}))
+app.use(
+  "*",
+  cors({
+    origin: ["https://yourdomain.com", "https://your-frontend.vercel.app"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+  })
+);
 ```
 
 ## Updating the Snapshot
@@ -170,7 +178,7 @@ name: Update NFT Snapshot
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Daily at midnight UTC
+    - cron: "0 0 * * *" # Daily at midnight UTC
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -182,7 +190,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: "18"
 
       - run: npm install
 
@@ -231,10 +239,10 @@ crontab -e
 
 ## Environment Variables Reference
 
-| Variable | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `NEXT_PUBLIC_PRIVY_APP_ID` | Yes | Privy App ID from dashboard | `cm3uattds...` |
-| `PRIVY_APP_SECRET` | Yes | Privy App Secret | `2We3ZeBBJ...` |
-| `NEXT_PUBLIC_CONTRACT_ADDRESS` | Yes | FirstWorks contract address | `0x8F814c7C75C5E9e0EDe0336F535604B1915C1985` |
-| `FIRSTWORKS_RPC_URL` | Yes | Ethereum RPC endpoint | `https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY` |
-| `PORT` | No | Server port (auto-set by Vercel) | `3000` |
+| Variable                       | Required | Description                      | Example                                         |
+| ------------------------------ | -------- | -------------------------------- | ----------------------------------------------- |
+| `PRIVY_APP_ID`                 | Yes      | Privy App ID from dashboard      | `cm3uattds...`                                  |
+| `PRIVY_APP_SECRET`             | Yes      | Privy App Secret                 | `2We3ZeBBJ...`                                  |
+| `NEXT_PUBLIC_CONTRACT_ADDRESS` | Yes      | FirstWorks contract address      | `0x8F814c7C75C5E9e0EDe0336F535604B1915C1985`    |
+| `FIRSTWORKS_RPC_URL`           | Yes      | Ethereum RPC endpoint            | `https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY` |
+| `PORT`                         | No       | Server port (auto-set by Vercel) | `3000`                                          |

@@ -42,7 +42,7 @@ This API allows users who own FirstWorks NFTs to perform "blessings" (think of t
 
    ```env
    # Privy Authentication
-   NEXT_PUBLIC_PRIVY_APP_ID=your_privy_app_id_here
+   PRIVY_APP_ID=your_privy_app_id_here
    PRIVY_APP_SECRET=your_privy_app_secret_here
 
    # FirstWorks NFT Contract

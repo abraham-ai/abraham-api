@@ -6,16 +6,16 @@
  */
 
 // Load environment variables in development
-if (process.env.NODE_ENV !== 'production') {
-  const { default: dotenv } = await import('dotenv');
-  dotenv.config({ path: '.env.local' });
+if (process.env.NODE_ENV !== "production") {
+  const { default: dotenv } = await import("dotenv");
+  dotenv.config({ path: ".env.local" });
   dotenv.config();
 }
 
 console.log("🔍 Testing Environment Variables\n");
 
 const envVars = [
-  { name: "NEXT_PUBLIC_PRIVY_APP_ID", required: true },
+  { name: "PRIVY_APP_ID", required: true },
   { name: "PRIVY_APP_SECRET", required: true },
   { name: "NEXT_PUBLIC_CONTRACT_ADDRESS", required: true },
   { name: "FIRSTWORKS_RPC_URL", required: true },
@@ -34,7 +34,8 @@ for (const { name, required } of envVars) {
   if (value) {
     // Mask sensitive values
     if (name.includes("SECRET") || name.includes("RPC")) {
-      const masked = value.substring(0, 10) + "..." + value.substring(value.length - 4);
+      const masked =
+        value.substring(0, 10) + "..." + value.substring(value.length - 4);
       console.log(`   Value: ${masked}`);
     } else {
       console.log(`   Value: ${value}`);

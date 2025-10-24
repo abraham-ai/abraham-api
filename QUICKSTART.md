@@ -38,7 +38,7 @@ cp .env.example .env
 Edit `.env` and add:
 
 ```env
-NEXT_PUBLIC_PRIVY_APP_ID=your_privy_app_id
+PRIVY_APP_ID=your_privy_app_id
 PRIVY_APP_SECRET=your_privy_app_secret
 CONTRACT_ADDRESS=0x8F814c7C75C5E9e0EDe0336F535604B1915C1985
 MAINNET_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY

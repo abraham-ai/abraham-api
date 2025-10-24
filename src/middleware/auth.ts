@@ -3,11 +3,11 @@ import { PrivyClient } from "@privy-io/server-auth";
 
 // Initialize Privy client
 const getPrivyClient = () => {
-  const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
+  const appId = process.env.PRIVY_APP_ID;
   const appSecret = process.env.PRIVY_APP_SECRET;
 
   if (!appId) {
-    throw new Error("NEXT_PUBLIC_PRIVY_APP_ID is not set");
+    throw new Error("PRIVY_APP_ID is not set");
   }
   if (!appSecret) {
     throw new Error("PRIVY_APP_SECRET is not set");
