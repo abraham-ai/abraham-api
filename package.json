@@ -1,0 +1,23 @@
+{
+  "name": "abraham-api",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "snapshot:generate": "tsx lib/snapshots/firstWorksSnapshot.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.5",
+    "@privy-io/server-auth": "^1.32.5",
+    "hono": "^4.10.2",
+    "viem": "^2.38.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "tsx": "^4.7.1",
+    "typescript": "^5.8.3"
+  }
+}
