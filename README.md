@@ -498,7 +498,81 @@ console.log(`User has blessed ${result.data.count} items`);
 
 ---
 
-### 8. Reload NFT Snapshot (Admin)
+### 8. Get NFT Snapshot
+
+**Endpoint:** `GET /api/blessings/snapshot`
+
+**Description:** Get the current NFT ownership snapshot data showing all holders and their NFTs
+
+**Authentication:** None required (public endpoint)
+
+**cURL Example:**
+```bash
+curl http://localhost:3000/api/blessings/snapshot
+```
+
+**JavaScript/TypeScript Example:**
+```typescript
+async function getSnapshot() {
+  const response = await fetch('http://localhost:3000/api/blessings/snapshot');
+  const data = await response.json();
+
+  console.log(`Total Holders: ${data.data.totalHolders}`);
+  console.log(`Total Supply: ${data.data.totalSupply}`);
+  console.log(`Snapshot taken at: ${data.data.timestamp}`);
+
+  return data;
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "contractAddress": "0x8F814c7C75C5E9e0EDe0336F535604B1915C1985",
+    "contractName": "FirstWorks",
+    "totalSupply": 100,
+    "timestamp": "2025-10-24T12:00:00.000Z",
+    "blockNumber": 18500000,
+    "holders": [
+      {
+        "address": "0x1234567890abcdef1234567890abcdef12345678",
+        "balance": 5,
+        "tokenIds": [1, 2, 3, 4, 5]
+      },
+      {
+        "address": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+        "balance": 3,
+        "tokenIds": [6, 7, 8]
+      }
+    ],
+    "totalHolders": 2,
+    "holderIndex": {
+      "0x1234567890abcdef1234567890abcdef12345678": [1, 2, 3, 4, 5],
+      "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd": [6, 7, 8]
+    }
+  }
+}
+```
+
+**Error Response - No Snapshot (404):**
+```json
+{
+  "error": "No snapshot available",
+  "message": "Run 'npm run snapshot:generate' to create a snapshot"
+}
+```
+
+**Use Cases:**
+- Check if a user owns any NFTs: `snapshot.data.holderIndex[walletAddress]`
+- Display NFT holder leaderboard
+- Show total collection statistics
+- Verify snapshot timestamp and freshness
+
+---
+
+### 9. Reload NFT Snapshot (Admin)
 
 **Endpoint:** `POST /api/blessings/reload-snapshot`
 

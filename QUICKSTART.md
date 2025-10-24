@@ -93,6 +93,9 @@ curl http://localhost:3000/api/blessings/target/post_123
 
 # Get blessings by a specific wallet (no auth required)
 curl http://localhost:3000/api/blessings/wallet/0x1234...
+
+# Get current NFT snapshot (no auth required)
+curl http://localhost:3000/api/blessings/snapshot
 ```
 
 ## Client Integration Example

@@ -28,7 +28,8 @@ app.get('/', (c) => {
       getBlessingsByTarget: 'GET /api/blessings/target/:targetId',
       getBlessingsByWallet: 'GET /api/blessings/wallet/:walletAddress',
 
-      // Admin
+      // Snapshot
+      getSnapshot: 'GET /api/blessings/snapshot',
       reloadSnapshot: 'POST /api/blessings/reload-snapshot',
     }
   })

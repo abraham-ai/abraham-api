@@ -373,6 +373,14 @@ class BlessingService {
   }
 
   /**
+   * Get the current snapshot
+   */
+  async getSnapshot(): Promise<FirstWorksSnapshot | null> {
+    await this.loadSnapshot();
+    return this.snapshot;
+  }
+
+  /**
    * Force reload the snapshot (useful after snapshot generation)
    */
   async reloadSnapshot(): Promise<void> {

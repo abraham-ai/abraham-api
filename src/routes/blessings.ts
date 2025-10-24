@@ -224,6 +224,37 @@ blessings.get("/wallet/:walletAddress", async (c) => {
 });
 
 /**
+ * GET /blessings/snapshot
+ * Get the current NFT snapshot data
+ */
+blessings.get("/snapshot", async (c) => {
+  try {
+    const snapshot = await blessingService.getSnapshot();
+
+    if (!snapshot) {
+      return c.json(
+        {
+          error: "No snapshot available",
+          message: "Run 'npm run snapshot:generate' to create a snapshot",
+        },
+        404
+      );
+    }
+
+    return c.json({
+      success: true,
+      data: snapshot,
+    });
+  } catch (error) {
+    console.error("Error fetching snapshot:", error);
+    return c.json(
+      { error: "Failed to fetch snapshot", details: String(error) },
+      500
+    );
+  }
+});
+
+/**
  * POST /blessings/reload-snapshot
  * Admin endpoint to force reload the NFT snapshot
  * (In production, you might want to add admin authentication)
