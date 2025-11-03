@@ -498,23 +498,23 @@ console.log(`User has blessed ${result.data.count} items`);
 
 ---
 
-### 8. Get NFT Snapshot
+### 8. Get FirstWorks NFT Snapshot
 
-**Endpoint:** `GET /api/blessings/snapshot`
+**Endpoint:** `GET /api/blessings/firstworks/snapshot`
 
-**Description:** Get the current NFT ownership snapshot data showing all holders and their NFTs
+**Description:** Get the current FirstWorks NFT ownership snapshot data showing all holders and their NFTs
 
 **Authentication:** None required (public endpoint)
 
 **cURL Example:**
 ```bash
-curl http://localhost:3000/api/blessings/snapshot
+curl http://localhost:3000/api/blessings/firstworks/snapshot
 ```
 
 **JavaScript/TypeScript Example:**
 ```typescript
-async function getSnapshot() {
-  const response = await fetch('http://localhost:3000/api/blessings/snapshot');
+async function getFirstWorksSnapshot() {
+  const response = await fetch('http://localhost:3000/api/blessings/firstworks/snapshot');
   const data = await response.json();
 
   console.log(`Total Holders: ${data.data.totalHolders}`);
@@ -572,24 +572,24 @@ async function getSnapshot() {
 
 ---
 
-### 9. Reload NFT Snapshot (Admin)
+### 9. Reload FirstWorks NFT Snapshot (Admin)
 
-**Endpoint:** `POST /api/blessings/reload-snapshot`
+**Endpoint:** `POST /api/blessings/firstworks/reload-snapshot`
 
-**Description:** Force reload the NFT ownership snapshot without restarting the server
+**Description:** Force reload the FirstWorks NFT ownership snapshot without restarting the server
 
 **Authentication:** None (should add admin auth in production)
 
 **cURL Example:**
 ```bash
-curl -X POST http://localhost:3000/api/blessings/reload-snapshot
+curl -X POST http://localhost:3000/api/blessings/firstworks/reload-snapshot
 ```
 
 **Success Response (200):**
 ```json
 {
   "success": true,
-  "message": "Snapshot reloaded successfully"
+  "message": "FirstWorks snapshot reloaded successfully"
 }
 ```
 

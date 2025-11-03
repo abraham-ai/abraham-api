@@ -28,9 +28,9 @@ app.get('/', (c) => {
       getBlessingsByTarget: 'GET /api/blessings/target/:targetId',
       getBlessingsByWallet: 'GET /api/blessings/wallet/:walletAddress',
 
-      // Snapshot
-      getSnapshot: 'GET /api/blessings/snapshot',
-      reloadSnapshot: 'POST /api/blessings/reload-snapshot',
+      // FirstWorks NFT Snapshots
+      getFirstWorksSnapshot: 'GET /api/blessings/firstworks/snapshot',
+      reloadFirstWorksSnapshot: 'POST /api/blessings/firstworks/reload-snapshot',
     }
   })
 })

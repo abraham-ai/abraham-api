@@ -224,10 +224,10 @@ blessings.get("/wallet/:walletAddress", async (c) => {
 });
 
 /**
- * GET /blessings/snapshot
- * Get the current NFT snapshot data
+ * GET /blessings/firstworks/snapshot
+ * Get the current FirstWorks NFT snapshot data
  */
-blessings.get("/snapshot", async (c) => {
+blessings.get("/firstworks/snapshot", async (c) => {
   try {
     const snapshot = await blessingService.getSnapshot();
 
@@ -255,17 +255,17 @@ blessings.get("/snapshot", async (c) => {
 });
 
 /**
- * POST /blessings/reload-snapshot
- * Admin endpoint to force reload the NFT snapshot
+ * POST /blessings/firstworks/reload-snapshot
+ * Admin endpoint to force reload the FirstWorks NFT snapshot
  * (In production, you might want to add admin authentication)
  */
-blessings.post("/reload-snapshot", async (c) => {
+blessings.post("/firstworks/reload-snapshot", async (c) => {
   try {
     await blessingService.reloadSnapshot();
 
     return c.json({
       success: true,
-      message: "Snapshot reloaded successfully",
+      message: "FirstWorks snapshot reloaded successfully",
     });
   } catch (error) {
     console.error("Error reloading snapshot:", error);
