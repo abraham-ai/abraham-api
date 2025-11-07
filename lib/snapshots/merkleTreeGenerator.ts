@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync } from 'fs';
-import { keccak256, encodePacked, encodeAbiParameters } from 'viem';
+import { readFileSync, writeFileSync } from "fs";
+import { keccak256, encodePacked, encodeAbiParameters } from "viem";
 
 /**
  * Merkle Tree Generator for FirstWorks NFT Ownership
@@ -44,12 +44,12 @@ function generateLeaf(address: string, tokenIds: number[]): string {
   // Match Solidity: keccak256(bytes.concat(keccak256(abi.encode(owner, tokenIds))))
   const innerHash = keccak256(
     encodeAbiParameters(
-      [{ type: 'address' }, { type: 'uint256[]' }],
-      [address as `0x${string}`, tokenIds.map(id => BigInt(id))]
+      [{ type: "address" }, { type: "uint256[]" }],
+      [address as `0x${string}`, tokenIds.map((id) => BigInt(id))]
     )
   );
 
-  return keccak256(encodePacked(['bytes32'], [innerHash]));
+  return keccak256(encodePacked(["bytes32"], [innerHash]));
 }
 
 /**
@@ -58,7 +58,12 @@ function generateLeaf(address: string, tokenIds: number[]): string {
 function hashPair(left: string, right: string): string {
   // Sort to ensure deterministic ordering
   const sorted = [left, right].sort();
-  return keccak256(encodePacked(['bytes32', 'bytes32'], [sorted[0] as `0x${string}`, sorted[1] as `0x${string}`]));
+  return keccak256(
+    encodePacked(
+      ["bytes32", "bytes32"],
+      [sorted[0] as `0x${string}`, sorted[1] as `0x${string}`]
+    )
+  );
 }
 
 /**
@@ -66,11 +71,11 @@ function hashPair(left: string, right: string): string {
  */
 function buildMerkleTree(leaves: string[]): MerkleNode[] {
   if (leaves.length === 0) {
-    throw new Error('Cannot build tree from empty leaves');
+    throw new Error("Cannot build tree from empty leaves");
   }
 
   // Build the first level
-  let currentLevel: MerkleNode[] = leaves.map(hash => ({ hash }));
+  let currentLevel: MerkleNode[] = leaves.map((hash) => ({ hash }));
   const tree: MerkleNode[][] = [currentLevel];
 
   // Build tree level by level
@@ -79,15 +84,14 @@ function buildMerkleTree(leaves: string[]): MerkleNode[] {
 
     for (let i = 0; i < currentLevel.length; i += 2) {
       const left = currentLevel[i];
-      const right = i + 1 < currentLevel.length
-        ? currentLevel[i + 1]
-        : currentLevel[i]; // Duplicate last node if odd number
+      const right =
+        i + 1 < currentLevel.length ? currentLevel[i + 1] : currentLevel[i]; // Duplicate last node if odd number
 
       const parentHash = hashPair(left.hash, right.hash);
       const parent: MerkleNode = {
         hash: parentHash,
         left,
-        right: right !== left ? right : undefined
+        right: right !== left ? right : undefined,
       };
 
       nextLevel.push(parent);
@@ -103,10 +107,7 @@ function buildMerkleTree(leaves: string[]): MerkleNode[] {
 /**
  * Generate Merkle proof for a specific leaf
  */
-function generateProof(
-  leaves: string[],
-  leafIndex: number
-): string[] {
+function generateProof(leaves: string[], leafIndex: number): string[] {
   const proof: string[] = [];
   let currentLevel = [...leaves];
   let currentIndex = leafIndex;
@@ -116,9 +117,8 @@ function generateProof(
 
     for (let i = 0; i < currentLevel.length; i += 2) {
       const left = currentLevel[i];
-      const right = i + 1 < currentLevel.length
-        ? currentLevel[i + 1]
-        : currentLevel[i];
+      const right =
+        i + 1 < currentLevel.length ? currentLevel[i + 1] : currentLevel[i];
 
       // If current index is at this pair, add sibling to proof
       if (i === currentIndex || i + 1 === currentIndex) {
@@ -149,17 +149,19 @@ function generateProof(
 export function generateMerkleTree(snapshotPath: string): MerkleProof {
   // Load snapshot
   const snapshotData: SnapshotData = JSON.parse(
-    readFileSync(snapshotPath, 'utf-8')
+    readFileSync(snapshotPath, "utf-8")
   );
 
-  console.log(`Generating Merkle tree for ${snapshotData.totalHolders} holders...`);
+  console.log(
+    `Generating Merkle tree for ${snapshotData.totalHolders} holders...`
+  );
 
   // Generate leaves
   const holders: SnapshotHolder[] = snapshotData.holders;
   const leaves: string[] = [];
   const leavesMap: Record<string, string> = {};
 
-  holders.forEach(holder => {
+  holders.forEach((holder) => {
     const leaf = generateLeaf(holder.address, holder.tokenIds);
     leaves.push(leaf);
     leavesMap[holder.address.toLowerCase()] = leaf;
@@ -171,23 +173,25 @@ export function generateMerkleTree(snapshotPath: string): MerkleProof {
   buildMerkleTree(leaves);
 
   // Get root (last node in tree)
-  const root = leaves.length === 1
-    ? leaves[0]
-    : (() => {
-        let currentLevel = [...leaves];
-        while (currentLevel.length > 1) {
-          const nextLevel: string[] = [];
-          for (let i = 0; i < currentLevel.length; i += 2) {
-            const left = currentLevel[i];
-            const right = i + 1 < currentLevel.length
-              ? currentLevel[i + 1]
-              : currentLevel[i];
-            nextLevel.push(hashPair(left, right));
+  const root =
+    leaves.length === 1
+      ? leaves[0]
+      : (() => {
+          let currentLevel = [...leaves];
+          while (currentLevel.length > 1) {
+            const nextLevel: string[] = [];
+            for (let i = 0; i < currentLevel.length; i += 2) {
+              const left = currentLevel[i];
+              const right =
+                i + 1 < currentLevel.length
+                  ? currentLevel[i + 1]
+                  : currentLevel[i];
+              nextLevel.push(hashPair(left, right));
+            }
+            currentLevel = nextLevel;
           }
-          currentLevel = nextLevel;
-        }
-        return currentLevel[0];
-      })();
+          return currentLevel[0];
+        })();
 
   console.log(`Merkle Root: ${root}`);
 
@@ -201,7 +205,7 @@ export function generateMerkleTree(snapshotPath: string): MerkleProof {
   return {
     root,
     proofs,
-    leaves: leavesMap
+    leaves: leavesMap,
   };
 }
 
@@ -226,10 +230,11 @@ export function verifyProof(
  * Main execution
  */
 async function main() {
-  const snapshotPath = process.argv[2] || './lib/snapshots/firstWorks_snapshot.json';
-  const outputPath = process.argv[3] || './lib/snapshots/firstWorks_merkle.json';
+  const snapshotPath = process.argv[2] || "./lib/snapshots/latest.json";
+  const outputPath =
+    process.argv[3] || "./lib/snapshots/firstWorks_merkle.json";
 
-  console.log('=== FirstWorks Merkle Tree Generator ===\n');
+  console.log("=== FirstWorks Merkle Tree Generator ===\n");
   console.log(`Reading snapshot from: ${snapshotPath}`);
 
   try {
@@ -240,7 +245,7 @@ async function main() {
     console.log(`\nMerkle tree saved to: ${outputPath}`);
 
     // Print stats
-    console.log('\n=== Statistics ===');
+    console.log("\n=== Statistics ===");
     console.log(`Total Leaves: ${Object.keys(merkleData.leaves).length}`);
     console.log(`Total Proofs: ${Object.keys(merkleData.proofs).length}`);
     console.log(`Merkle Root: ${merkleData.root}`);
@@ -251,29 +256,30 @@ async function main() {
     const randomLeaf = merkleData.leaves[randomHolder];
     const isValid = verifyProof(randomProof, merkleData.root, randomLeaf);
 
-    console.log('\n=== Verification Test ===');
+    console.log("\n=== Verification Test ===");
     console.log(`Testing holder: ${randomHolder}`);
-    console.log(`Proof valid: ${isValid ? '✓' : '✗'}`);
+    console.log(`Proof valid: ${isValid ? "✓" : "✗"}`);
 
     if (!isValid) {
-      console.error('ERROR: Proof verification failed!');
+      console.error("ERROR: Proof verification failed!");
       process.exit(1);
     }
 
-    console.log('\n✓ Merkle tree generation complete!');
-    console.log('\nNext steps:');
-    console.log('1. Deploy The Seeds contract on L2');
-    console.log('2. Update ownership root with:');
-    console.log(`   cast send $SEEDS_CONTRACT "updateOwnershipRoot(bytes32)" ${merkleData.root} --rpc-url $BASE_RPC_URL --private-key $OWNER_KEY`);
-    console.log('3. Set up API endpoint to serve proofs to users');
-
+    console.log("\n✓ Merkle tree generation complete!");
+    console.log("\nNext steps:");
+    console.log("1. Deploy The Seeds contract on L2");
+    console.log("2. Update ownership root with:");
+    console.log(
+      `   cast send $SEEDS_CONTRACT "updateOwnershipRoot(bytes32)" ${merkleData.root} --rpc-url $BASE_RPC_URL --private-key $OWNER_KEY`
+    );
+    console.log("3. Set up API endpoint to serve proofs to users");
   } catch (error) {
-    console.error('Error generating Merkle tree:', error);
+    console.error("Error generating Merkle tree:", error);
     process.exit(1);
   }
 }
 
 // Run if called directly
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   main();
 }

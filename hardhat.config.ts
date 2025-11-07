@@ -1,13 +1,15 @@
-import { HardhatUserConfig } from "hardhat/config";
-import "@nomicfoundation/hardhat-toolbox";
-import "hardhat-deploy";
-import * as dotenv from "dotenv";
+import type { HardhatUserConfig } from "hardhat/config";
+import "@nomicfoundation/hardhat-toolbox-viem";
+import { config as dotenvConfig } from "dotenv";
 
-dotenv.config();
+// Load .env.local file
+dotenvConfig({ path: ".env.local" });
+
+const privateKey = process.env.PRIVATE_KEY || "";
 
 const config: HardhatUserConfig = {
   solidity: {
-    version: "0.8.23",
+    version: "0.8.28",
     settings: {
       optimizer: {
         enabled: true,
@@ -17,73 +19,30 @@ const config: HardhatUserConfig = {
   },
   networks: {
     hardhat: {
+      type: "edr-simulated",
       chainId: 1337,
     },
-    // Ethereum Mainnet
-    mainnet: {
-      url: process.env.MAINNET_RPC_URL || "",
-      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
-      chainId: 1,
-    },
-    // Ethereum Sepolia Testnet
-    sepolia: {
-      url: process.env.SEPOLIA_RPC_URL || "",
-      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
-      chainId: 11155111,
-    },
-    // Base Mainnet
-    base: {
-      url: process.env.BASE_RPC_URL || "https://mainnet.base.org",
-      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
+    ...(process.env.SEPOLIA_RPC_URL && process.env.SEPOLIA_PRIVATE_KEY
+      ? {
+          sepolia: {
+            type: "http" as const,
+            url: process.env.SEPOLIA_RPC_URL,
+            accounts: [process.env.SEPOLIA_PRIVATE_KEY],
+          },
+        }
+      : {}),
+    baseMainnet: {
+      type: "http",
+      url: "https://mainnet.base.org",
+      accounts: privateKey ? [privateKey] : [],
       chainId: 8453,
     },
-    // Base Sepolia Testnet
     baseSepolia: {
-      url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
-      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
+      type: "http",
+      url: "https://sepolia.base.org",
+      accounts: privateKey ? [privateKey] : [],
       chainId: 84532,
     },
-  },
-  etherscan: {
-    apiKey: {
-      mainnet: process.env.ETHERSCAN_API_KEY || "",
-      sepolia: process.env.ETHERSCAN_API_KEY || "",
-      base: process.env.BASESCAN_API_KEY || "",
-      baseSepolia: process.env.BASESCAN_API_KEY || "",
-    },
-    customChains: [
-      {
-        network: "base",
-        chainId: 8453,
-        urls: {
-          apiURL: "https://api.basescan.org/api",
-          browserURL: "https://basescan.org",
-        },
-      },
-      {
-        network: "baseSepolia",
-        chainId: 84532,
-        urls: {
-          apiURL: "https://api-sepolia.basescan.org/api",
-          browserURL: "https://sepolia.basescan.org",
-        },
-      },
-    ],
-  },
-  namedAccounts: {
-    deployer: {
-      default: 0,
-    },
-    owner: {
-      default: 1,
-    },
-  },
-  paths: {
-    sources: "./contracts",
-    tests: "./test",
-    cache: "./cache",
-    artifacts: "./artifacts",
-    deploy: "./deploy",
   },
 };
 

@@ -12,27 +12,25 @@
     "typecheck": "tsc --noEmit",
     "compile": "hardhat compile",
     "test:contracts": "hardhat test",
-    "deploy:sepolia": "hardhat deploy --network sepolia",
-    "deploy:base-sepolia": "hardhat deploy --network baseSepolia",
-    "deploy:base": "hardhat deploy --network base",
+    "deployseeds:local": "hardhat run deploy/deploy_seeds.ts",
+    "deployseeds:sepolia": "hardhat run deploy/deploy_seeds.ts --network sepolia",
+    "deployseeds:base-sepolia": "hardhat run deploy/deploy_seeds.ts --network baseSepolia",
+    "deployseeds:base": "hardhat run deploy/deploy_seeds.ts --network baseMainnet",
     "update-root": "tsx scripts/updateMerkleRoot.ts",
     "verify": "hardhat verify"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.5",
+    "@nomicfoundation/hardhat-toolbox-viem": "^5.0.1",
     "@privy-io/server-auth": "^1.32.5",
     "dotenv": "^17.2.3",
     "hono": "^4.10.2",
     "viem": "^2.38.4"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-ethers": "^3.1.2",
-    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
     "@openzeppelin/contracts": "^5.4.0",
     "@types/node": "^20.11.17",
-    "ethers": "^6.15.0",
     "hardhat": "^3.0.10",
-    "hardhat-deploy": "^1.0.4",
     "tsx": "^4.7.1",
     "typescript": "^5.8.3"
   }
