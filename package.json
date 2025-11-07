@@ -6,9 +6,17 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "snapshot:generate": "tsx lib/snapshots/firstWorksSnapshot.ts",
+    "merkle:generate": "tsx lib/snapshots/merkleTreeGenerator.ts",
     "test:env": "tsx scripts/test-env.ts",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "compile": "hardhat compile",
+    "test:contracts": "hardhat test",
+    "deploy:sepolia": "hardhat deploy --network sepolia",
+    "deploy:base-sepolia": "hardhat deploy --network baseSepolia",
+    "deploy:base": "hardhat deploy --network base",
+    "update-root": "tsx scripts/updateMerkleRoot.ts",
+    "verify": "hardhat verify"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.5",
@@ -18,7 +26,13 @@
     "viem": "^2.38.4"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^3.1.2",
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@openzeppelin/contracts": "^5.4.0",
     "@types/node": "^20.11.17",
+    "ethers": "^6.15.0",
+    "hardhat": "^3.0.10",
+    "hardhat-deploy": "^1.0.4",
     "tsx": "^4.7.1",
     "typescript": "^5.8.3"
   }
