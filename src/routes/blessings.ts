@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { withAuth, getAuthUser } from "../middleware/auth.js";
 import { blessingService } from "../services/blessingService.js";
+import { contractService } from "../services/contractService.js";
+import type { Address } from "viem";
 
 const blessings = new Hono();
 
@@ -13,7 +15,13 @@ blessings.get("/eligibility", withAuth, async (c) => {
     const user = getAuthUser(c);
 
     if (!user || !user.walletAddress) {
-      return c.json({ error: "Wallet address not found" }, 400);
+      return c.json(
+        {
+          success: false,
+          error: "Wallet address not found",
+        },
+        400
+      );
     }
 
     const eligibility = await blessingService.canBless(user.walletAddress);
@@ -25,7 +33,11 @@ blessings.get("/eligibility", withAuth, async (c) => {
   } catch (error) {
     console.error("Error checking eligibility:", error);
     return c.json(
-      { error: "Failed to check eligibility", details: String(error) },
+      {
+        success: false,
+        error: "Failed to check eligibility",
+        details: error instanceof Error ? error.message : String(error),
+      },
       500
     );
   }
@@ -40,7 +52,13 @@ blessings.get("/stats", withAuth, async (c) => {
     const user = getAuthUser(c);
 
     if (!user || !user.walletAddress) {
-      return c.json({ error: "Wallet address not found" }, 400);
+      return c.json(
+        {
+          success: false,
+          error: "Wallet address not found",
+        },
+        400
+      );
     }
 
     const stats = await blessingService.getBlessingStats(user.walletAddress);
@@ -52,7 +70,11 @@ blessings.get("/stats", withAuth, async (c) => {
   } catch (error) {
     console.error("Error fetching blessing stats:", error);
     return c.json(
-      { error: "Failed to fetch blessing stats", details: String(error) },
+      {
+        success: false,
+        error: "Failed to fetch blessing stats",
+        details: error instanceof Error ? error.message : String(error),
+      },
       500
     );
   }
@@ -60,11 +82,31 @@ blessings.get("/stats", withAuth, async (c) => {
 
 /**
  * POST /blessings
- * Perform a blessing
+ * Perform a blessing (backend signs and submits to blockchain)
+ *
+ * This is the GASLESS option - backend submits the transaction on behalf of the user.
+ * Requires:
+ * - User must be authenticated
+ * - User must be eligible (owns FirstWorks NFTs)
+ * - User must not have already blessed this seed
+ * - Backend must have RELAYER_ROLE or user must have approved backend as delegate
  *
  * Request body:
  * {
- *   "targetId": "string" // ID of the content/item being blessed
+ *   "seedId": number // ID of the seed to bless
+ * }
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "seedId": number,
+ *     "txHash": "0x...",
+ *     "blessingCount": number, // Total blessings for this seed
+ *     "remainingBlessings": number,
+ *     "blockExplorer": string,
+ *     "message": string
+ *   }
  * }
  */
 blessings.post("/", withAuth, async (c) => {
@@ -72,21 +114,255 @@ blessings.post("/", withAuth, async (c) => {
     const user = getAuthUser(c);
 
     if (!user || !user.walletAddress) {
-      return c.json({ error: "Wallet address not found" }, 400);
+      return c.json(
+        {
+          success: false,
+          error: "Wallet address not found",
+        },
+        400
+      );
+    }
+
+    // Parse and validate request body
+    const body = await c.req.json();
+    const { seedId } = body;
+
+    if (seedId === undefined || seedId === null) {
+      return c.json(
+        {
+          success: false,
+          error: "seedId is required",
+        },
+        400
+      );
+    }
+
+    const seedIdNum = Number(seedId);
+    if (isNaN(seedIdNum) || seedIdNum < 0) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid seedId - must be a non-negative number",
+        },
+        400
+      );
+    }
+
+    // Let blessingService handle all the blessing logic
+    const result = await blessingService.performBlessingOnchain(
+      user.walletAddress,
+      seedIdNum
+    );
+
+    if (!result.success) {
+      // Determine appropriate status code based on error
+      let statusCode: 400 | 403 | 404 | 500 | 503 = 500;
+      if (result.error?.includes("not eligible")) statusCode = 403;
+      else if (result.error?.includes("not found")) statusCode = 404;
+      else if (result.error?.includes("already blessed")) statusCode = 400;
+      else if (result.error?.includes("not configured")) statusCode = 503;
+      else if (result.error?.includes("not authorized")) statusCode = 403;
+
+      return c.json(
+        {
+          success: false,
+          error: result.error,
+          remainingBlessings: result.remainingBlessings,
+        },
+        statusCode
+      );
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        seedId: seedIdNum,
+        txHash: result.txHash,
+        blessingCount: result.blessingCount,
+        remainingBlessings: result.remainingBlessings,
+        blockExplorer: result.blockExplorer,
+        message: "Blessing submitted successfully",
+      },
+    });
+  } catch (error) {
+    console.error("Error performing blessing:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to perform blessing",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * POST /blessings/prepare
+ * Prepare a blessing transaction for CLIENT-SIDE signing
+ *
+ * This returns transaction data that the user can sign with their wallet.
+ * Use this when you want users to pay gas themselves.
+ *
+ * Request body:
+ * {
+ *   "seedId": number // ID of the seed to bless
+ * }
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "transaction": {
+ *       "to": "0x...",      // Contract address
+ *       "data": "0x...",    // Encoded function call
+ *       "from": "0x...",    // User's address
+ *       "chainId": number
+ *     },
+ *     "seedInfo": {...},     // Information about the seed
+ *     "userInfo": {...},     // User's blessing stats
+ *     "instructions": {...}  // Step-by-step instructions
+ *   }
+ * }
+ */
+blessings.post("/prepare", withAuth, async (c) => {
+  try {
+    const user = getAuthUser(c);
+
+    if (!user || !user.walletAddress) {
+      return c.json(
+        {
+          success: false,
+          error: "Wallet address not found",
+        },
+        400
+      );
+    }
+
+    // Parse and validate request body
+    const body = await c.req.json();
+    const { seedId } = body;
+
+    if (seedId === undefined || seedId === null) {
+      return c.json(
+        {
+          success: false,
+          error: "seedId is required",
+        },
+        400
+      );
+    }
+
+    const seedIdNum = Number(seedId);
+    if (isNaN(seedIdNum) || seedIdNum < 0) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid seedId - must be a non-negative number",
+        },
+        400
+      );
+    }
+
+    // Let blessingService handle all the preparation logic
+    const result = await blessingService.prepareBlessingTransaction(
+      user.walletAddress,
+      seedIdNum
+    );
+
+    if (!result.success) {
+      // Determine appropriate status code based on error
+      let statusCode: 400 | 403 | 404 | 500 = 500;
+      if (result.error?.includes("not eligible")) statusCode = 403;
+      else if (result.error?.includes("not found")) statusCode = 404;
+      else if (result.error?.includes("already blessed")) statusCode = 400;
+      else if (result.error?.includes("Cannot bless")) statusCode = 400;
+
+      return c.json(
+        {
+          success: false,
+          error: result.error,
+        },
+        statusCode
+      );
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        transaction: result.transaction,
+        seedInfo: result.seedInfo,
+        userInfo: result.userInfo,
+        instructions: {
+          step1: "Send this transaction using your wallet",
+          step2: "Wait for transaction confirmation",
+          step3: "Your blessing will be recorded on-chain",
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error preparing blessing:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to prepare blessing transaction",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * POST /blessings/prepare-delegate
+ * Prepare a delegate approval transaction for CLIENT-SIDE signing
+ *
+ * Users must call this to approve the backend as their delegate,
+ * enabling gasless blessings via POST /blessings
+ *
+ * Request body (optional):
+ * {
+ *   "approved": boolean // true to approve, false to revoke (default: true)
+ * }
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "transaction": {
+ *       "to": "0x...",
+ *       "data": "0x...",
+ *       "from": "0x...",
+ *       "chainId": number
+ *     },
+ *     "delegateAddress": "0x...",
+ *     "currentStatus": string,
+ *     "message": string
+ *   }
+ * }
+ */
+blessings.post("/prepare-delegate", withAuth, async (c) => {
+  try {
+    const user = getAuthUser(c);
+
+    if (!user || !user.walletAddress) {
+      return c.json(
+        {
+          success: false,
+          error: "Wallet address not found",
+        },
+        400
+      );
     }
 
     // Parse request body
-    const body = await c.req.json();
-    const { targetId } = body;
+    const body = await c.req.json().catch(() => ({}));
+    const approved = body.approved !== false; // Default to true
 
-    if (!targetId) {
-      return c.json({ error: "targetId is required" }, 400);
-    }
-
-    // Perform the blessing
-    const result = await blessingService.performBlessing(
+    // Let blessingService handle the delegate approval preparation
+    const result = await blessingService.prepareDelegateApprovalTransaction(
       user.walletAddress,
-      targetId
+      approved
     );
 
     if (!result.success) {
@@ -94,139 +370,183 @@ blessings.post("/", withAuth, async (c) => {
         {
           success: false,
           error: result.error,
-          remainingBlessings: result.remainingBlessings,
         },
-        403
+        500
       );
     }
 
     return c.json({
       success: true,
       data: {
-        targetId,
-        remainingBlessings: result.remainingBlessings,
-        message: "Blessing performed successfully",
-        blessing: result.blessing,
+        transaction: result.transaction,
+        delegateAddress: result.delegateAddress,
+        currentStatus: result.currentStatus,
+        message: approved
+          ? "Sign this transaction to approve gasless blessings"
+          : "Sign this transaction to revoke gasless blessings",
       },
     });
   } catch (error) {
-    console.error("Error performing blessing:", error);
+    console.error("Error preparing delegate approval:", error);
     return c.json(
-      { error: "Failed to perform blessing", details: String(error) },
+      {
+        success: false,
+        error: "Failed to prepare delegate approval transaction",
+        details: error instanceof Error ? error.message : String(error),
+      },
       500
     );
   }
 });
 
 /**
- * GET /blessings/all
- * Get all blessing records with optional filters and pagination
- *
- * Query parameters:
- * - walletAddress: Filter by wallet address
- * - targetId: Filter by target ID
- * - limit: Number of results per page (default: 50)
- * - offset: Pagination offset (default: 0)
- * - sortOrder: "asc" or "desc" (default: "desc" - most recent first)
+ * GET /blessings/seed/:seedId
+ * Get all blessings for a specific seed (from blockchain)
  */
+blessings.get("/seed/:seedId", async (c) => {
+  try {
+    const seedId = parseInt(c.req.param("seedId"));
+
+    if (isNaN(seedId) || seedId < 0) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid seedId",
+        },
+        400
+      );
+    }
+
+    // Get seed info
+    const seed = await contractService.getSeed(seedId);
+
+    // Get all blessings
+    const blessings = await contractService.getSeedBlessings(seedId);
+
+    return c.json({
+      success: true,
+      data: {
+        seedId,
+        seed: {
+          title: seed.title,
+          creator: seed.creator,
+          blessings: Number(seed.blessings),
+          votes: Number(seed.votes),
+        },
+        blessings: blessings.map((b) => ({
+          blesser: b.blesser,
+          actor: b.actor,
+          timestamp: Number(b.timestamp),
+          isDelegated: b.isDelegated,
+        })),
+        count: blessings.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching seed blessings:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch seed blessings",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /blessings/user/:address
+ * Get all blessings by a specific user (from blockchain)
+ */
+blessings.get("/user/:address", async (c) => {
+  try {
+    const address = c.req.param("address") as Address;
+
+    if (!address || !address.startsWith("0x")) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid address",
+        },
+        400
+      );
+    }
+
+    const blessings = await contractService.getUserBlessings(address);
+
+    return c.json({
+      success: true,
+      data: {
+        address,
+        blessings: blessings.map((b) => ({
+          seedId: Number(b.seedId),
+          actor: b.actor,
+          timestamp: Number(b.timestamp),
+          isDelegated: b.isDelegated,
+        })),
+        count: blessings.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching user blessings:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch user blessings",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /blessings/total
+ * Get total number of blessings across all seeds
+ */
+blessings.get("/total", async (c) => {
+  try {
+    const total = await contractService.getTotalBlessings();
+
+    return c.json({
+      success: true,
+      data: {
+        totalBlessings: Number(total),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching total blessings:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch total blessings",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+// Legacy endpoints for backward compatibility
 blessings.get("/all", async (c) => {
-  try {
-    const walletAddress = c.req.query("walletAddress");
-    const targetId = c.req.query("targetId");
-    const limit = parseInt(c.req.query("limit") || "50");
-    const offset = parseInt(c.req.query("offset") || "0");
-    const sortOrder = c.req.query("sortOrder") as "asc" | "desc" | undefined;
-
-    const result = blessingService.getAllBlessings({
-      walletAddress,
-      targetId,
-      limit,
-      offset,
-      sortOrder,
-    });
-
-    return c.json({
-      success: true,
-      data: result,
-    });
-  } catch (error) {
-    console.error("Error fetching blessings:", error);
-    return c.json(
-      { error: "Failed to fetch blessings", details: String(error) },
-      500
-    );
-  }
+  return c.json({
+    success: false,
+    error: "This endpoint is deprecated",
+    message: "Use /blessings/seed/:seedId or /blessings/user/:address instead",
+  });
 });
 
-/**
- * GET /blessings/target/:targetId
- * Get all blessings for a specific target/creation
- */
 blessings.get("/target/:targetId", async (c) => {
-  try {
-    const targetId = c.req.param("targetId");
-
-    if (!targetId) {
-      return c.json({ error: "targetId is required" }, 400);
-    }
-
-    const blessingsForTarget =
-      blessingService.getBlessingsForTarget(targetId);
-    const blessingCount = blessingService.getBlessingCountForTarget(targetId);
-
-    return c.json({
-      success: true,
-      data: {
-        targetId,
-        blessings: blessingsForTarget,
-        count: blessingCount,
-      },
-    });
-  } catch (error) {
-    console.error("Error fetching target blessings:", error);
-    return c.json(
-      { error: "Failed to fetch target blessings", details: String(error) },
-      500
-    );
-  }
+  const targetId = c.req.param("targetId");
+  return c.redirect(`/blessings/seed/${targetId}`);
 });
 
-/**
- * GET /blessings/wallet/:walletAddress
- * Get all blessings performed by a specific wallet
- */
 blessings.get("/wallet/:walletAddress", async (c) => {
-  try {
-    const walletAddress = c.req.param("walletAddress");
-
-    if (!walletAddress) {
-      return c.json({ error: "walletAddress is required" }, 400);
-    }
-
-    const blessingsByWallet =
-      blessingService.getBlessingsByWallet(walletAddress);
-
-    return c.json({
-      success: true,
-      data: {
-        walletAddress,
-        blessings: blessingsByWallet,
-        count: blessingsByWallet.length,
-      },
-    });
-  } catch (error) {
-    console.error("Error fetching wallet blessings:", error);
-    return c.json(
-      { error: "Failed to fetch wallet blessings", details: String(error) },
-      500
-    );
-  }
+  const address = c.req.param("walletAddress");
+  return c.redirect(`/blessings/user/${address}`);
 });
 
-/**
- * GET /blessings/firstworks/snapshot
- * Get the current FirstWorks NFT snapshot data
- */
 blessings.get("/firstworks/snapshot", async (c) => {
   try {
     const snapshot = await blessingService.getSnapshot();
@@ -234,6 +554,7 @@ blessings.get("/firstworks/snapshot", async (c) => {
     if (!snapshot) {
       return c.json(
         {
+          success: false,
           error: "No snapshot available",
           message: "Run 'npm run snapshot:generate' to create a snapshot",
         },
@@ -248,17 +569,16 @@ blessings.get("/firstworks/snapshot", async (c) => {
   } catch (error) {
     console.error("Error fetching snapshot:", error);
     return c.json(
-      { error: "Failed to fetch snapshot", details: String(error) },
+      {
+        success: false,
+        error: "Failed to fetch snapshot",
+        details: error instanceof Error ? error.message : String(error),
+      },
       500
     );
   }
 });
 
-/**
- * POST /blessings/firstworks/reload-snapshot
- * Admin endpoint to force reload the FirstWorks NFT snapshot
- * (In production, you might want to add admin authentication)
- */
 blessings.post("/firstworks/reload-snapshot", async (c) => {
   try {
     await blessingService.reloadSnapshot();
@@ -270,7 +590,11 @@ blessings.post("/firstworks/reload-snapshot", async (c) => {
   } catch (error) {
     console.error("Error reloading snapshot:", error);
     return c.json(
-      { error: "Failed to reload snapshot", details: String(error) },
+      {
+        success: false,
+        error: "Failed to reload snapshot",
+        details: error instanceof Error ? error.message : String(error),
+      },
       500
     );
   }

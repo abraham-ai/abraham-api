@@ -1,14 +1,17 @@
 /**
- * Blessing Tracking Service
+ * Blessing Service
  *
- * Purpose: Track blessings per user with 24-hour reset logic
+ * Purpose: Orchestrate blessing operations including eligibility checks,
+ * blockchain interactions, and rate limiting
  *
  * Logic:
  * - If you own N NFTs, you can perform B×N blessings per 24-hour period
  * - Each 24-hour period starts from midnight UTC
  * - Blessing count resets every 24 hours
+ * - Blessings are written to and read from blockchain (TheSeeds contract)
+ * - Local tracking ONLY for rate limiting (not blessing records)
  *
- * This implementation uses in-memory storage.
+ * This implementation uses in-memory storage for rate limiting only.
  * For production, consider using Redis or a database.
  */
 
@@ -17,12 +20,14 @@ import {
   getNFTsForAddress,
   FirstWorksSnapshot,
 } from "../../lib/snapshots/firstWorksSnapshot.js";
+import { contractService } from "./contractService.js";
+import type { Address, Hash } from "viem";
 
 // Configuration: How many blessings per NFT owned
 const BLESSINGS_PER_NFT = 1;
 
 /**
- * User blessing data structure
+ * User blessing data structure (for rate limiting only)
  */
 interface UserBlessingData {
   walletAddress: string;
@@ -34,25 +39,11 @@ interface UserBlessingData {
 }
 
 /**
- * Individual blessing record
- */
-export interface BlessingRecord {
-  id: string; // Unique blessing ID
-  walletAddress: string; // Address that performed the blessing
-  targetId: string; // ID of the creation/content that was blessed
-  timestamp: string; // ISO timestamp of when the blessing occurred
-  nftCount: number; // Number of NFTs owned at time of blessing
-}
-
-/**
  * Blessing tracking service
  */
 class BlessingService {
-  // In-memory storage: walletAddress -> UserBlessingData
+  // In-memory storage for rate limiting: walletAddress -> UserBlessingData
   private blessingData: Map<string, UserBlessingData> = new Map();
-
-  // Store all blessing records
-  private blessingRecords: BlessingRecord[] = [];
 
   private snapshot: FirstWorksSnapshot | null = null;
   private lastSnapshotLoad: number = 0;
@@ -61,13 +52,6 @@ class BlessingService {
   constructor() {
     // Initialize snapshot on construction
     this.loadSnapshot();
-  }
-
-  /**
-   * Generate a unique blessing ID
-   */
-  private generateBlessingId(): string {
-    return `blessing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
   /**
@@ -212,18 +196,21 @@ class BlessingService {
   }
 
   /**
-   * Perform a blessing (decrements remaining blessings and stores the record)
+   * Perform a blessing onchain (backend-signed, gasless for user)
+   * This is the main method that orchestrates the entire blessing flow
    */
-  async performBlessing(
+  async performBlessingOnchain(
     walletAddress: string,
-    targetId: string
+    seedId: number
   ): Promise<{
     success: boolean;
-    remainingBlessings: number;
-    blessing?: BlessingRecord;
+    txHash?: Hash;
+    blessingCount?: number;
+    remainingBlessings?: number;
     error?: string;
+    blockExplorer?: string;
   }> {
-    // Check eligibility first
+    // 1. Check eligibility (NFT ownership + rate limits)
     const eligibility = await this.canBless(walletAddress);
 
     if (!eligibility.eligible) {
@@ -234,31 +221,249 @@ class BlessingService {
       };
     }
 
-    // Perform the blessing
+    // 2. Check if backend can submit blessings
+    if (!contractService.canSubmitBlessings()) {
+      return {
+        success: false,
+        error: "Backend blessing service not configured (RELAYER_PRIVATE_KEY not set)",
+      };
+    }
+
+    // 3. Check if seed exists and is not minted
+    try {
+      const seed = await contractService.getSeed(seedId);
+      if (seed.minted) {
+        return {
+          success: false,
+          error: "Cannot bless a minted seed",
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: "Seed not found",
+      };
+    }
+
+    // 4. Check if user already blessed this seed (on blockchain)
+    const hasBlessed = await contractService.hasBlessed(
+      walletAddress as Address,
+      seedId
+    );
+
+    if (hasBlessed) {
+      return {
+        success: false,
+        error: "You have already blessed this seed",
+      };
+    }
+
+    // 5. Submit blessing to blockchain
+    const result = await contractService.blessSeedFor(
+      seedId,
+      walletAddress as Address
+    );
+
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error || "Failed to submit blessing to blockchain",
+      };
+    }
+
+    // 6. Update local tracking (for rate limiting only)
     const data = await this.getUserData(walletAddress);
     data.usedBlessings += 1;
 
     const remainingBlessings = data.maxBlessings - data.usedBlessings;
 
-    // Create and store the blessing record
-    const blessingRecord: BlessingRecord = {
-      id: this.generateBlessingId(),
-      walletAddress: walletAddress.toLowerCase(),
-      targetId,
-      timestamp: new Date().toISOString(),
-      nftCount: data.nftCount,
-    };
+    // 7. Get updated seed info from blockchain
+    const updatedSeed = await contractService.getSeed(seedId);
 
-    this.blessingRecords.push(blessingRecord);
+    const blockExplorer =
+      process.env.NETWORK === "base"
+        ? `https://basescan.org/tx/${result.txHash}`
+        : `https://sepolia.basescan.org/tx/${result.txHash}`;
 
     console.log(
-      `✅ Blessing performed: ${walletAddress} -> ${targetId} (${remainingBlessings} remaining)`
+      `✅ Blessing performed onchain: ${walletAddress} -> seed ${seedId} (${remainingBlessings} remaining)`
+    );
+    console.log(`   Tx: ${result.txHash}`);
+
+    return {
+      success: true,
+      txHash: result.txHash,
+      blessingCount: Number(updatedSeed.blessings),
+      remainingBlessings,
+      blockExplorer,
+    };
+  }
+
+  /**
+   * Prepare a blessing transaction for client-side signing
+   * Returns transaction data for user to sign with their wallet
+   */
+  async prepareBlessingTransaction(
+    walletAddress: string,
+    seedId: number
+  ): Promise<{
+    success: boolean;
+    transaction?: {
+      to: Address;
+      data: `0x${string}`;
+      from: Address;
+      chainId?: number;
+    };
+    seedInfo?: {
+      id: number;
+      title: string;
+      creator: Address;
+      currentBlessings: number;
+    };
+    userInfo?: {
+      address: string;
+      nftCount: number;
+      remainingBlessings: number;
+    };
+    error?: string;
+  }> {
+    // 1. Check eligibility
+    const eligibility = await this.canBless(walletAddress);
+
+    if (!eligibility.eligible) {
+      return {
+        success: false,
+        error: eligibility.reason,
+      };
+    }
+
+    // 2. Check if seed exists and is not minted
+    let seed;
+    try {
+      seed = await contractService.getSeed(seedId);
+      if (seed.minted) {
+        return {
+          success: false,
+          error: "Cannot bless a minted seed",
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: "Seed not found",
+      };
+    }
+
+    // 3. Check if user already blessed
+    const hasBlessed = await contractService.hasBlessed(
+      walletAddress as Address,
+      seedId
+    );
+
+    if (hasBlessed) {
+      return {
+        success: false,
+        error: "You have already blessed this seed",
+      };
+    }
+
+    // 4. Prepare transaction data
+    const transaction = contractService.prepareBlessingTransaction(
+      seedId,
+      walletAddress as Address
+    );
+
+    return {
+      success: true,
+      transaction,
+      seedInfo: {
+        id: Number(seed.id),
+        title: seed.title,
+        creator: seed.creator,
+        currentBlessings: Number(seed.blessings),
+      },
+      userInfo: {
+        address: walletAddress,
+        nftCount: eligibility.nftCount,
+        remainingBlessings: eligibility.remainingBlessings,
+      },
+    };
+  }
+
+  /**
+   * Prepare delegate approval transaction for client-side signing
+   * Users must approve backend to enable gasless blessings
+   */
+  async prepareDelegateApprovalTransaction(
+    walletAddress: string,
+    approved: boolean = true
+  ): Promise<{
+    success: boolean;
+    transaction?: {
+      to: Address;
+      data: `0x${string}`;
+      from: Address;
+      chainId?: number;
+    };
+    delegateAddress?: Address;
+    currentStatus?: string;
+    error?: string;
+  }> {
+    const relayerAddress = contractService.getRelayerAddress();
+    if (!relayerAddress) {
+      return {
+        success: false,
+        error: "Backend relayer not configured",
+      };
+    }
+
+    // Check current delegation status
+    const isCurrentlyDelegate = await contractService.isDelegate(
+      walletAddress as Address,
+      relayerAddress
+    );
+
+    // Prepare transaction
+    const transaction = contractService.prepareDelegateApprovalTransaction(
+      walletAddress as Address,
+      relayerAddress,
+      approved
+    );
+
+    return {
+      success: true,
+      transaction,
+      delegateAddress: relayerAddress,
+      currentStatus: isCurrentlyDelegate ? "Already approved" : "Not yet approved",
+    };
+  }
+
+  /**
+   * Legacy method: Update rate limiting after a blessing
+   * Used for backwards compatibility - just updates local rate limit tracking
+   * @deprecated This is automatically handled by performBlessingOnchain
+   */
+  async performBlessing(
+    walletAddress: string,
+    targetId: string
+  ): Promise<{
+    success: boolean;
+    remainingBlessings: number;
+    error?: string;
+  }> {
+    // Just update rate limiting
+    const data = await this.getUserData(walletAddress);
+    data.usedBlessings += 1;
+
+    const remainingBlessings = data.maxBlessings - data.usedBlessings;
+
+    console.log(
+      `✅ Rate limit updated: ${walletAddress} -> ${targetId} (${remainingBlessings} remaining)`
     );
 
     return {
       success: true,
       remainingBlessings,
-      blessing: blessingRecord,
     };
   }
 
@@ -286,90 +491,36 @@ class BlessingService {
   }
 
   /**
-   * Get all blessing records with optional filters
+   * Get all blessings for a specific seed from blockchain
+   * @deprecated Use contractService.getSeedBlessings() directly
    */
-  getAllBlessings(options?: {
-    walletAddress?: string;
-    targetId?: string;
-    limit?: number;
-    offset?: number;
-    sortOrder?: "asc" | "desc";
-  }): {
-    blessings: BlessingRecord[];
-    total: number;
-    limit: number;
-    offset: number;
-  } {
-    let filteredBlessings = [...this.blessingRecords];
-
-    // Filter by wallet address
-    if (options?.walletAddress) {
-      const addressLower = options.walletAddress.toLowerCase();
-      filteredBlessings = filteredBlessings.filter(
-        (b) => b.walletAddress === addressLower
-      );
-    }
-
-    // Filter by targetId
-    if (options?.targetId) {
-      filteredBlessings = filteredBlessings.filter(
-        (b) => b.targetId === options.targetId
-      );
-    }
-
-    // Sort by timestamp (default: most recent first)
-    const sortOrder = options?.sortOrder || "desc";
-    filteredBlessings.sort((a, b) => {
-      const timeA = new Date(a.timestamp).getTime();
-      const timeB = new Date(b.timestamp).getTime();
-      return sortOrder === "desc" ? timeB - timeA : timeA - timeB;
-    });
-
-    const total = filteredBlessings.length;
-    const offset = options?.offset || 0;
-    const limit = options?.limit || total;
-
-    // Apply pagination
-    const paginatedBlessings = filteredBlessings.slice(offset, offset + limit);
-
-    return {
-      blessings: paginatedBlessings,
-      total,
-      limit,
-      offset,
-    };
+  async getBlessingsForSeed(seedId: number) {
+    return await contractService.getSeedBlessings(seedId);
   }
 
   /**
-   * Get blessings for a specific target
+   * Get all blessings by a specific user from blockchain
+   * @deprecated Use contractService.getUserBlessings() directly
    */
-  getBlessingsForTarget(targetId: string): BlessingRecord[] {
-    return this.blessingRecords
-      .filter((b) => b.targetId === targetId)
-      .sort(
-        (a, b) =>
-          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      );
+  async getBlessingsByUser(userAddress: string) {
+    return await contractService.getUserBlessings(userAddress as Address);
   }
 
   /**
-   * Get blessings by a specific wallet
+   * Get total blessing count from blockchain
+   * @deprecated Use contractService.getTotalBlessings() directly
    */
-  getBlessingsByWallet(walletAddress: string): BlessingRecord[] {
-    const addressLower = walletAddress.toLowerCase();
-    return this.blessingRecords
-      .filter((b) => b.walletAddress === addressLower)
-      .sort(
-        (a, b) =>
-          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      );
+  async getTotalBlessingsCount(): Promise<number> {
+    const total = await contractService.getTotalBlessings();
+    return Number(total);
   }
 
   /**
-   * Get blessing count for a target
+   * Check if a user has blessed a specific seed (from blockchain)
+   * @deprecated Use contractService.hasBlessed() directly
    */
-  getBlessingCountForTarget(targetId: string): number {
-    return this.blessingRecords.filter((b) => b.targetId === targetId).length;
+  async hasUserBlessedSeed(userAddress: string, seedId: number): Promise<boolean> {
+    return await contractService.hasBlessed(userAddress as Address, seedId);
   }
 
   /**
