@@ -170,6 +170,44 @@ export const theSeeds = [
       {
         indexed: true,
         internalType: "address",
+        name: "creator",
+        type: "address",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "addedBy",
+        type: "address",
+      },
+    ],
+    name: "CreatorAdded",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "address",
+        name: "creator",
+        type: "address",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "removedBy",
+        type: "address",
+      },
+    ],
+    name: "CreatorRemoved",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "address",
         name: "user",
         type: "address",
       },
@@ -528,6 +566,19 @@ export const theSeeds = [
   },
   {
     inputs: [],
+    name: "CREATOR_ROLE",
+    outputs: [
+      {
+        internalType: "bytes32",
+        name: "",
+        type: "bytes32",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
     name: "DEFAULT_ADMIN_ROLE",
     outputs: [
       {
@@ -563,6 +614,19 @@ export const theSeeds = [
       },
     ],
     stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "_creator",
+        type: "address",
+      },
+    ],
+    name: "addCreator",
+    outputs: [],
+    stateMutability: "nonpayable",
     type: "function",
   },
   {
@@ -1241,6 +1305,19 @@ export const theSeeds = [
       },
     ],
     stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "_creator",
+        type: "address",
+      },
+    ],
+    name: "removeCreator",
+    outputs: [],
+    stateMutability: "nonpayable",
     type: "function",
   },
   {
