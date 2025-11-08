@@ -185,9 +185,667 @@ const hash = await walletClient.sendTransaction({
 });
 ```
 
+---
+
+## How to Create Seeds Onchain
+
+This guide covers all the ways you can create seeds onchain, from backend-signed transactions to direct contract interactions.
+
+### Understanding Seed Creation
+
+Seeds are artwork proposals stored onchain in TheSeeds contract. Only wallets with **CREATOR_ROLE** can create seeds. There are multiple ways to create seeds depending on your use case:
+
+| Method | Who Pays Gas | Best For | Requires Admin Key |
+|--------|--------------|----------|-------------------|
+| Backend-Signed (API) | Backend | Curated submissions, gasless UX | Yes |
+| Client-Signed (API + Wallet) | User | Self-service creators | No |
+| Hardhat Console | You | Development, testing, admin tasks | No |
+| Cast (Foundry) | You | CLI workflows, scripts | No |
+| Basescan UI | You | One-off manual creation | No |
+
+### Method 1: Backend-Signed (Gasless via API)
+
+**Use Case**: Backend creates seeds on behalf of creators, paying gas fees. Good for curated submissions or when you want to provide a gasless experience.
+
+**Prerequisites**:
+- Backend wallet has CREATOR_ROLE
+- `RELAYER_PRIVATE_KEY` set in `.env.local`
+- `ADMIN_KEY` set in `.env.local`
+- Privy authentication setup
+
+**Step-by-Step**:
+
+1. **Get authenticated with Privy**:
+```typescript
+import { usePrivy } from '@privy-io/react-auth';
+
+const { getAccessToken } = usePrivy();
+const token = await getAccessToken();
+```
+
+2. **Call the API endpoint with admin key**:
+```typescript
+const response = await fetch('http://localhost:3000/api/seeds', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
+    'X-Admin-Key': 'your-secret-admin-key'  // From .env.local
+  },
+  body: JSON.stringify({
+    ipfsHash: 'QmX123...',
+    title: 'My Artwork Title',
+    description: 'Description of the artwork'
+  })
+});
+
+const result = await response.json();
+console.log('Seed created:', result.data.seedId);
+console.log('Transaction:', result.data.txHash);
+```
+
+3. **Handle the response**:
+```typescript
+if (result.success) {
+  // Seed created successfully
+  const seedId = result.data.seedId;
+  const txHash = result.data.txHash;
+  const blockExplorer = result.data.blockExplorer;
+
+  // Show success message to user
+  alert(`Seed #${seedId} created! View on Basescan: ${blockExplorer}`);
+} else {
+  // Handle errors
+  console.error('Error:', result.error);
+}
+```
+
+**Common Errors**:
+- `401 Unauthorized - Invalid admin key` → Check `X-Admin-Key` matches `ADMIN_KEY` in `.env.local`
+- `403 Relayer does not have CREATOR_ROLE` → Grant CREATOR_ROLE to backend wallet
+- `503 Backend blessing service not configured` → Add `RELAYER_PRIVATE_KEY` to `.env.local`
+
+---
+
+### Method 2: Client-Signed (User's Wallet via API)
+
+**Use Case**: Creators sign transactions with their own wallets and pay their own gas. Good for self-service creator platforms.
+
+**Prerequisites**:
+- Creator wallet has CREATOR_ROLE (granted by admin)
+- User has a connected wallet (via wagmi, viem, or Privy embedded wallet)
+- Privy authentication setup
+
+**Step-by-Step**:
+
+1. **Prepare the transaction via API**:
+```typescript
+import { usePrivy } from '@privy-io/react-auth';
+import { useWalletClient } from 'wagmi';
+
+async function createSeed(ipfsHash: string, title: string, description: string) {
+  // 1. Get Privy token
+  const { getAccessToken } = usePrivy();
+  const token = await getAccessToken();
+
+  // 2. Request transaction data from API
+  const response = await fetch('http://localhost:3000/api/seeds/prepare', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ ipfsHash, title, description })
+  });
+
+  const { data } = await response.json();
+
+  // 3. Check if user has CREATOR_ROLE
+  if (!data.hasCreatorRole) {
+    alert('You need CREATOR_ROLE to create seeds. Contact an admin.');
+    return;
+  }
+
+  // 4. Sign and send transaction with user's wallet
+  const { data: walletClient } = useWalletClient();
+  const hash = await walletClient.sendTransaction({
+    to: data.transaction.to,
+    data: data.transaction.data,
+  });
+
+  console.log('Seed creation transaction sent:', hash);
+
+  // 5. Wait for confirmation (optional)
+  import { waitForTransactionReceipt } from 'viem';
+  const receipt = await waitForTransactionReceipt(walletClient, { hash });
+  console.log('Seed created in block:', receipt.blockNumber);
+}
+```
+
+2. **Complete React Component Example**:
+```typescript
+import { useState } from 'react';
+import { usePrivy } from '@privy-io/react-auth';
+import { useWalletClient } from 'wagmi';
+
+function CreateSeedForm() {
+  const { getAccessToken, authenticated } = usePrivy();
+  const { data: walletClient } = useWalletClient();
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const formData = new FormData(e.currentTarget);
+      const ipfsHash = formData.get('ipfsHash') as string;
+      const title = formData.get('title') as string;
+      const description = formData.get('description') as string;
+
+      // Get transaction data
+      const token = await getAccessToken();
+      const response = await fetch('/api/seeds/prepare', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ ipfsHash, title, description })
+      });
+
+      const { data } = await response.json();
+
+      if (!data.hasCreatorRole) {
+        alert('You need CREATOR_ROLE to create seeds');
+        return;
+      }
+
+      // Sign with user's wallet
+      const hash = await walletClient.sendTransaction({
+        to: data.transaction.to,
+        data: data.transaction.data,
+      });
+
+      alert(`Seed created! Transaction: ${hash}`);
+    } catch (error) {
+      console.error('Error creating seed:', error);
+      alert('Failed to create seed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!authenticated) {
+    return <div>Please log in to create seeds</div>;
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        name="ipfsHash"
+        placeholder="IPFS Hash (QmX...)"
+        required
+      />
+      <input
+        name="title"
+        placeholder="Seed Title"
+        required
+      />
+      <textarea
+        name="description"
+        placeholder="Description (optional)"
+      />
+      <button type="submit" disabled={loading}>
+        {loading ? 'Creating...' : 'Create Seed'}
+      </button>
+    </form>
+  );
+}
+```
+
+**Common Errors**:
+- `hasCreatorRole: false` → User needs CREATOR_ROLE granted by admin
+- Wallet rejects transaction → User needs gas (ETH) on Base network
+- `AccessControl: account is missing role` → Wallet address doesn't have CREATOR_ROLE
+
+---
+
+### Method 3: Direct Contract Interaction (Hardhat Console)
+
+**Use Case**: Development, testing, or admin tasks. Good for granting roles and creating test seeds.
+
+**Prerequisites**:
+- Hardhat installed (`npm install --save-dev hardhat`)
+- Wallet with CREATOR_ROLE
+- `PRIVATE_KEY` in `.env.local`
+
+**Step-by-Step**:
+
+1. **Open Hardhat console**:
+```bash
+npx hardhat console --network baseSepolia
+```
+
+2. **Get contract instance**:
+```javascript
+const TheSeeds = await ethers.getContractAt(
+  "TheSeeds",
+  "0x878baad70577cf114a3c60fd01b5a036fd0c4bc8"  // Your contract address
+);
+```
+
+3. **Check if you have CREATOR_ROLE**:
+```javascript
+const [signer] = await ethers.getSigners();
+const myAddress = await signer.getAddress();
+console.log("My address:", myAddress);
+
+const CREATOR_ROLE = ethers.utils.keccak256(ethers.utils.toUtf8Bytes("CREATOR_ROLE"));
+const hasRole = await TheSeeds.hasRole(CREATOR_ROLE, myAddress);
+console.log("Has CREATOR_ROLE:", hasRole);
+```
+
+4. **Create a seed**:
+```javascript
+const tx = await TheSeeds.submitSeed(
+  "QmX123...",           // IPFS hash
+  "My Artwork",         // Title
+  "Description here"    // Description
+);
+
+console.log("Transaction hash:", tx.hash);
+await tx.wait();
+console.log("Seed created!");
+
+// Get the seed ID from events
+const receipt = await tx.wait();
+const event = receipt.events.find(e => e.event === 'SeedSubmitted');
+const seedId = event.args.seedId.toNumber();
+console.log("Seed ID:", seedId);
+```
+
+5. **Verify the seed**:
+```javascript
+const seed = await TheSeeds.getSeed(seedId);
+console.log("Title:", seed.title);
+console.log("Creator:", seed.creator);
+console.log("IPFS Hash:", seed.ipfsHash);
+```
+
+---
+
+### Method 4: Direct Contract Interaction (Cast/Foundry)
+
+**Use Case**: CLI workflows, automation scripts, CI/CD pipelines.
+
+**Prerequisites**:
+- Foundry installed (`curl -L https://foundry.paradigm.xyz | bash && foundryup`)
+- Wallet with CREATOR_ROLE
+- Private key or keystore
+
+**Step-by-Step**:
+
+1. **Set environment variables**:
+```bash
+export CONTRACT=0x878baad70577cf114a3c60fd01b5a036fd0c4bc8
+export RPC_URL=https://sepolia.base.org
+export PRIVATE_KEY=0x...  # Your private key
+```
+
+2. **Check if you have CREATOR_ROLE**:
+```bash
+# CREATOR_ROLE hash
+CREATOR_ROLE=0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7
+
+# Your wallet address
+YOUR_ADDRESS=0x...
+
+# Check role
+cast call $CONTRACT \
+  "hasRole(bytes32,address)(bool)" \
+  $CREATOR_ROLE \
+  $YOUR_ADDRESS \
+  --rpc-url $RPC_URL
+
+# Should return: true
+```
+
+3. **Create a seed**:
+```bash
+cast send $CONTRACT \
+  "submitSeed(string,string,string)" \
+  "QmX123..." \
+  "My Artwork Title" \
+  "Description of the artwork" \
+  --rpc-url $RPC_URL \
+  --private-key $PRIVATE_KEY
+```
+
+4. **Get transaction receipt**:
+```bash
+# The command will output a transaction hash
+# View on Basescan:
+# https://sepolia.basescan.org/tx/0x...
+```
+
+5. **Query the seed** (get latest seed ID first):
+```bash
+# Get total seed count
+cast call $CONTRACT "getSeedCount()(uint256)" --rpc-url $RPC_URL
+
+# Get seed details (e.g., seed ID 0)
+cast call $CONTRACT \
+  "getSeed(uint256)" \
+  0 \
+  --rpc-url $RPC_URL
+```
+
+**Automation Script Example**:
+```bash
+#!/bin/bash
+# create-seed.sh - Batch create seeds from a JSON file
+
+CONTRACT=0x878baad70577cf114a3c60fd01b5a036fd0c4bc8
+RPC_URL=https://sepolia.base.org
+
+# Read seeds from JSON file
+cat seeds.json | jq -c '.[]' | while read seed; do
+  IPFS=$(echo $seed | jq -r '.ipfsHash')
+  TITLE=$(echo $seed | jq -r '.title')
+  DESC=$(echo $seed | jq -r '.description')
+
+  echo "Creating seed: $TITLE"
+
+  cast send $CONTRACT \
+    "submitSeed(string,string,string)" \
+    "$IPFS" "$TITLE" "$DESC" \
+    --rpc-url $RPC_URL \
+    --private-key $PRIVATE_KEY
+
+  sleep 2  # Rate limiting
+done
+```
+
+---
+
+### Method 5: Direct Contract Interaction (Basescan UI)
+
+**Use Case**: One-off manual seed creation, no code required.
+
+**Prerequisites**:
+- Wallet with CREATOR_ROLE (MetaMask, WalletConnect, etc.)
+- Contract verified on Basescan
+
+**Step-by-Step**:
+
+1. **Navigate to contract on Basescan**:
+   - Testnet: `https://sepolia.basescan.org/address/0x878baad...`
+   - Mainnet: `https://basescan.org/address/0x878baad...`
+
+2. **Go to "Contract" tab → "Write Contract"**
+
+3. **Click "Connect to Web3"** and connect your wallet
+
+4. **Find the `submitSeed` function**
+
+5. **Fill in the parameters**:
+   - `_ipfsHash`: `QmX123...`
+   - `_title`: `My Artwork Title`
+   - `_description`: `Description of the artwork`
+
+6. **Click "Write"** and confirm transaction in your wallet
+
+7. **View transaction** and get seed ID from logs
+
+---
+
+### Choosing the Right Method
+
+**Decision Tree**:
+
+```
+Do you want gasless UX for users?
+├─ YES → Use Method 1 (Backend-Signed API)
+│         Requires: Admin key, backend with CREATOR_ROLE
+│
+└─ NO → Do users have their own wallets?
+    ├─ YES → Use Method 2 (Client-Signed API)
+    │         Requires: User has CREATOR_ROLE, wallet connected
+    │
+    └─ NO → Are you doing development/testing?
+        ├─ YES → Use Method 3 (Hardhat Console)
+        │         Good for: Interactive testing, debugging
+        │
+        └─ NO → Do you need automation/scripting?
+            ├─ YES → Use Method 4 (Cast/Foundry)
+            │         Good for: CI/CD, batch operations
+            │
+            └─ NO → Use Method 5 (Basescan UI)
+                      Good for: One-off manual creation
+```
+
+---
+
+### Troubleshooting Common Issues
+
+#### "Relayer does not have CREATOR_ROLE"
+
+**Cause**: Backend wallet doesn't have CREATOR_ROLE on the contract
+
+**Solution**: Grant CREATOR_ROLE to backend wallet
+```bash
+npx hardhat console --network baseSepolia
+```
+```javascript
+const TheSeeds = await ethers.getContractAt("TheSeeds", CONTRACT_ADDRESS);
+await TheSeeds.addCreator(BACKEND_WALLET_ADDRESS);
+```
+
+#### "You don't have CREATOR_ROLE" (Client-Signed)
+
+**Cause**: User's wallet doesn't have CREATOR_ROLE
+
+**Solution**: Admin must grant CREATOR_ROLE to user's wallet
+```bash
+cast send CONTRACT_ADDRESS \
+  "addCreator(address)" \
+  USER_WALLET_ADDRESS \
+  --rpc-url RPC_URL \
+  --private-key ADMIN_PRIVATE_KEY
+```
+
+#### "Unauthorized - Invalid admin key"
+
+**Cause**: `X-Admin-Key` header doesn't match `ADMIN_KEY` in `.env.local`
+
+**Solution**: Check your environment variable:
+```bash
+# .env.local
+ADMIN_KEY=your-secret-admin-key  # Must match header
+```
+
+#### "Backend blessing service not configured"
+
+**Cause**: `RELAYER_PRIVATE_KEY` not set in `.env.local`
+
+**Solution**: Add backend wallet private key:
+```bash
+# .env.local
+RELAYER_PRIVATE_KEY=0x...  # Backend wallet private key
+```
+
+#### Transaction fails with no specific error
+
+**Cause**: Insufficient gas, network issues, or contract paused
+
+**Solution**:
+1. Check wallet has enough ETH for gas
+2. Verify network is correct (Base Sepolia vs Base Mainnet)
+3. Check if contract is paused:
+```bash
+cast call CONTRACT_ADDRESS "paused()(bool)" --rpc-url RPC_URL
+```
+
+---
+
+### Complete Example: Seed Creation Flow
+
+Here's a complete example showing how to create a seed with proper error handling:
+
+```typescript
+import { useState } from 'react';
+import { usePrivy } from '@privy-io/react-auth';
+import { useWalletClient } from 'wagmi';
+
+interface SeedFormData {
+  ipfsHash: string;
+  title: string;
+  description?: string;
+}
+
+export function CreateSeedFlow() {
+  const { getAccessToken, authenticated } = usePrivy();
+  const { data: walletClient } = useWalletClient();
+  const [mode, setMode] = useState<'backend' | 'client'>('client');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  async function createSeed(data: SeedFormData) {
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const token = await getAccessToken();
+
+      if (mode === 'backend') {
+        // Backend-signed (gasless)
+        const response = await fetch('/api/seeds', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'X-Admin-Key': process.env.NEXT_PUBLIC_ADMIN_KEY || ''
+          },
+          body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          setSuccess(`Seed #${result.data.seedId} created! TX: ${result.data.txHash}`);
+        } else {
+          setError(result.error);
+        }
+      } else {
+        // Client-signed
+        const response = await fetch('/api/seeds/prepare', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        if (!result.data.hasCreatorRole) {
+          setError('You need CREATOR_ROLE to create seeds. Contact an admin.');
+          return;
+        }
+
+        // Sign with user's wallet
+        const hash = await walletClient.sendTransaction({
+          to: result.data.transaction.to,
+          data: result.data.transaction.data,
+        });
+
+        setSuccess(`Seed created! Transaction: ${hash}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create seed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!authenticated) {
+    return <div>Please log in to create seeds</div>;
+  }
+
+  return (
+    <div>
+      <h2>Create Seed</h2>
+
+      {/* Mode selector */}
+      <div>
+        <label>
+          <input
+            type="radio"
+            checked={mode === 'client'}
+            onChange={() => setMode('client')}
+          />
+          Sign with my wallet (I pay gas)
+        </label>
+        <label>
+          <input
+            type="radio"
+            checked={mode === 'backend'}
+            onChange={() => setMode('backend')}
+          />
+          Gasless (requires admin key)
+        </label>
+      </div>
+
+      {/* Form */}
+      <form onSubmit={(e) => {
+        e.preventDefault();
+        const formData = new FormData(e.currentTarget);
+        createSeed({
+          ipfsHash: formData.get('ipfsHash') as string,
+          title: formData.get('title') as string,
+          description: formData.get('description') as string || undefined,
+        });
+      }}>
+        <input
+          name="ipfsHash"
+          placeholder="IPFS Hash (QmX...)"
+          required
+        />
+        <input
+          name="title"
+          placeholder="Seed Title"
+          required
+        />
+        <textarea
+          name="description"
+          placeholder="Description (optional)"
+        />
+        <button type="submit" disabled={loading}>
+          {loading ? 'Creating...' : 'Create Seed'}
+        </button>
+      </form>
+
+      {/* Status messages */}
+      {error && <div style={{ color: 'red' }}>Error: {error}</div>}
+      {success && <div style={{ color: 'green' }}>{success}</div>}
+    </div>
+  );
+}
+```
+
+---
+
 ## Documentation
 
-For detailed setup instructions, API documentation, and deployment guides, see [SETUP.md](./SETUP.md).
+For detailed setup instructions, API documentation, and deployment guides, see:
+- [Quick Start Deployment](./docs/QUICK_START_DEPLOYMENT.md) - 5-step quick start
+- [Full Deployment Guide](./docs/DEPLOYMENT_GUIDE.md) - Complete deployment and role setup
+- [Seed Creation System](./docs/SEED_CREATION_SYSTEM.md) - Architecture and integration
+- [Blessing System](./docs/BLESSING_SYSTEM.md) - Blessing mechanics
 
 ## API Endpoints
 
