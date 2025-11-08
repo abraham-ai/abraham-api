@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import blessings from './routes/blessings.js';
+import seeds from './routes/seeds.js';
 const app = new Hono();
 // Enable CORS for all routes
 app.use('*', cors({
     origin: '*', // In production, specify your allowed origins
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Key'],
 }));
 // Health check route
 app.get('/', (c) => {
@@ -15,6 +16,12 @@ app.get('/', (c) => {
         version: '1.0.0',
         status: 'healthy',
         endpoints: {
+            // Seed Creation
+            createSeed: 'POST /api/seeds (requires X-Admin-Key)',
+            prepareSeedCreation: 'POST /api/seeds/prepare',
+            getSeed: 'GET /api/seeds/:seedId',
+            getSeedCount: 'GET /api/seeds/count',
+            checkCreatorRole: 'GET /api/seeds/creator/:address/check',
             // Blessing Actions
             performBlessing: 'POST /api/blessings',
             checkEligibility: 'GET /api/blessings/eligibility',
@@ -29,6 +36,7 @@ app.get('/', (c) => {
         }
     });
 });
-// Mount blessing routes
+// Mount routes
+app.route('/api/seeds', seeds);
 app.route('/api/blessings', blessings);
 export default app;

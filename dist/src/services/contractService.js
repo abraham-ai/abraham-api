@@ -20,13 +20,22 @@ const SEEDS_ABI = parseAbi([
     "function getSeedBlessings(uint256 seedId) view returns (tuple(uint256 seedId, address blesser, address actor, uint256 timestamp, bool isDelegated)[])",
     "function getUserBlessings(address user) view returns (tuple(uint256 seedId, address blesser, address actor, uint256 timestamp, bool isDelegated)[])",
     "function seedCount() view returns (uint256)",
-    // Write functions
+    "function hasRole(bytes32 role, address account) view returns (bool)",
+    // Write functions - Blessings
     "function blessSeed(uint256 seedId)",
     "function blessSeedFor(uint256 seedId, address blesser)",
     "function batchBlessSeedsFor(uint256[] calldata seedIds, address[] calldata blessers)",
     "function approveDelegate(address delegate, bool approved)",
+    // Write functions - Seed Creation
+    "function submitSeed(string ipfsHash, string title, string description) returns (uint256)",
+    // Write functions - Admin
+    "function addCreator(address creator)",
+    "function removeCreator(address creator)",
     // Events
     "event BlessingSubmitted(uint256 indexed seedId, address indexed blesser, address indexed actor, bool isDelegated, uint256 timestamp)",
+    "event SeedSubmitted(uint256 indexed seedId, address indexed creator, string ipfsHash, string title, uint256 timestamp)",
+    "event CreatorAdded(address indexed creator, address indexed addedBy)",
+    "event CreatorRemoved(address indexed creator, address indexed removedBy)",
 ]);
 /**
  * Contract Service for interacting with TheSeeds contract
@@ -287,6 +296,169 @@ class ContractService {
             from: userAddress,
             chainId: this.publicClient.chain?.id,
         };
+    }
+    /*//////////////////////////////////////////////////////////////
+                          SEED CREATION FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+    /**
+     * Check if an address has CREATOR_ROLE
+     */
+    async hasCreatorRole(address) {
+        const CREATOR_ROLE = "0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7"; // keccak256("CREATOR_ROLE")
+        return (await this.publicClient.readContract({
+            address: this.contractAddress,
+            abi: SEEDS_ABI,
+            functionName: "hasRole",
+            args: [CREATOR_ROLE, address],
+        }));
+    }
+    /**
+     * Write: Submit a seed to the blockchain (backend-signed)
+     * Requires relayer to have CREATOR_ROLE
+     */
+    async submitSeed(ipfsHash, title, description) {
+        if (!this.walletClient || !this.relayerAccount) {
+            return {
+                success: false,
+                error: "Wallet client not initialized - RELAYER_PRIVATE_KEY not set",
+            };
+        }
+        try {
+            // Check if relayer has CREATOR_ROLE
+            const hasRole = await this.hasCreatorRole(this.relayerAccount.address);
+            if (!hasRole) {
+                return {
+                    success: false,
+                    error: "Relayer does not have CREATOR_ROLE",
+                };
+            }
+            const hash = await this.walletClient.writeContract({
+                address: this.contractAddress,
+                abi: SEEDS_ABI,
+                functionName: "submitSeed",
+                args: [ipfsHash, title, description],
+            });
+            const receipt = await this.publicClient.waitForTransactionReceipt({
+                hash,
+            });
+            if (receipt.status !== "success") {
+                return {
+                    success: false,
+                    error: "Transaction failed",
+                };
+            }
+            // Get the seed ID from the SeedSubmitted event
+            const logs = receipt.logs;
+            let seedId;
+            for (const log of logs) {
+                try {
+                    // Parse the log to find SeedSubmitted event
+                    if (log.topics[0] && log.topics[1]) {
+                        // SeedSubmitted event has seedId as first indexed parameter
+                        seedId = Number(BigInt(log.topics[1]));
+                        break;
+                    }
+                }
+                catch (e) {
+                    // Continue if this log doesn't match
+                }
+            }
+            return {
+                success: true,
+                seedId,
+                txHash: hash,
+            };
+        }
+        catch (error) {
+            console.error("Error submitting seed:", error);
+            return {
+                success: false,
+                error: error.message || "Failed to submit seed",
+            };
+        }
+    }
+    /**
+     * Prepare seed submission transaction for client-side signing
+     */
+    prepareSeedSubmissionTransaction(ipfsHash, title, description, creatorAddress) {
+        return {
+            to: this.contractAddress,
+            data: encodeFunctionData({
+                abi: SEEDS_ABI,
+                functionName: "submitSeed",
+                args: [ipfsHash, title, description],
+            }),
+            from: creatorAddress,
+            chainId: this.publicClient.chain?.id,
+        };
+    }
+    /**
+     * Admin: Add a creator (grant CREATOR_ROLE)
+     * Only callable by ADMIN_ROLE
+     */
+    async addCreator(creatorAddress) {
+        if (!this.walletClient || !this.relayerAccount) {
+            return {
+                success: false,
+                error: "Wallet client not initialized",
+            };
+        }
+        try {
+            const hash = await this.walletClient.writeContract({
+                address: this.contractAddress,
+                abi: SEEDS_ABI,
+                functionName: "addCreator",
+                args: [creatorAddress],
+            });
+            const receipt = await this.publicClient.waitForTransactionReceipt({
+                hash,
+            });
+            return {
+                success: receipt.status === "success",
+                txHash: hash,
+            };
+        }
+        catch (error) {
+            console.error("Error adding creator:", error);
+            return {
+                success: false,
+                error: error.message || "Failed to add creator",
+            };
+        }
+    }
+    /**
+     * Admin: Remove a creator (revoke CREATOR_ROLE)
+     * Only callable by ADMIN_ROLE
+     */
+    async removeCreator(creatorAddress) {
+        if (!this.walletClient || !this.relayerAccount) {
+            return {
+                success: false,
+                error: "Wallet client not initialized",
+            };
+        }
+        try {
+            const hash = await this.walletClient.writeContract({
+                address: this.contractAddress,
+                abi: SEEDS_ABI,
+                functionName: "removeCreator",
+                args: [creatorAddress],
+            });
+            const receipt = await this.publicClient.waitForTransactionReceipt({
+                hash,
+            });
+            return {
+                success: receipt.status === "success",
+                txHash: hash,
+            };
+        }
+        catch (error) {
+            console.error("Error removing creator:", error);
+            return {
+                success: false,
+                error: error.message || "Failed to remove creator",
+            };
+        }
     }
 }
 // Singleton instance

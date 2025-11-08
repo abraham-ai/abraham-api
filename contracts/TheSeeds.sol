@@ -28,6 +28,9 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     /// @notice Role for admin functions (replaces Ownable)
     bytes32 public constant ADMIN_ROLE = DEFAULT_ADMIN_ROLE;
 
+    /// @notice Role for authorized seed creators
+    bytes32 public constant CREATOR_ROLE = keccak256("CREATOR_ROLE");
+
     /// @notice Duration of each voting period (24 hours)
     uint256 public constant VOTING_PERIOD = 1 days;
 
@@ -175,6 +178,10 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
 
     event RelayerRemoved(address indexed relayer, address indexed removedBy);
 
+    event CreatorAdded(address indexed creator, address indexed addedBy);
+
+    event CreatorRemoved(address indexed creator, address indexed removedBy);
+
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
     //////////////////////////////////////////////////////////////*/
@@ -222,6 +229,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
 
     /**
      * @notice Submit a new Seed (artwork proposal)
+     * @dev Only addresses with CREATOR_ROLE can submit seeds
      * @param _ipfsHash IPFS hash of the artwork
      * @param _title Title of the artwork
      * @param _description Description of the artwork
@@ -231,7 +239,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         string memory _ipfsHash,
         string memory _title,
         string memory _description
-    ) external whenNotPaused returns (uint256) {
+    ) external whenNotPaused onlyRole(CREATOR_ROLE) returns (uint256) {
         if (bytes(_ipfsHash).length == 0 || bytes(_title).length == 0) {
             revert InvalidSeedData();
         }
@@ -554,6 +562,24 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     function removeRelayer(address _relayer) external onlyRole(ADMIN_ROLE) {
         revokeRole(RELAYER_ROLE, _relayer);
         emit RelayerRemoved(_relayer, msg.sender);
+    }
+
+    /**
+     * @notice Add a seed creator (authorized wallet that can create seeds)
+     * @param _creator Address of the creator
+     */
+    function addCreator(address _creator) external onlyRole(ADMIN_ROLE) {
+        grantRole(CREATOR_ROLE, _creator);
+        emit CreatorAdded(_creator, msg.sender);
+    }
+
+    /**
+     * @notice Remove a seed creator
+     * @param _creator Address of the creator to remove
+     */
+    function removeCreator(address _creator) external onlyRole(ADMIN_ROLE) {
+        revokeRole(CREATOR_ROLE, _creator);
+        emit CreatorRemoved(_creator, msg.sender);
     }
 
     /**

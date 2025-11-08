@@ -1,19 +1,35 @@
 # Abraham API
 
-A Hono-based API for managing NFT-based blessings (likes) for the FirstWorks collection.
+A Hono-based API for managing onchain Seeds (artwork proposals) and NFT-based blessings for the Abraham ecosystem.
 
 ## Overview
 
-This API allows users who own FirstWorks NFTs to perform "blessings" on content. The blessing system uses:
+This API provides:
+1. **Seed Creation** - Onchain artwork proposals with authorized creator control
+2. **Blessings System** - NFT-based support/likes for Seeds
+
+The system uses:
+- **TheSeeds Contract** (Base L2) for onchain seed and blessing storage
 - **Privy** for authentication
 - **Viem** for Ethereum blockchain interactions
 - **Hono** as the lightweight web framework
 
 ### Key Features
-- NFT-based blessing eligibility (if you own N NFTs, you get N blessings per day)
-- 24-hour blessing period (resets at midnight UTC)
-- Daily NFT ownership snapshots for fast lookups
-- Secure Privy authentication
+
+#### Seed Creation
+- ✅ **Onchain Storage**: All seeds stored on TheSeeds contract (Base L2)
+- ✅ **Authorized Creators**: Only wallets with CREATOR_ROLE can create seeds
+- ✅ **Two Creation Modes**:
+  - **Backend-Signed (Gasless)**: API creates seed on behalf of creator (requires admin key)
+  - **Client-Signed**: Creator signs transaction directly with their wallet
+- ✅ **Access Control**: Role-based permissions using OpenZeppelin AccessControl
+
+#### Blessing System
+- ✅ **Onchain Blessings**: All blessings stored on blockchain
+- ✅ **NFT-based eligibility**: If you own N FirstWorks NFTs, you get N blessings per day
+- ✅ **24-hour blessing period**: Resets at midnight UTC
+- ✅ **Delegation Support**: Users can approve backend to bless on their behalf (gasless)
+- ✅ **Daily NFT snapshots**: Fast lookup for eligibility
 
 ## Quick Start
 
@@ -39,6 +55,135 @@ This API allows users who own FirstWorks NFTs to perform "blessings" on content.
    ```
 
 The API will be running at `http://localhost:3000`
+
+## Seed Creation Setup
+
+### Prerequisites
+1. Deploy TheSeeds contract to Base Sepolia or Base Mainnet
+2. Configure environment variables (see below)
+3. Grant CREATOR_ROLE to authorized wallets
+
+### Environment Variables
+
+Add these to your `.env.local` file:
+
+```bash
+# Required for backend-signed seed creation
+RELAYER_PRIVATE_KEY=0x...        # Private key for backend wallet (must have CREATOR_ROLE)
+CONTRACT_ADDRESS=0x...           # TheSeeds contract address
+NETWORK=baseSepolia              # or "base" for mainnet
+ADMIN_KEY=your-secret-admin-key  # Secret key for admin endpoints
+
+# RPC URLs
+BASE_SEPOLIA_RPC=https://sepolia.base.org
+BASE_MAINNET_RPC=https://mainnet.base.org
+
+# Privy (for authentication)
+PRIVY_APP_ID=your-privy-app-id
+PRIVY_APP_SECRET=your-privy-app-secret
+```
+
+### Granting CREATOR_ROLE
+
+There are two ways to authorize seed creators:
+
+#### Option 1: Using Hardhat Console
+
+```bash
+npx hardhat console --network baseSepolia
+```
+
+```javascript
+const TheSeeds = await ethers.getContractAt("TheSeeds", "YOUR_CONTRACT_ADDRESS");
+
+// Grant CREATOR_ROLE to a wallet
+await TheSeeds.addCreator("0x_CREATOR_WALLET_ADDRESS");
+
+// Verify the role was granted
+const CREATOR_ROLE = ethers.utils.keccak256(ethers.utils.toUtf8Bytes("CREATOR_ROLE"));
+const hasRole = await TheSeeds.hasRole(CREATOR_ROLE, "0x_CREATOR_WALLET_ADDRESS");
+console.log("Has CREATOR_ROLE:", hasRole);
+```
+
+#### Option 2: Using Cast (Foundry)
+
+```bash
+# Grant CREATOR_ROLE to a wallet
+cast send YOUR_CONTRACT_ADDRESS \
+  "addCreator(address)" \
+  0x_CREATOR_WALLET_ADDRESS \
+  --rpc-url https://sepolia.base.org \
+  --private-key YOUR_ADMIN_PRIVATE_KEY
+
+# Verify the role
+cast call YOUR_CONTRACT_ADDRESS \
+  "hasRole(bytes32,address)(bool)" \
+  0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7 \
+  0x_CREATOR_WALLET_ADDRESS \
+  --rpc-url https://sepolia.base.org
+```
+
+**Note**: `0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7` is `keccak256("CREATOR_ROLE")`
+
+### Seed Creation Modes
+
+#### 1. Backend-Signed (Gasless) Mode
+
+**When to use**: When you want the backend to pay gas fees and control seed creation via admin authentication.
+
+**Requirements**:
+- Backend wallet must have CREATOR_ROLE on the contract
+- Request must include `X-Admin-Key` header
+- `ADMIN_KEY` environment variable must be set
+
+**Example**:
+```bash
+curl -X POST http://localhost:3000/api/seeds \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_PRIVY_TOKEN" \
+  -H "X-Admin-Key: your-secret-admin-key" \
+  -d '{
+    "ipfsHash": "QmX...",
+    "title": "My Seed Title",
+    "description": "Seed description"
+  }'
+```
+
+#### 2. Client-Signed Mode
+
+**When to use**: When you want creators to sign transactions with their own wallets and pay their own gas.
+
+**Requirements**:
+- Creator wallet must have CREATOR_ROLE on the contract
+- User must sign the transaction with their wallet (e.g., via wagmi/viem)
+
+**Example**:
+```typescript
+// 1. Request transaction data from API
+const response = await fetch('/api/seeds/prepare', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${privyToken}`
+  },
+  body: JSON.stringify({
+    ipfsHash: 'QmX...',
+    title: 'My Seed',
+    description: 'Description'
+  })
+});
+
+const { transaction } = await response.json();
+
+// 2. Sign and send transaction with user's wallet
+import { useWalletClient } from 'wagmi';
+
+const { data: walletClient } = useWalletClient();
+const hash = await walletClient.sendTransaction({
+  to: transaction.to,
+  data: transaction.data,
+});
+```
 
 ## Documentation
 
@@ -77,7 +222,252 @@ curl http://localhost:3000
 
 ---
 
-### 2. Check Blessing Eligibility
+## Seed Endpoints
+
+### 2. Create Seed (Backend-Signed)
+
+**Endpoint:** `POST /api/seeds`
+
+**Description:** Create a new seed onchain with backend-signed transaction (gasless for user)
+
+**Authentication:**
+- Privy JWT token (via `Authorization` header)
+- Admin key (via `X-Admin-Key` header)
+
+**Request Body:**
+```json
+{
+  "ipfsHash": "QmX...",           // Required: IPFS hash of artwork
+  "title": "Seed Title",          // Required: Title of the seed
+  "description": "Description"    // Optional: Seed description
+}
+```
+
+**cURL Example:**
+```bash
+curl -X POST http://localhost:3000/api/seeds \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_PRIVY_TOKEN" \
+  -H "X-Admin-Key: your-secret-admin-key" \
+  -d '{
+    "ipfsHash": "QmX123...",
+    "title": "My First Seed",
+    "description": "A beautiful artwork"
+  }'
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "seedId": 0,
+    "txHash": "0xabc123...",
+    "blockExplorer": "https://sepolia.basescan.org/tx/0xabc123...",
+    "seed": {
+      "id": 0,
+      "creator": "0x...",
+      "ipfsHash": "QmX123...",
+      "title": "My First Seed",
+      "description": "A beautiful artwork",
+      "votes": 0,
+      "blessings": 0,
+      "createdAt": 1729785600,
+      "minted": false
+    }
+  }
+}
+```
+
+**Error Responses:**
+```json
+// 401 - Invalid admin key
+{ "success": false, "error": "Unauthorized - Invalid admin key" }
+
+// 403 - Backend doesn't have CREATOR_ROLE
+{ "success": false, "error": "Relayer does not have CREATOR_ROLE" }
+
+// 503 - Backend not configured
+{ "success": false, "error": "Backend blessing service not configured" }
+```
+
+---
+
+### 3. Prepare Seed Creation (Client-Signed)
+
+**Endpoint:** `POST /api/seeds/prepare`
+
+**Description:** Prepare seed creation transaction for client-side signing
+
+**Authentication:** Privy JWT token (via `Authorization` header)
+
+**Request Body:**
+```json
+{
+  "ipfsHash": "QmX...",           // Required
+  "title": "Seed Title",          // Required
+  "description": "Description"    // Optional
+}
+```
+
+**cURL Example:**
+```bash
+curl -X POST http://localhost:3000/api/seeds/prepare \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_PRIVY_TOKEN" \
+  -d '{
+    "ipfsHash": "QmX123...",
+    "title": "My Seed",
+    "description": "Description"
+  }'
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "transaction": {
+      "to": "0x878baad70577cf114a3c60fd01b5a036fd0c4bc8",
+      "data": "0x...",
+      "from": "0x...",
+      "chainId": 84532
+    },
+    "hasCreatorRole": true,
+    "userAddress": "0x...",
+    "instructions": {
+      "step1": "Send this transaction using your wallet",
+      "step2": "Wait for transaction confirmation",
+      "step3": "Your seed will be created on-chain",
+      "note": "You have CREATOR_ROLE and can create seeds"
+    }
+  }
+}
+```
+
+**Usage Example (with wagmi):**
+```typescript
+import { useWalletClient } from 'wagmi';
+
+async function createSeed(ipfsHash: string, title: string, description: string) {
+  // 1. Get transaction data from API
+  const response = await fetch('/api/seeds/prepare', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${await getAccessToken()}`
+    },
+    body: JSON.stringify({ ipfsHash, title, description })
+  });
+
+  const { data } = await response.json();
+
+  if (!data.hasCreatorRole) {
+    alert('You need CREATOR_ROLE to create seeds');
+    return;
+  }
+
+  // 2. Sign and send with user's wallet
+  const { data: walletClient } = useWalletClient();
+  const hash = await walletClient.sendTransaction({
+    to: data.transaction.to,
+    data: data.transaction.data,
+  });
+
+  console.log('Seed created:', hash);
+}
+```
+
+---
+
+### 4. Get Seed Details
+
+**Endpoint:** `GET /api/seeds/:seedId`
+
+**Description:** Get details of a specific seed from the blockchain
+
+**Authentication:** None required
+
+**cURL Example:**
+```bash
+curl http://localhost:3000/api/seeds/0
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 0,
+    "creator": "0x...",
+    "ipfsHash": "QmX123...",
+    "title": "My First Seed",
+    "description": "A beautiful artwork",
+    "votes": 5,
+    "blessings": 10,
+    "createdAt": 1729785600,
+    "minted": false,
+    "mintedInRound": 0
+  }
+}
+```
+
+---
+
+### 5. Get Seed Count
+
+**Endpoint:** `GET /api/seeds/count`
+
+**Description:** Get total number of seeds created
+
+**Authentication:** None required
+
+**cURL Example:**
+```bash
+curl http://localhost:3000/api/seeds/count
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "count": 42
+  }
+}
+```
+
+---
+
+### 6. Check Creator Role
+
+**Endpoint:** `GET /api/seeds/creator/:address/check`
+
+**Description:** Check if a wallet address has CREATOR_ROLE
+
+**Authentication:** None required
+
+**cURL Example:**
+```bash
+curl http://localhost:3000/api/seeds/creator/0x1234.../check
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "address": "0x1234...",
+    "hasCreatorRole": true
+  }
+}
+```
+
+---
+
+## Blessing Endpoints
+
+### 7. Check Blessing Eligibility
 
 **Endpoint:** `GET /api/blessings/eligibility`
 
