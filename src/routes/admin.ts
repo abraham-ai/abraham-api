@@ -107,7 +107,12 @@ admin.post("/update-snapshot", requireAdminKey, async (c) => {
         txHash: result.txHash,
         blockNumber: result.blockNumber?.toString(),
         steps: result.steps,
+        snapshot: result.snapshot, // Include the full snapshot data
         timestamp: new Date().toISOString(),
+        // Add helpful message if contract wasn't updated
+        message: !result.steps.contract
+          ? "Contract already has this merkle root (no NFT ownership changes detected)"
+          : "Snapshot updated and contract merkle root updated on-chain",
       },
     });
   } catch (error) {
