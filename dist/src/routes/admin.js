@@ -1,7 +1,26 @@
 import { Hono } from "hono";
-import { withAuth, getAuthUser } from "../middleware/auth.js";
 import { updateSnapshotAndMerkle } from "../../scripts/updateSnapshot.js";
 const admin = new Hono();
+/**
+ * Middleware to check admin key
+ * Admin endpoints only require the admin key, not Privy authentication
+ */
+function requireAdminKey(c, next) {
+    const adminKey = c.req.header("X-Admin-Key");
+    if (!process.env.ADMIN_KEY) {
+        return c.json({
+            success: false,
+            error: "Server configuration error - ADMIN_KEY not set",
+        }, 500);
+    }
+    if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
+        return c.json({
+            success: false,
+            error: "Unauthorized - Invalid or missing admin key",
+        }, 401);
+    }
+    return next();
+}
 /**
  * POST /admin/update-snapshot
  * Update FirstWorks snapshot, generate merkle tree, and update contract
@@ -11,14 +30,13 @@ const admin = new Hono();
  * 2. Generate Merkle tree from snapshot
  * 3. Update Merkle root on The Seeds contract (L2)
  *
- * Authentication: Requires admin key
+ * Authentication: X-Admin-Key header only (no Privy token required)
  *
  * Query Parameters:
  * - skipContract: Set to 'true' to skip contract update (optional)
  *
  * Request Headers:
  * - X-Admin-Key: Admin authentication key (required)
- * - Authorization: Bearer token (required)
  *
  * Response:
  * {
@@ -37,19 +55,9 @@ const admin = new Hono();
  *   }
  * }
  */
-admin.post("/update-snapshot", withAuth, async (c) => {
+admin.post("/update-snapshot", requireAdminKey, async (c) => {
     try {
-        // Check admin key
-        const adminKey = c.req.header("X-Admin-Key");
-        if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
-            return c.json({
-                success: false,
-                error: "Unauthorized - Invalid admin key",
-            }, 401);
-        }
-        // Get authenticated user (for logging purposes)
-        const user = getAuthUser(c);
-        console.log(`Snapshot update requested by: ${user?.walletAddress || "unknown"}`);
+        console.log(`Snapshot update requested at: ${new Date().toISOString()}`);
         // Check if contract update should be skipped
         const skipContract = c.req.query("skipContract") === "true";
         console.log(`Starting snapshot update (skipContract: ${skipContract})...`);
@@ -105,22 +113,13 @@ admin.post("/update-snapshot", withAuth, async (c) => {
  * - Testing snapshot loading
  * - Quick updates without contract interaction
  *
- * Authentication: Requires admin key
+ * Authentication: X-Admin-Key header only (no Privy token required)
  *
  * Request Headers:
  * - X-Admin-Key: Admin authentication key (required)
- * - Authorization: Bearer token (required)
  */
-admin.post("/reload-snapshot", withAuth, async (c) => {
+admin.post("/reload-snapshot", requireAdminKey, async (c) => {
     try {
-        // Check admin key
-        const adminKey = c.req.header("X-Admin-Key");
-        if (!adminKey || adminKey !== process.env.ADMIN_KEY) {
-            return c.json({
-                success: false,
-                error: "Unauthorized - Invalid admin key",
-            }, 401);
-        }
         // Dynamically import to reload
         const { loadLatestSnapshot } = await import("../../lib/snapshots/firstWorksSnapshot.js");
         const snapshot = await loadLatestSnapshot();

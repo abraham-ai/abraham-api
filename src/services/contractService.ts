@@ -8,7 +8,6 @@ import {
   createPublicClient,
   createWalletClient,
   http,
-  parseAbi,
   encodeFunctionData,
   type Address,
   type Hash,
@@ -24,37 +23,11 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Contract ABI (minimal - only functions we need)
-const SEEDS_ABI = parseAbi([
-  // Read functions
-  "function getSeed(uint256 seedId) view returns (tuple(uint256 id, address creator, string ipfsHash, string title, string description, uint256 votes, uint256 blessings, uint256 createdAt, bool minted, uint256 mintedInRound))",
-  "function hasBlessed(address user, uint256 seedId) view returns (bool)",
-  "function isDelegate(address user, address delegate) view returns (bool)",
-  "function getTotalBlessings() view returns (uint256)",
-  "function getSeedBlessings(uint256 seedId) view returns (tuple(uint256 seedId, address blesser, address actor, uint256 timestamp, bool isDelegated)[])",
-  "function getUserBlessings(address user) view returns (tuple(uint256 seedId, address blesser, address actor, uint256 timestamp, bool isDelegated)[])",
-  "function seedCount() view returns (uint256)",
-  "function hasRole(bytes32 role, address account) view returns (bool)",
-
-  // Write functions - Blessings
-  "function blessSeed(uint256 seedId)",
-  "function blessSeedFor(uint256 seedId, address blesser)",
-  "function batchBlessSeedsFor(uint256[] calldata seedIds, address[] calldata blessers)",
-  "function approveDelegate(address delegate, bool approved)",
-
-  // Write functions - Seed Creation
-  "function submitSeed(string ipfsHash, string title, string description) returns (uint256)",
-
-  // Write functions - Admin
-  "function addCreator(address creator)",
-  "function removeCreator(address creator)",
-
-  // Events
-  "event BlessingSubmitted(uint256 indexed seedId, address indexed blesser, address indexed actor, bool isDelegated, uint256 timestamp)",
-  "event SeedSubmitted(uint256 indexed seedId, address indexed creator, string ipfsHash, string title, uint256 timestamp)",
-  "event CreatorAdded(address indexed creator, address indexed addedBy)",
-  "event CreatorRemoved(address indexed creator, address indexed removedBy)",
-]);
+// Load the full ABI from contract artifacts
+// This avoids issues with parseAbi not handling complex tuple types
+const artifactPath = join(__dirname, "../../artifacts/contracts/TheSeeds.sol/TheSeeds.json");
+const contractArtifact = JSON.parse(readFileSync(artifactPath, "utf-8"));
+const SEEDS_ABI = contractArtifact.abi;
 
 export interface Seed {
   id: bigint;
@@ -191,6 +164,7 @@ class ContractService {
       address: this.contractAddress,
       abi: SEEDS_ABI,
       functionName: "getTotalBlessings",
+      args: [],
     })) as bigint;
   }
 
@@ -230,6 +204,7 @@ class ContractService {
       address: this.contractAddress,
       abi: SEEDS_ABI,
       functionName: "seedCount",
+      args: [],
     })) as bigint;
   }
 
