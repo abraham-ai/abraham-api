@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import blessings from './routes/blessings.js'
 import seeds from './routes/seeds.js'
+import admin from './routes/admin.js'
 
 const app = new Hono()
 
@@ -39,6 +40,11 @@ app.get('/', (c) => {
       // FirstWorks NFT Snapshots
       getFirstWorksSnapshot: 'GET /api/blessings/firstworks/snapshot',
       reloadFirstWorksSnapshot: 'POST /api/blessings/firstworks/reload-snapshot',
+
+      // Admin Operations (requires X-Admin-Key)
+      updateSnapshot: 'POST /api/admin/update-snapshot (requires X-Admin-Key)',
+      reloadSnapshot: 'POST /api/admin/reload-snapshot (requires X-Admin-Key)',
+      snapshotStatus: 'GET /api/admin/snapshot-status',
     }
   })
 })
@@ -46,5 +52,6 @@ app.get('/', (c) => {
 // Mount routes
 app.route('/api/seeds', seeds)
 app.route('/api/blessings', blessings)
+app.route('/api/admin', admin)
 
 export default app

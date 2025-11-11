@@ -56,6 +56,273 @@ The system uses:
 
 The API will be running at `http://localhost:3000`
 
+## Snapshot & Merkle Tree Updates
+
+The Abraham API uses a snapshot of FirstWorks NFT ownership to determine blessing eligibility. This snapshot needs to be updated periodically to reflect current NFT ownership.
+
+### Unified Update Process
+
+We provide a **single command** and **single API endpoint** that performs all three steps automatically:
+
+1. **Generate NFT Snapshot** - Fetches current FirstWorks ownership from Ethereum mainnet
+2. **Generate Merkle Tree** - Creates merkle tree with proofs for each holder
+3. **Update Contract** - Updates the merkle root on TheSeeds contract (L2)
+
+### Method 1: Via CLI Script
+
+Update everything in one command:
+
+```bash
+npm run update-snapshot
+```
+
+**Options:**
+
+```bash
+# Skip contract update (only generate snapshot + merkle)
+SKIP_CONTRACT_UPDATE=true npm run update-snapshot
+
+# Specify network (default: baseSepolia)
+NETWORK=base npm run update-snapshot
+
+# Both options together
+NETWORK=base SKIP_CONTRACT_UPDATE=true npm run update-snapshot
+```
+
+**Environment Variables Required:**
+
+```bash
+# For snapshot generation (Ethereum mainnet)
+FIRSTWORKS_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
+CONTRACT_ADDRESS=0x8F814c7C75C5E9e0EDe0336F535604B1915C1985
+
+# For contract update (Base L2)
+RELAYER_PRIVATE_KEY=0x...  # Wallet with admin permissions
+CONTRACT_ADDRESS=0x...      # TheSeeds contract on Base
+NETWORK=baseSepolia         # or "base" for mainnet
+BASE_SEPOLIA_RPC=https://sepolia.base.org
+BASE_MAINNET_RPC=https://mainnet.base.org
+```
+
+**Output:**
+
+```
+============================================================
+STEP 1: Generating FirstWorks NFT Snapshot
+============================================================
+
+✓ Getting FirstWorks contract metadata...
+✓ Fetching token ownership...
+✓ Snapshot generated successfully
+
+============================================================
+STEP 2: Generating Merkle Tree
+============================================================
+
+✓ Generated 150 leaves
+✓ Merkle Root: 0xabc123...
+✓ Merkle tree generated successfully
+
+============================================================
+STEP 3: Updating Contract Merkle Root
+============================================================
+
+✓ Transaction hash: 0xdef456...
+✓ Root updated in block 12345678
+✓ Contract updated successfully
+
+============================================================
+SUMMARY
+============================================================
+✓ Snapshot Generated: ./lib/snapshots/snapshot-1234567890.json
+✓ Merkle Tree Generated: ./lib/snapshots/firstWorks_merkle.json
+✓ Merkle Root: 0xabc123...
+✓ Contract Updated: 0xdef456...
+✓ Block Number: 12345678
+
+✓ ALL STEPS COMPLETED SUCCESSFULLY!
+```
+
+---
+
+### Method 2: Via API Endpoint
+
+**Endpoint:** `POST /api/admin/update-snapshot`
+
+**Authentication:**
+- Privy JWT token (via `Authorization` header)
+- Admin key (via `X-Admin-Key` header)
+
+**Request:**
+
+```bash
+curl -X POST http://localhost:3000/api/admin/update-snapshot \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_PRIVY_TOKEN" \
+  -H "X-Admin-Key: your-secret-admin-key"
+```
+
+**Query Parameters:**
+
+- `skipContract` (optional) - Set to `true` to skip contract update
+
+```bash
+# Skip contract update
+curl -X POST "http://localhost:3000/api/admin/update-snapshot?skipContract=true" \
+  -H "Authorization: Bearer YOUR_PRIVY_TOKEN" \
+  -H "X-Admin-Key: your-secret-admin-key"
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "snapshotPath": "./lib/snapshots/snapshot-1234567890.json",
+    "merklePath": "./lib/snapshots/firstWorks_merkle.json",
+    "merkleRoot": "0xabc123...",
+    "txHash": "0xdef456...",
+    "blockNumber": "12345678",
+    "steps": {
+      "snapshot": true,
+      "merkle": true,
+      "contract": true
+    },
+    "timestamp": "2025-10-24T15:30:00.000Z"
+  }
+}
+```
+
+**TypeScript/JavaScript Example:**
+
+```typescript
+import { usePrivy } from '@privy-io/react-auth';
+
+async function updateSnapshot() {
+  const { getAccessToken } = usePrivy();
+  const token = await getAccessToken();
+
+  const response = await fetch('http://localhost:3000/api/admin/update-snapshot', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'X-Admin-Key': process.env.ADMIN_KEY
+    }
+  });
+
+  const result = await response.json();
+
+  if (result.success) {
+    console.log('Snapshot updated!');
+    console.log('Merkle Root:', result.data.merkleRoot);
+    console.log('TX Hash:', result.data.txHash);
+  } else {
+    console.error('Update failed:', result.error);
+  }
+}
+```
+
+---
+
+### Additional Admin Endpoints
+
+#### Check Snapshot Status
+
+**Endpoint:** `GET /api/admin/snapshot-status`
+
+**Authentication:** None required (public info)
+
+```bash
+curl http://localhost:3000/api/admin/snapshot-status
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "snapshotExists": true,
+    "merkleExists": true,
+    "snapshot": {
+      "totalHolders": 150,
+      "totalSupply": 500,
+      "timestamp": "2025-10-24T12:00:00.000Z",
+      "blockNumber": 18500000,
+      "contractAddress": "0x8F814c7C75C5E9e0EDe0336F535604B1915C1985"
+    },
+    "merkle": {
+      "root": "0xabc123...",
+      "totalLeaves": 150,
+      "totalProofs": 150
+    }
+  }
+}
+```
+
+#### Reload Snapshot (Cache Refresh)
+
+**Endpoint:** `POST /api/admin/reload-snapshot`
+
+**Authentication:** Requires admin key
+
+Reloads the in-memory snapshot cache without regenerating or updating contract.
+
+```bash
+curl -X POST http://localhost:3000/api/admin/reload-snapshot \
+  -H "Authorization: Bearer YOUR_PRIVY_TOKEN" \
+  -H "X-Admin-Key: your-secret-admin-key"
+```
+
+---
+
+### When to Update Snapshots
+
+**Recommended Schedule:**
+
+- **Daily** - Automated cron job during low-traffic hours
+- **After major events** - Large NFT transfers, minting events
+- **Before voting rounds** - Ensure accurate eligibility data
+
+**Automation Example (Cron):**
+
+```bash
+# Add to crontab (runs daily at 3 AM)
+0 3 * * * cd /path/to/abraham-api && npm run update-snapshot >> logs/snapshot-update.log 2>&1
+```
+
+**Serverless Function (Vercel Cron):**
+
+```typescript
+// api/cron/update-snapshot.ts
+import { updateSnapshotAndMerkle } from '../../scripts/updateSnapshot';
+
+export default async function handler(req: Request) {
+  // Verify cron secret
+  if (req.headers.get('Authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  try {
+    const result = await updateSnapshotAndMerkle();
+    return Response.json({ success: true, data: result });
+  } catch (error) {
+    return Response.json({ success: false, error: String(error) }, { status: 500 });
+  }
+}
+
+// vercel.json
+{
+  "crons": [{
+    "path": "/api/cron/update-snapshot",
+    "schedule": "0 3 * * *"  // Daily at 3 AM
+  }]
+}
+```
+
+---
+
 ## Seed Creation Setup
 
 ### Prerequisites
