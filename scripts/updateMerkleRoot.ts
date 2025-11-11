@@ -64,10 +64,13 @@ async function main() {
   }
 
   // Get private key from environment
-  const privateKey = process.env.DEPLOYER_PRIVATE_KEY as Hex;
-  if (!privateKey) {
+  const privateKeyRaw = process.env.DEPLOYER_PRIVATE_KEY;
+  if (!privateKeyRaw) {
     throw new Error("DEPLOYER_PRIVATE_KEY not set in environment");
   }
+
+  // Normalize private key (add 0x prefix if missing)
+  const privateKey = (privateKeyRaw.startsWith("0x") ? privateKeyRaw : `0x${privateKeyRaw}`) as Hex;
 
   // Create account from private key
   const account = privateKeyToAccount(privateKey);
