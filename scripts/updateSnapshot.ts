@@ -17,7 +17,7 @@
  *   NETWORK=base npm run update-snapshot
  */
 
-import { FirstWorksSnapshotGenerator } from "../lib/snapshots/firstWorksSnapshot.js";
+import { FirstWorksSnapshotGenerator, type FirstWorksSnapshot } from "../lib/snapshots/firstWorksSnapshot.js";
 import { generateMerkleTree, verifyProof } from "../lib/snapshots/merkleTreeGenerator.js";
 import { writeFileSync } from "fs";
 import { createPublicClient, createWalletClient, http, parseAbi, type Address, type Hex } from "viem";
@@ -56,6 +56,7 @@ interface UpdateResult {
   txHash?: string;
   blockNumber?: bigint;
   error?: string;
+  snapshot?: FirstWorksSnapshot;  // Include the actual snapshot data
   steps: {
     snapshot: boolean;
     merkle: boolean;
@@ -66,7 +67,7 @@ interface UpdateResult {
 /**
  * Step 1: Generate NFT Snapshot
  */
-async function generateSnapshot(): Promise<string> {
+async function generateSnapshot(): Promise<{ path: string; data: FirstWorksSnapshot }> {
   console.log("\n" + "=".repeat(60));
   console.log("STEP 1: Generating FirstWorks NFT Snapshot");
   console.log("=".repeat(60) + "\n");
@@ -76,7 +77,7 @@ async function generateSnapshot(): Promise<string> {
   const filepath = await generator.saveSnapshot(snapshot);
 
   console.log("\n✓ Snapshot generated successfully");
-  return filepath;
+  return { path: filepath, data: snapshot };
 }
 
 /**
@@ -275,8 +276,9 @@ export async function updateSnapshotAndMerkle(skipContractUpdate = false): Promi
     console.log(`Skip Contract Update: ${skipContractUpdate ? "Yes" : "No"}`);
 
     // Step 1: Generate snapshot
-    const snapshotPath = await generateSnapshot();
+    const { path: snapshotPath, data: snapshotData } = await generateSnapshot();
     result.snapshotPath = snapshotPath;
+    result.snapshot = snapshotData;
     result.steps.snapshot = true;
 
     // Step 2: Generate merkle tree
