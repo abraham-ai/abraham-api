@@ -227,6 +227,46 @@ export function verifyProof(
 }
 
 /**
+ * Helper function to load merkle tree from blob storage or local file
+ * Priority order:
+ * 1. Vercel Blob storage (if configured)
+ * 2. Local file
+ */
+export async function loadMerkleTree(): Promise<MerkleProof | null> {
+  try {
+    // Try Vercel Blob storage first (if configured)
+    try {
+      const { downloadFromBlob, isBlobStorageConfigured } = await import("../storage/blobStorage.js");
+
+      if (isBlobStorageConfigured()) {
+        console.log("Attempting to load merkle tree from Vercel Blob storage...");
+        const blobData = await downloadFromBlob('merkle');
+        if (blobData) {
+          console.log("✓ Loaded merkle tree from Vercel Blob storage");
+          return blobData;
+        }
+      }
+    } catch (error) {
+      console.log("Blob storage not available, falling back to local file");
+    }
+
+    // Fallback to local file
+    const localPath = "./lib/snapshots/firstWorks_merkle.json";
+    try {
+      const data = readFileSync(localPath, "utf-8");
+      console.log(`Loaded merkle tree from ${localPath}`);
+      return JSON.parse(data);
+    } catch (error) {
+      console.log("No merkle tree found locally");
+      return null;
+    }
+  } catch (error) {
+    console.error("Error loading merkle tree:", error);
+    return null;
+  }
+}
+
+/**
  * Main execution
  */
 async function main() {

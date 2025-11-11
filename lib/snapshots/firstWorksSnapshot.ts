@@ -119,8 +119,9 @@ export class FirstWorksSnapshotGenerator {
 
   constructor() {
     this.client = createClient();
-    // Store snapshots in the same directory as this file
-    this.snapshotDir = __dirname;
+    // On Vercel, use /tmp (only writable location)
+    // Locally, use the snapshots directory
+    this.snapshotDir = process.env.VERCEL ? '/tmp' : __dirname;
   }
 
   /**
@@ -374,13 +375,13 @@ export class FirstWorksSnapshotGenerator {
   }
 
   /**
-   * Step 4: Save snapshot to file
+   * Step 4: Save snapshot to file and upload to Vercel Blob
    */
   async saveSnapshot(snapshot: FirstWorksSnapshot): Promise<string> {
     const filename = `snapshot-${Date.now()}.json`;
     const filepath = path.join(this.snapshotDir, filename);
 
-    // Save full snapshot
+    // Save full snapshot locally
     await fs.promises.writeFile(filepath, JSON.stringify(snapshot, null, 2));
     console.log(`\n=� Snapshot saved: ${filepath}`);
 
@@ -388,6 +389,27 @@ export class FirstWorksSnapshotGenerator {
     const latestPath = path.join(this.snapshotDir, "latest.json");
     await fs.promises.writeFile(latestPath, JSON.stringify(snapshot, null, 2));
     console.log(`=� Latest snapshot: ${latestPath}`);
+
+    // Upload to Vercel Blob storage (if configured)
+    try {
+      const { uploadToBlob, cleanupOldBlobs, isBlobStorageConfigured } = await import("../storage/blobStorage.js");
+
+      if (isBlobStorageConfigured()) {
+        console.log("\n☁️  Uploading snapshot to Vercel Blob storage...");
+        await uploadToBlob(snapshot, 'snapshot');
+
+        // Clean up old snapshots (keep last 5 versions)
+        await cleanupOldBlobs('snapshot', 5);
+
+        console.log("✓ Snapshot uploaded and old versions cleaned up");
+      } else {
+        console.log("\n⚠️  Blob storage not configured (BLOB_READ_WRITE_TOKEN missing)");
+        console.log("   Skipping upload to blob storage");
+      }
+    } catch (error) {
+      console.error("⚠️  Failed to upload to blob storage:", error);
+      console.log("   Continuing with local snapshot only");
+    }
 
     return filepath;
   }
@@ -411,17 +433,46 @@ export class FirstWorksSnapshotGenerator {
 
 /**
  * Helper function to load the latest snapshot
+ * Priority order:
+ * 1. Vercel Blob storage (if configured and on Vercel)
+ * 2. Local /tmp directory (if on Vercel and file exists)
+ * 3. Committed snapshot from source
  */
 export async function loadLatestSnapshot(): Promise<FirstWorksSnapshot | null> {
   try {
-    const latestPath = path.join(__dirname, "latest.json");
+    // Try Vercel Blob storage first (if configured)
+    try {
+      const { downloadFromBlob, isBlobStorageConfigured } = await import("../storage/blobStorage.js");
 
-    if (!fs.existsSync(latestPath)) {
-      return null;
+      if (isBlobStorageConfigured()) {
+        console.log("Attempting to load snapshot from Vercel Blob storage...");
+        const blobData = await downloadFromBlob('snapshot');
+        if (blobData) {
+          console.log("✓ Loaded snapshot from Vercel Blob storage");
+          return blobData;
+        }
+      }
+    } catch (error) {
+      console.log("Blob storage not available, falling back to local files");
     }
 
-    const data = await fs.promises.readFile(latestPath, "utf-8");
-    return JSON.parse(data);
+    // Fallback to local files
+    // On Vercel, check /tmp first (if snapshot was just generated)
+    // Otherwise use the committed snapshot from source
+    const paths = process.env.VERCEL
+      ? ["/tmp/latest.json", path.join(__dirname, "latest.json")]
+      : [path.join(__dirname, "latest.json")];
+
+    for (const latestPath of paths) {
+      if (fs.existsSync(latestPath)) {
+        const data = await fs.promises.readFile(latestPath, "utf-8");
+        console.log(`Loaded snapshot from ${latestPath}`);
+        return JSON.parse(data);
+      }
+    }
+
+    console.log("No snapshot found");
+    return null;
   } catch (error) {
     console.error("Error loading snapshot:", error);
     return null;
