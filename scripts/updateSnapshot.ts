@@ -40,11 +40,11 @@ const theSeedsAbi = parseAbi([
 const networks = {
   base: {
     chain: base,
-    rpcUrl: process.env.BASE_MAINNET_RPC || process.env.BASE_RPC_URL || "https://mainnet.base.org",
+    rpcUrl: process.env.BASE_MAINNET_RPC_URL || "https://mainnet.base.org",
   },
   baseSepolia: {
     chain: baseSepolia,
-    rpcUrl: process.env.BASE_SEPOLIA_RPC || "https://sepolia.base.org",
+    rpcUrl: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
   },
 };
 
@@ -143,16 +143,19 @@ async function updateContract(merkleRoot: string): Promise<{ txHash: string; blo
   console.log(`Chain ID: ${networkConfig.chain.id}`);
 
   // Get contract address from environment
-  const contractAddress = process.env.CONTRACT_ADDRESS as Address;
+  const contractAddress = process.env.L2_SEEDS_CONTRACT as Address;
   if (!contractAddress) {
-    throw new Error("CONTRACT_ADDRESS not set in environment");
+    throw new Error("L2_SEEDS_CONTRACT not set in environment");
   }
 
-  // Get private key from environment
-  const privateKey = (process.env.RELAYER_PRIVATE_KEY || process.env.PRIVATE_KEY) as Hex;
-  if (!privateKey) {
-    throw new Error("RELAYER_PRIVATE_KEY or PRIVATE_KEY not set in environment");
+  // Get deployer private key (admin role required to update merkle root)
+  const privateKeyRaw = process.env.DEPLOYER_PRIVATE_KEY;
+  if (!privateKeyRaw) {
+    throw new Error("DEPLOYER_PRIVATE_KEY not set in environment (admin wallet required)");
   }
+
+  // Normalize private key (add 0x prefix if missing)
+  const privateKey = (privateKeyRaw.startsWith("0x") ? privateKeyRaw : `0x${privateKeyRaw}`) as Hex;
 
   // Create account from private key
   const account = privateKeyToAccount(privateKey);
