@@ -6,19 +6,32 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "snapshot:generate": "tsx lib/snapshots/firstWorksSnapshot.ts",
+    "merkle:generate": "tsx lib/snapshots/merkleTreeGenerator.ts",
+    "update-snapshot": "tsx scripts/updateSnapshot.ts",
     "test:env": "tsx scripts/test-env.ts",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "compile": "hardhat compile",
+    "test:contracts": "hardhat test",
+    "deployseeds:local": "hardhat run deploy/deploy_seeds.ts",
+    "deployseeds:sepolia": "hardhat run deploy/deploy_seeds.ts --network sepolia",
+    "deployseeds:base-sepolia": "hardhat run deploy/deploy_seeds.ts --network baseSepolia",
+    "deployseeds:base": "hardhat run deploy/deploy_seeds.ts --network baseMainnet",
+    "update-root": "tsx scripts/updateMerkleRoot.ts",
+    "verify": "hardhat verify"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.5",
+    "@nomicfoundation/hardhat-toolbox-viem": "^5.0.1",
     "@privy-io/server-auth": "^1.32.5",
     "dotenv": "^17.2.3",
     "hono": "^4.10.2",
     "viem": "^2.38.4"
   },
   "devDependencies": {
+    "@openzeppelin/contracts": "^5.4.0",
     "@types/node": "^20.11.17",
+    "hardhat": "^3.0.10",
     "tsx": "^4.7.1",
     "typescript": "^5.8.3"
   }

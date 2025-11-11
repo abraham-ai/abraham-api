@@ -222,4 +222,50 @@ See [SETUP.md](./SETUP.md) for detailed documentation including:
 
 ---
 
+## Smart Contract Development
+
+This project now includes **The Seeds** - an L2 governance contract for decentralized artwork curation.
+
+### Quick Start with Smart Contracts
+
+1. **Compile contracts**:
+   ```bash
+   npm run compile
+   ```
+
+2. **Generate Merkle tree** (for voting proofs):
+   ```bash
+   npm run merkle:generate
+   ```
+
+3. **Deploy to Base Sepolia** (testnet):
+   ```bash
+   npm run deploy:base-sepolia
+   ```
+
+4. **Update Merkle root on contract**:
+   ```bash
+   npm run update-root -- --network baseSepolia
+   ```
+
+5. **Run contract tests**:
+   ```bash
+   npm run test:contracts
+   ```
+
+### What The Seeds Does
+
+- **Seed Submission**: Artists submit artwork proposals (Seeds)
+- **Voting**: FirstWorks NFT holders vote for Seeds
+- **Daily Winner**: Highest voted Seed wins each day
+- **L1 Minting**: Winner gets minted on Ethereum L1
+
+### Resources
+
+- [Smart Contract Guide](./SMART_CONTRACT_GUIDE.md) - Complete integration guide
+- [Architecture Overview](./ARCHITECTURE.md) - System design and cross-chain flow
+- [The Seeds Contract](./contracts/TheSeeds.sol) - Source code
+
+---
+
 **Ready to go!** Run `npm run snapshot:generate` then `npm run dev` to start.

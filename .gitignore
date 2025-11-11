@@ -33,3 +33,18 @@ lerna-debug.log*
 # Keep latest.json for Vercel deployment, ignore timestamped snapshots
 lib/snapshots/snapshot-*.json
 !lib/snapshots/latest.json
+
+# pnpm deploy output
+/bundle
+
+# Hardhat Build Artifacts
+/artifacts
+
+# Hardhat compilation (v2) support directory
+/cache
+
+# Typechain output
+/types
+
+# Hardhat coverage reports
+/coverage
