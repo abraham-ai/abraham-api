@@ -2122,6 +2122,8 @@ abraham-api/
 
 ## Development
 
+### API Development
+
 ```bash
 # Development mode with hot reload
 npm run dev
@@ -2135,6 +2137,27 @@ npm run snapshot:generate
 # Type checking
 npm run typecheck
 ```
+
+### Contract Development
+
+When you make changes to the smart contracts, you need to recompile and extract the ABI:
+
+```bash
+# Compile contracts (automatically extracts ABI)
+npm run compile
+
+# Or manually extract ABI after compilation
+npm run extract-abi
+```
+
+**Important**: The ABI is stored in `lib/abi/TheSeeds.json` and is **tracked by git**. This ensures the ABI is available in deployments (Vercel, etc.) since the `artifacts/` folder is gitignored.
+
+**When to update the ABI:**
+- After modifying `contracts/TheSeeds.sol`
+- After pulling contract changes from git
+- Before deploying to production
+
+The `postcompile` script automatically runs `extract-abi` after each compilation, so normally you just need to run `npm run compile`.
 
 ## Deployment
 

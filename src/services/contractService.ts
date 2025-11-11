@@ -23,11 +23,11 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load the full ABI from contract artifacts
-// This avoids issues with parseAbi not handling complex tuple types
-const artifactPath = join(__dirname, "../../artifacts/contracts/TheSeeds.sol/TheSeeds.json");
-const contractArtifact = JSON.parse(readFileSync(artifactPath, "utf-8"));
-const SEEDS_ABI = contractArtifact.abi;
+// Load the ABI from source-tracked file (not artifacts, which is gitignored)
+// This ensures the ABI is available in Vercel deployments
+// The ABI is extracted from artifacts during build with: npm run extract-abi
+const abiPath = join(__dirname, "../../lib/abi/TheSeeds.json");
+const SEEDS_ABI = JSON.parse(readFileSync(abiPath, "utf-8"));
 
 export interface Seed {
   id: bigint;
