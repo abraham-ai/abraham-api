@@ -38,9 +38,11 @@ function requireAdminKey(c: any, next: any) {
  * Update FirstWorks snapshot, generate merkle tree, and update contract
  *
  * This endpoint performs all three steps in one action:
- * 1. Generate FirstWorks NFT ownership snapshot
+ * 1. Generate FirstWorks NFT ownership snapshot (using Alchemy NFT API - fast!)
  * 2. Generate Merkle tree from snapshot
  * 3. Update Merkle root on The Seeds contract (L2)
+ *
+ * ⚡ Performance: Completes in ~10-30 seconds with Alchemy API
  *
  * Authentication: X-Admin-Key header only (no Privy token required)
  *
