@@ -40,8 +40,17 @@ The system uses:
 
 2. **Set up environment variables**
    ```bash
-   cp .env.example .env
-   # Edit .env with your Privy credentials and RPC URL
+   cp .env.example .env.local
+   # Edit .env.local with your configuration
+   ```
+
+   **Generate your admin key:**
+   ```bash
+   # Generate a secure random admin key
+   openssl rand -hex 32
+
+   # Add it to .env.local:
+   # ADMIN_KEY=<generated_key_here>
    ```
 
 3. **Generate initial NFT snapshot**
@@ -150,15 +159,34 @@ SUMMARY
 **Endpoint:** `POST /api/admin/update-snapshot`
 
 **Authentication:**
-- Privy JWT token (via `Authorization` header)
-- Admin key (via `X-Admin-Key` header)
+- Admin key only (via `X-Admin-Key` header)
+- **No Privy authentication required** for admin endpoints
+
+**Generating Your Admin Key:**
+
+The admin key is a secret you create yourself. Generate a strong random key:
+
+```bash
+# Using OpenSSL (recommended)
+openssl rand -hex 32
+
+# Using Node.js
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# Example output:
+# a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+```
+
+Add it to your `.env.local`:
+
+```bash
+ADMIN_KEY=a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+```
 
 **Request:**
 
 ```bash
 curl -X POST http://localhost:3000/api/admin/update-snapshot \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_PRIVY_TOKEN" \
   -H "X-Admin-Key: your-secret-admin-key"
 ```
 
@@ -169,7 +197,6 @@ curl -X POST http://localhost:3000/api/admin/update-snapshot \
 ```bash
 # Skip contract update
 curl -X POST "http://localhost:3000/api/admin/update-snapshot?skipContract=true" \
-  -H "Authorization: Bearer YOUR_PRIVY_TOKEN" \
   -H "X-Admin-Key: your-secret-admin-key"
 ```
 
@@ -197,17 +224,11 @@ curl -X POST "http://localhost:3000/api/admin/update-snapshot?skipContract=true"
 **TypeScript/JavaScript Example:**
 
 ```typescript
-import { usePrivy } from '@privy-io/react-auth';
-
 async function updateSnapshot() {
-  const { getAccessToken } = usePrivy();
-  const token = await getAccessToken();
-
   const response = await fetch('http://localhost:3000/api/admin/update-snapshot', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${token}`,
-      'X-Admin-Key': process.env.ADMIN_KEY
+      'X-Admin-Key': process.env.ADMIN_KEY  // Only admin key needed
     }
   });
 
@@ -220,6 +241,19 @@ async function updateSnapshot() {
   } else {
     console.error('Update failed:', result.error);
   }
+}
+
+// Skip contract update (only generate snapshot + merkle)
+async function updateSnapshotOnly() {
+  const response = await fetch('http://localhost:3000/api/admin/update-snapshot?skipContract=true', {
+    method: 'POST',
+    headers: {
+      'X-Admin-Key': process.env.ADMIN_KEY
+    }
+  });
+
+  const result = await response.json();
+  // ...
 }
 ```
 
@@ -265,13 +299,12 @@ curl http://localhost:3000/api/admin/snapshot-status
 
 **Endpoint:** `POST /api/admin/reload-snapshot`
 
-**Authentication:** Requires admin key
+**Authentication:** Admin key only (no Privy token required)
 
 Reloads the in-memory snapshot cache without regenerating or updating contract.
 
 ```bash
 curl -X POST http://localhost:3000/api/admin/reload-snapshot \
-  -H "Authorization: Bearer YOUR_PRIVY_TOKEN" \
   -H "X-Admin-Key: your-secret-admin-key"
 ```
 
@@ -299,8 +332,9 @@ curl -X POST http://localhost:3000/api/admin/reload-snapshot \
 import { updateSnapshotAndMerkle } from '../../scripts/updateSnapshot';
 
 export default async function handler(req: Request) {
-  // Verify cron secret
-  if (req.headers.get('Authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+  // Verify Vercel cron secret (automatically added by Vercel)
+  const authHeader = req.headers.get('Authorization');
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return new Response('Unauthorized', { status: 401 });
   }
 
@@ -320,6 +354,8 @@ export default async function handler(req: Request) {
   }]
 }
 ```
+
+**Note**: Vercel automatically adds a `CRON_SECRET` to your environment and includes it in the `Authorization` header for cron requests. This is different from your `ADMIN_KEY` and is managed by Vercel.
 
 ---
 
