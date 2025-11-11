@@ -12,6 +12,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "compile": "hardhat compile",
+    "extract-abi": "cat artifacts/contracts/TheSeeds.sol/TheSeeds.json | jq '.abi' > lib/abi/TheSeeds.json",
+    "postcompile": "npm run extract-abi",
     "test:contracts": "hardhat test",
     "deployseeds:local": "hardhat run deploy/deploy_seeds.ts",
     "deployseeds:sepolia": "hardhat run deploy/deploy_seeds.ts --network sepolia",
