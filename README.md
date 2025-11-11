@@ -156,6 +156,14 @@ SUMMARY
 
 ### Method 2: Via API Endpoint
 
+> ⚡ **FAST**: Snapshot generation completes in ~10-30 seconds using Alchemy's NFT API!
+>
+> **Requirements:**
+> - Alchemy RPC URL (includes NFT API access - free tier available)
+> - Set `FIRSTWORKS_RPC_URL` to your Alchemy endpoint
+>
+> **Fallback**: If not using Alchemy, falls back to slower RPC calls (may timeout on Vercel)
+
 **Endpoint:** `POST /api/admin/update-snapshot`
 
 **Authentication:**
@@ -255,6 +263,91 @@ async function updateSnapshotOnly() {
   const result = await response.json();
   // ...
 }
+```
+
+---
+
+### Production Workflow (Optional - For Non-Alchemy RPC)
+
+If you're NOT using Alchemy (which provides fast NFT API), you may need this workflow:
+
+#### Step 1: Generate Snapshot Locally
+
+```bash
+# Run the unified update script
+npm run update-snapshot
+```
+
+This will:
+- Fetch FirstWorks NFT ownership from Ethereum mainnet
+- Generate merkle tree with proofs
+- Update merkle root on TheSeeds contract (L2)
+- Save to `lib/snapshots/latest.json` and `lib/snapshots/firstWorks_merkle.json`
+
+#### Step 2: Commit and Push
+
+```bash
+# Add the updated snapshot files
+git add lib/snapshots/latest.json lib/snapshots/firstWorks_merkle.json
+
+# Commit
+git commit -m "chore: update FirstWorks NFT snapshot"
+
+# Push to GitHub
+git push
+```
+
+#### Step 3: Vercel Auto-Deploys
+
+Vercel will automatically:
+1. Detect the git push
+2. Trigger a new deployment
+3. Include the updated snapshot files
+4. Deploy the new version
+
+#### Alternative: GitHub Actions (Optional)
+
+You can automate this with a GitHub Action that runs on a schedule:
+
+```yaml
+# .github/workflows/update-snapshot.yml
+name: Update NFT Snapshot
+
+on:
+  schedule:
+    # Run daily at midnight UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Update snapshot
+        env:
+          FIRSTWORKS_RPC_URL: ${{ secrets.FIRSTWORKS_RPC_URL }}
+          L2_SEEDS_CONTRACT: ${{ secrets.L2_SEEDS_CONTRACT }}
+          DEPLOYER_PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+        run: npm run update-snapshot
+
+      - name: Commit and push
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add lib/snapshots/latest.json lib/snapshots/firstWorks_merkle.json
+          git commit -m "chore: automated NFT snapshot update" || exit 0
+          git push
 ```
 
 ---

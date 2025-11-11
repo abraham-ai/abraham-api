@@ -158,13 +158,83 @@ export class FirstWorksSnapshotGenerator {
   }
 
   /**
-   * Step 2: Get all token ownership in batches
+   * Step 2: Get all token ownership using Alchemy NFT API (FAST)
+   * Falls back to RPC calls if Alchemy is not available
    */
   private async getAllOwners(
     totalSupply: number
   ): Promise<Map<string, number[]>> {
-    console.log("\n=Fetching token ownership...");
+    console.log("\n⚡ Fetching token ownership...");
 
+    // Try Alchemy NFT API first (much faster - completes in seconds)
+    if (FIRSTWORKS_RPC_URL && FIRSTWORKS_RPC_URL.includes('alchemy.com')) {
+      try {
+        console.log("   Using Alchemy NFT API (fast method)...");
+        return await this.getAllOwnersViaAlchemy();
+      } catch (error) {
+        console.warn("   Alchemy API failed, falling back to RPC calls...");
+        console.warn(`   Error: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    // Fallback to traditional RPC method (slower but works with any RPC)
+    console.log("   Using RPC calls (slower method)...");
+    return await this.getAllOwnersViaRPC(totalSupply);
+  }
+
+  /**
+   * Get all owners using Alchemy's NFT API (FAST - ~2-5 seconds)
+   */
+  private async getAllOwnersViaAlchemy(): Promise<Map<string, number[]>> {
+    const holders = new Map<string, number[]>();
+
+    // Extract Alchemy API key from RPC URL
+    const alchemyKey = FIRSTWORKS_RPC_URL!.split('/').pop();
+    const alchemyBaseUrl = `https://eth-mainnet.g.alchemy.com/nft/v3/${alchemyKey}`;
+
+    let pageKey: string | undefined;
+    let totalFetched = 0;
+
+    do {
+      const url = new URL(`${alchemyBaseUrl}/getOwnersForContract`);
+      url.searchParams.set('contractAddress', FIRSTWORKS_ADDRESS);
+      url.searchParams.set('withTokenBalances', 'true');
+      if (pageKey) {
+        url.searchParams.set('pageKey', pageKey);
+      }
+
+      const response = await fetch(url.toString());
+      if (!response.ok) {
+        throw new Error(`Alchemy API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      // Process owners from this page
+      for (const owner of data.owners || []) {
+        const address = owner.ownerAddress.toLowerCase();
+        const tokenIds = owner.tokenBalances?.map((t: any) => parseInt(t.tokenId, 16)) || [];
+
+        if (tokenIds.length > 0) {
+          holders.set(address, tokenIds);
+          totalFetched += tokenIds.length;
+        }
+      }
+
+      pageKey = data.pageKey;
+      console.log(`   Fetched ${totalFetched} tokens so far...`);
+    } while (pageKey);
+
+    console.log(`   ✅ Fetched all ${totalFetched} tokens via Alchemy API`);
+    return holders;
+  }
+
+  /**
+   * Get all owners using RPC calls (SLOW - fallback method)
+   */
+  private async getAllOwnersViaRPC(
+    totalSupply: number
+  ): Promise<Map<string, number[]>> {
     const holders = new Map<string, number[]>();
     const batchSize = 50; // Process 50 tokens at a time
 

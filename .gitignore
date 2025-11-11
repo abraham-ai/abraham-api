@@ -34,9 +34,10 @@ lerna-debug.log*
 .vercel
 
 # snapshots (generated)
-# Keep latest.json for Vercel deployment, ignore timestamped snapshots
+# Keep latest.json and merkle tree for Vercel deployment, ignore timestamped snapshots
 lib/snapshots/snapshot-*.json
 !lib/snapshots/latest.json
+!lib/snapshots/firstWorks_merkle.json
 
 # pnpm deploy output
 /bundle
