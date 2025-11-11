@@ -77,6 +77,41 @@ We provide a **single command** and **single API endpoint** that performs all th
 2. **Generate Merkle Tree** - Creates merkle tree with proofs for each holder
 3. **Update Contract** - Updates the merkle root on TheSeeds contract (L2)
 
+### Storage: Vercel Blob (Recommended)
+
+**Automatic snapshot and merkle tree storage** - No manual git commits needed!
+
+When `BLOB_READ_WRITE_TOKEN` is configured, the system automatically:
+- ✅ Uploads snapshots to Vercel Blob storage after generation
+- ✅ Uploads merkle trees to Vercel Blob storage
+- ✅ Cleans up old versions (keeps last 5)
+- ✅ Provides fast CDN-backed reads for API endpoints
+- ✅ Eliminates manual git commit workflow
+
+**Setup:**
+
+1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
+2. Select your project
+3. Go to "Storage" tab
+4. Create a Blob Store (if you haven't already)
+5. Copy the "Read-Write Token"
+6. Add to environment variables:
+
+```bash
+BLOB_READ_WRITE_TOKEN=your_vercel_blob_token_here
+```
+
+**Benefits:**
+- **5GB free tier** - More than enough for snapshots
+- **No manual workflow** - Just call the API or run the script
+- **Automatic cleanup** - Old versions are deleted automatically
+- **Fast reads** - CDN-backed storage for quick API responses
+
+**Without Blob Storage:**
+- Snapshots saved to `/tmp` on Vercel (ephemeral)
+- Must commit `latest.json` and `firstWorks_merkle.json` to git manually
+- Deployments use committed files from git
+
 ### Method 1: Via CLI Script
 
 Update everything in one command:

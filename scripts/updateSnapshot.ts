@@ -87,7 +87,10 @@ async function generateMerkle(snapshotPath: string): Promise<{ root: string; pat
   console.log("STEP 2: Generating Merkle Tree");
   console.log("=".repeat(60) + "\n");
 
-  const outputPath = "./lib/snapshots/firstWorks_merkle.json";
+  // On Vercel, use /tmp (only writable location)
+  const outputPath = process.env.VERCEL
+    ? "/tmp/firstWorks_merkle.json"
+    : "./lib/snapshots/firstWorks_merkle.json";
 
   console.log(`Reading snapshot from: ${snapshotPath}`);
 
@@ -115,6 +118,27 @@ async function generateMerkle(snapshotPath: string): Promise<{ root: string; pat
 
   if (!isValid) {
     throw new Error("Proof verification failed!");
+  }
+
+  // Upload to Vercel Blob storage (if configured)
+  try {
+    const { uploadToBlob, cleanupOldBlobs, isBlobStorageConfigured } = await import("../lib/storage/blobStorage.js");
+
+    if (isBlobStorageConfigured()) {
+      console.log("\n☁️  Uploading merkle tree to Vercel Blob storage...");
+      await uploadToBlob(merkleData, 'merkle');
+
+      // Clean up old merkle trees (keep last 5 versions)
+      await cleanupOldBlobs('merkle', 5);
+
+      console.log("✓ Merkle tree uploaded and old versions cleaned up");
+    } else {
+      console.log("\n⚠️  Blob storage not configured (BLOB_READ_WRITE_TOKEN missing)");
+      console.log("   Skipping upload to blob storage");
+    }
+  } catch (error) {
+    console.error("⚠️  Failed to upload merkle tree to blob storage:", error);
+    console.log("   Continuing with local merkle tree only");
   }
 
   console.log("\n✓ Merkle tree generated successfully");
