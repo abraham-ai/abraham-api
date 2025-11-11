@@ -166,15 +166,29 @@ export class FirstWorksSnapshotGenerator {
   ): Promise<Map<string, number[]>> {
     console.log("\n⚡ Fetching token ownership...");
 
+    // Debug: Log the RPC URL (masked for security)
+    const maskedUrl = FIRSTWORKS_RPC_URL
+      ? FIRSTWORKS_RPC_URL.replace(/\/([^/]{10})[^/]*$/, '/$1***')
+      : 'NOT SET';
+    console.log(`   RPC URL: ${maskedUrl}`);
+
     // Try Alchemy NFT API first (much faster - completes in seconds)
-    if (FIRSTWORKS_RPC_URL && FIRSTWORKS_RPC_URL.includes('alchemy.com')) {
+    const isAlchemy = FIRSTWORKS_RPC_URL &&
+      (FIRSTWORKS_RPC_URL.includes('alchemy.com') || FIRSTWORKS_RPC_URL.includes('alchemyapi.io'));
+
+    console.log(`   Alchemy detected: ${isAlchemy}`);
+
+    if (isAlchemy) {
       try {
         console.log("   Using Alchemy NFT API (fast method)...");
         return await this.getAllOwnersViaAlchemy();
       } catch (error) {
-        console.warn("   Alchemy API failed, falling back to RPC calls...");
+        console.warn("   ⚠️ Alchemy API failed, falling back to RPC calls...");
         console.warn(`   Error: ${error instanceof Error ? error.message : String(error)}`);
       }
+    } else {
+      console.log("   ⚠️ Alchemy not detected - using slower RPC method");
+      console.log("   💡 Tip: Use Alchemy RPC for 100x faster snapshot generation");
     }
 
     // Fallback to traditional RPC method (slower but works with any RPC)
