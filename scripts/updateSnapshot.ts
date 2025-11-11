@@ -280,7 +280,11 @@ export async function updateSnapshotAndMerkle(skipContractUpdate = false): Promi
     result.steps.snapshot = true;
 
     // Step 2: Generate merkle tree
-    const { root: merkleRoot, path: merklePath } = await generateMerkle("./lib/snapshots/latest.json");
+    // Use the correct path based on environment (Vercel uses /tmp, local uses ./lib/snapshots)
+    const latestSnapshotPath = process.env.VERCEL
+      ? "/tmp/latest.json"
+      : "./lib/snapshots/latest.json";
+    const { root: merkleRoot, path: merklePath } = await generateMerkle(latestSnapshotPath);
     result.merklePath = merklePath;
     result.merkleRoot = merkleRoot;
     result.steps.merkle = true;

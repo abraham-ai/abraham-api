@@ -56,11 +56,12 @@ export async function uploadToBlob(
 
   console.log(`✓ Uploaded versioned ${type}: ${versionedBlob.url}`);
 
-  // Upload/update "latest" file
+  // Upload/update "latest" file (overwrite if exists)
   const latestPath = `${folderName}/latest.json`;
   const latestBlob = await put(latestPath, JSON.stringify(data, null, 2), {
     access: 'public',
     addRandomSuffix: false,
+    allowOverwrite: true, // Always overwrite the latest file
   });
 
   console.log(`✓ Updated latest ${type}: ${latestBlob.url}`);
