@@ -317,6 +317,88 @@ blessings.post("/prepare", withAuth, async (c) => {
 });
 
 /**
+ * GET /blessings/delegation-status
+ * Get delegation information for the authenticated user
+ *
+ * This endpoint checks if the user has approved the backend as their delegate,
+ * which enables gasless blessings. It also provides the backend's address
+ * and other relevant delegation information.
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "userAddress": "0x...",
+ *     "backendAddress": "0x...",
+ *     "isDelegateApproved": boolean,
+ *     "canUseGaslessBlessings": boolean,
+ *     "message": string
+ *   }
+ * }
+ */
+blessings.get("/delegation-status", withAuth, async (c) => {
+  try {
+    const user = getAuthUser(c);
+
+    if (!user || !user.walletAddress) {
+      return c.json(
+        {
+          success: false,
+          error: "Wallet address not found",
+        },
+        400
+      );
+    }
+
+    // Get backend's relayer address
+    const backendAddress = contractService.getRelayerAddress();
+
+    if (!backendAddress) {
+      return c.json({
+        success: true,
+        data: {
+          userAddress: user.walletAddress,
+          backendAddress: null,
+          isDelegateApproved: false,
+          canUseGaslessBlessings: false,
+          message:
+            "Backend relayer not configured. Gasless blessings are not available.",
+        },
+      });
+    }
+
+    // Check if user has approved backend as delegate
+    const isDelegateApproved = await contractService.isDelegate(
+      user.walletAddress as Address,
+      backendAddress
+    );
+
+    return c.json({
+      success: true,
+      data: {
+        userAddress: user.walletAddress,
+        backendAddress,
+        isDelegateApproved,
+        canUseGaslessBlessings: isDelegateApproved,
+        message: isDelegateApproved
+          ? "You have approved gasless blessings. The backend can submit blessings on your behalf."
+          : "You have not yet approved gasless blessings. Call POST /blessings/prepare-delegate to get started.",
+      },
+    });
+  } catch (error) {
+    console.error("Error checking delegation status:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to check delegation status",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
  * POST /blessings/prepare-delegate
  * Prepare a delegate approval transaction for CLIENT-SIDE signing
  *

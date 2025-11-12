@@ -249,6 +249,83 @@ const { isSuccess } = useWaitForTransactionReceipt({ hash });
 
 ## Delegation
 
+### GET `/blessings/delegation-status`
+
+Check the delegation status of the authenticated user. This endpoint returns whether the user has approved the backend as their delegate, which is required for gasless blessings.
+
+**Request:**
+```json
+GET /blessings/delegation-status
+Authorization: Bearer <privy_token>
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "userAddress": "0xUser...",
+    "backendAddress": "0xBackend...",
+    "isDelegateApproved": true,
+    "canUseGaslessBlessings": true,
+    "message": "You have approved gasless blessings. The backend can submit blessings on your behalf."
+  }
+}
+```
+
+**Response when not approved:**
+```json
+{
+  "success": true,
+  "data": {
+    "userAddress": "0xUser...",
+    "backendAddress": "0xBackend...",
+    "isDelegateApproved": false,
+    "canUseGaslessBlessings": false,
+    "message": "You have not yet approved gasless blessings. Call POST /blessings/prepare-delegate to get started."
+  }
+}
+```
+
+**Response when backend not configured:**
+```json
+{
+  "success": true,
+  "data": {
+    "userAddress": "0xUser...",
+    "backendAddress": null,
+    "isDelegateApproved": false,
+    "canUseGaslessBlessings": false,
+    "message": "Backend relayer not configured. Gasless blessings are not available."
+  }
+}
+```
+
+**Frontend Implementation Example:**
+```typescript
+// Check delegation status before attempting gasless blessing
+const checkDelegationStatus = async () => {
+  const response = await fetch('/blessings/delegation-status', {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${privyToken}`
+    }
+  });
+
+  const { data } = await response.json();
+
+  if (data.canUseGaslessBlessings) {
+    console.log('Gasless blessings enabled!');
+    return true;
+  } else {
+    console.log('Need to approve delegation first');
+    return false;
+  }
+};
+```
+
+---
+
 ### POST `/blessings/prepare-delegate`
 
 Prepare a delegate approval transaction. Users must approve the backend as their delegate to enable gasless blessings.
@@ -287,20 +364,19 @@ Content-Type: application/json
 ```typescript
 // 1. Check if user needs to approve delegate
 const checkDelegation = async () => {
-  const response = await fetch('/blessings/prepare-delegate', {
-    method: 'POST',
+  const response = await fetch('/blessings/delegation-status', {
+    method: 'GET',
     headers: {
-      'Authorization': `Bearer ${privyToken}`,
-      'Content-Type': 'application/json'
+      'Authorization': `Bearer ${privyToken}`
     }
   });
 
   const { data } = await response.json();
-  return data.currentStatus === 'Already approved';
+  return data.canUseGaslessBlessings;
 };
 
 // 2. If not approved, prompt user to approve
-const approveDel egate = async () => {
+const approveDelegate = async () => {
   const response = await fetch('/blessings/prepare-delegate', {
     method: 'POST',
     headers: {

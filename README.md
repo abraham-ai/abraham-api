@@ -1675,7 +1675,85 @@ async function getBlessingStats() {
 
 ---
 
-### 4. Perform a Blessing
+### 4. Check Delegation Status
+
+**Endpoint:** `GET /api/blessings/delegation-status`
+
+**Description:** Check if the authenticated user has approved the backend as their delegate for gasless blessings
+
+**Authentication:** Required (Privy JWT token)
+
+**cURL Example:**
+```bash
+curl http://localhost:3000/api/blessings/delegation-status \
+  -H "Authorization: Bearer YOUR_PRIVY_TOKEN"
+```
+
+**JavaScript/TypeScript Example:**
+```typescript
+import { usePrivy } from '@privy-io/react-auth';
+
+const { getAccessToken } = usePrivy();
+
+async function checkDelegationStatus() {
+  const token = await getAccessToken();
+
+  const response = await fetch('http://localhost:3000/api/blessings/delegation-status', {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  const data = await response.json();
+  console.log(data);
+}
+```
+
+**Success Response (200) - Delegate Approved:**
+```json
+{
+  "success": true,
+  "data": {
+    "userAddress": "0xUser...",
+    "backendAddress": "0xBackend...",
+    "isDelegateApproved": true,
+    "canUseGaslessBlessings": true,
+    "message": "You have approved gasless blessings. The backend can submit blessings on your behalf."
+  }
+}
+```
+
+**Success Response (200) - Not Yet Approved:**
+```json
+{
+  "success": true,
+  "data": {
+    "userAddress": "0xUser...",
+    "backendAddress": "0xBackend...",
+    "isDelegateApproved": false,
+    "canUseGaslessBlessings": false,
+    "message": "You have not yet approved gasless blessings. Call POST /blessings/prepare-delegate to get started."
+  }
+}
+```
+
+**Success Response (200) - Backend Not Configured:**
+```json
+{
+  "success": true,
+  "data": {
+    "userAddress": "0xUser...",
+    "backendAddress": null,
+    "isDelegateApproved": false,
+    "canUseGaslessBlessings": false,
+    "message": "Backend relayer not configured. Gasless blessings are not available."
+  }
+}
+```
+
+---
+
+### 5. Perform a Blessing
 
 **Endpoint:** `POST /api/blessings`
 
