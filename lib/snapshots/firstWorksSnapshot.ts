@@ -228,7 +228,14 @@ export class FirstWorksSnapshotGenerator {
       // Process owners from this page
       for (const owner of data.owners || []) {
         const address = owner.ownerAddress.toLowerCase();
-        const tokenIds = owner.tokenBalances?.map((t: any) => parseInt(t.tokenId, 16)) || [];
+        // Alchemy returns tokenIds as decimal strings or hex strings with "0x" prefix
+        // Use Number() to correctly parse both formats:
+        //   - Decimal: "628" → 628 ✓
+        //   - Hex: "0x274" → 628 ✓
+        // CRITICAL: DO NOT use parseInt(x, 16) - it treats decimal strings as hex!
+        //   - parseInt("628", 16) = 1576 ❌ (treats 628 as hex)
+        //   - parseInt("2281", 16) = 8833 ❌ (treats 2281 as hex)
+        const tokenIds = owner.tokenBalances?.map((t: any) => Number(t.tokenId)) || [];
 
         if (tokenIds.length > 0) {
           holders.set(address, tokenIds);
