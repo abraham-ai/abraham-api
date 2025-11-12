@@ -3,6 +3,9 @@ import { withAuth, getAuthUser } from "../middleware/auth.js";
 import { blessingService } from "../services/blessingService.js";
 import { contractService } from "../services/contractService.js";
 import type { Address } from "viem";
+import { createPublicClient, http } from "viem";
+import { mainnet } from "viem/chains";
+import { AbrahamFirstWorks } from "../../lib/abi/firstWorks.js";
 
 const blessings = new Hono();
 
@@ -593,6 +596,153 @@ blessings.post("/firstworks/reload-snapshot", async (c) => {
       {
         success: false,
         error: "Failed to reload snapshot",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /blessings/firstworks/nfts/:address
+ * Get all FirstWorks NFTs owned by an address with metadata
+ *
+ * This endpoint:
+ * 1. Fetches token IDs from the snapshot
+ * 2. Fetches metadata for each token from the contract's tokenURI
+ * 3. Fetches and parses the metadata JSON from IPFS/HTTP
+ * 4. Returns NFTs with complete metadata for frontend display
+ *
+ * @param address - Ethereum wallet address
+ * @returns Array of NFTs with metadata (image, name, description, attributes, etc.)
+ */
+blessings.get("/firstworks/nfts/:address", async (c) => {
+  try {
+    const address = c.req.param("address").toLowerCase() as Address;
+
+    // Validate address format
+    if (!address.match(/^0x[a-fA-F0-9]{40}$/)) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid Ethereum address format",
+        },
+        400
+      );
+    }
+
+    // Get snapshot to find token IDs
+    const snapshot = await blessingService.getSnapshot();
+    if (!snapshot) {
+      return c.json(
+        {
+          success: false,
+          error: "No snapshot available",
+          message: "Snapshot data is not yet available. Please try again later.",
+        },
+        404
+      );
+    }
+
+    // Get token IDs for this address
+    const tokenIds = snapshot.holderIndex[address] || [];
+
+    if (tokenIds.length === 0) {
+      return c.json({
+        success: true,
+        data: {
+          address,
+          nfts: [],
+          totalOwned: 0,
+        },
+      });
+    }
+
+    // Create client to fetch metadata from contract
+    const FIRSTWORKS_RPC_URL = process.env.FIRSTWORKS_RPC_URL;
+    const FIRSTWORKS_ADDRESS = process.env.FIRSTWORKS_CONTRACT as Address;
+
+    if (!FIRSTWORKS_RPC_URL || !FIRSTWORKS_ADDRESS) {
+      return c.json(
+        {
+          success: false,
+          error: "FirstWorks contract not configured",
+        },
+        500
+      );
+    }
+
+    const client = createPublicClient({
+      chain: mainnet,
+      transport: http(FIRSTWORKS_RPC_URL),
+    });
+
+    // Fetch metadata for each token
+    const nfts = await Promise.all(
+      tokenIds.map(async (tokenId) => {
+        try {
+          // Get tokenURI from contract
+          const tokenURI = await client.readContract({
+            address: FIRSTWORKS_ADDRESS,
+            abi: AbrahamFirstWorks,
+            functionName: "tokenURI",
+            args: [BigInt(tokenId)],
+          }) as string;
+
+          // Fetch metadata from URI (IPFS or HTTP)
+          let metadata = null;
+          let metadataError = null;
+
+          try {
+            // Convert IPFS URI to HTTP gateway if needed
+            const metadataURL = tokenURI.startsWith("ipfs://")
+              ? tokenURI.replace("ipfs://", "https://ipfs.io/ipfs/")
+              : tokenURI;
+
+            const response = await fetch(metadataURL);
+            if (response.ok) {
+              metadata = await response.json();
+            } else {
+              metadataError = `HTTP ${response.status}`;
+            }
+          } catch (error) {
+            metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
+          }
+
+          return {
+            tokenId,
+            tokenURI,
+            metadata,
+            metadataError,
+          };
+        } catch (error) {
+          console.error(`Error fetching metadata for token ${tokenId}:`, error);
+          return {
+            tokenId,
+            tokenURI: null,
+            metadata: null,
+            metadataError: error instanceof Error ? error.message : "Unknown error",
+          };
+        }
+      })
+    );
+
+    return c.json({
+      success: true,
+      data: {
+        address,
+        nfts,
+        totalOwned: nfts.length,
+        contractAddress: FIRSTWORKS_ADDRESS,
+        contractName: snapshot.contractName,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching FirstWorks NFTs:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch NFTs",
         details: error instanceof Error ? error.message : String(error),
       },
       500

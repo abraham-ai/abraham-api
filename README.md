@@ -2074,6 +2074,192 @@ curl -X POST http://localhost:3000/api/blessings/firstworks/reload-snapshot
 
 ---
 
+### 10. Get FirstWorks NFTs for an Address with Metadata
+
+**Endpoint:** `GET /api/blessings/firstworks/nfts/:address`
+
+**Description:** Get all FirstWorks NFTs owned by an address with complete metadata (images, attributes, etc.) for frontend display
+
+**Authentication:** None required (public endpoint)
+
+**Parameters:**
+- `address` (path parameter) - Ethereum wallet address
+
+**How it works:**
+1. Fetches token IDs from the snapshot
+2. For each token, gets the tokenURI from the FirstWorks contract
+3. Fetches and parses metadata JSON from IPFS/HTTP
+4. Returns complete NFT data with images, names, attributes, etc.
+
+**cURL Example:**
+```bash
+# Get NFTs for a specific address
+curl http://localhost:3000/api/blessings/firstworks/nfts/0x826be0f079a18c7f318efbead5f90df70a7b2e29
+```
+
+**JavaScript/TypeScript Example:**
+```typescript
+async function getUserNFTs(address: string) {
+  const response = await fetch(
+    `http://localhost:3000/api/blessings/firstworks/nfts/${address}`
+  );
+  const data = await response.json();
+
+  if (data.success) {
+    console.log(`Found ${data.data.totalOwned} NFTs`);
+
+    // Display NFT images
+    data.data.nfts.forEach(nft => {
+      if (nft.metadata) {
+        console.log(`Token #${nft.tokenId}:`, nft.metadata.name);
+        console.log(`Image:`, nft.metadata.image);
+      }
+    });
+  }
+
+  return data;
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "address": "0x826be0f079a18c7f318efbead5f90df70a7b2e29",
+    "nfts": [
+      {
+        "tokenId": 1,
+        "tokenURI": "ipfs://QmXxx.../1",
+        "metadata": {
+          "name": "FirstWork #1",
+          "description": "An incredible piece of art",
+          "image": "ipfs://QmYyyy.../1.png",
+          "attributes": [
+            {
+              "trait_type": "Artist",
+              "value": "Abraham"
+            },
+            {
+              "trait_type": "Year",
+              "value": "2024"
+            }
+          ]
+        },
+        "metadataError": null
+      },
+      {
+        "tokenId": 42,
+        "tokenURI": "ipfs://QmZzz.../42",
+        "metadata": {
+          "name": "FirstWork #42",
+          "description": "Another masterpiece",
+          "image": "ipfs://QmWww.../42.png",
+          "attributes": [...]
+        },
+        "metadataError": null
+      }
+    ],
+    "totalOwned": 2,
+    "contractAddress": "0x8F814c7C75C5E9e0EDe0336F535604B1915C1985",
+    "contractName": "Abraham's First Works"
+  }
+}
+```
+
+**Success Response - No NFTs (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "address": "0x1234567890abcdef1234567890abcdef12345678",
+    "nfts": [],
+    "totalOwned": 0
+  }
+}
+```
+
+**Error Response - Invalid Address (400):**
+```json
+{
+  "success": false,
+  "error": "Invalid Ethereum address format"
+}
+```
+
+**Error Response - No Snapshot (404):**
+```json
+{
+  "success": false,
+  "error": "No snapshot available",
+  "message": "Snapshot data is not yet available. Please try again later."
+}
+```
+
+**Use Cases:**
+- **NFT Gallery:** Display user's FirstWorks collection with images and metadata
+- **Profile Page:** Show owned NFTs on user profile
+- **Blessing Eligibility UI:** Display which NFTs make user eligible for blessings
+- **Collection Browser:** Build a collection explorer showing all FirstWorks with metadata
+
+**Frontend Example (React):**
+```tsx
+import { useEffect, useState } from 'react';
+
+interface NFT {
+  tokenId: number;
+  metadata: {
+    name: string;
+    image: string;
+    description: string;
+    attributes: Array<{ trait_type: string; value: string }>;
+  };
+}
+
+function UserNFTGallery({ address }: { address: string }) {
+  const [nfts, setNfts] = useState<NFT[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadNFTs() {
+      const response = await fetch(
+        `https://abraham-api.vercel.app/api/blessings/firstworks/nfts/${address}`
+      );
+      const data = await response.json();
+
+      if (data.success) {
+        setNfts(data.data.nfts.filter(nft => nft.metadata)); // Only show NFTs with metadata
+      }
+      setLoading(false);
+    }
+
+    loadNFTs();
+  }, [address]);
+
+  if (loading) return <div>Loading NFTs...</div>;
+  if (nfts.length === 0) return <div>No FirstWorks NFTs found</div>;
+
+  return (
+    <div className="nft-gallery">
+      {nfts.map(nft => (
+        <div key={nft.tokenId} className="nft-card">
+          <img
+            src={nft.metadata.image.replace('ipfs://', 'https://ipfs.io/ipfs/')}
+            alt={nft.metadata.name}
+          />
+          <h3>{nft.metadata.name}</h3>
+          <p>{nft.metadata.description}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+**Note:** This endpoint uses the snapshot data for token ownership and fetches live metadata from the contract and IPFS. Metadata fetching may take a few seconds for users with many NFTs.
+
+---
+
 ## Common Error Responses
 
 ### 401 Unauthorized
