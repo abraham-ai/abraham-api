@@ -119,7 +119,40 @@ class BlessingService {
   }
 
   /**
+   * Count how many blessings a user has performed in the current period
+   * Fetches from blockchain and filters by timestamp
+   */
+  private async countBlessingsInCurrentPeriod(
+    walletAddress: string
+  ): Promise<number> {
+    const { start } = this.getCurrentPeriod();
+    const periodStartTimestamp = Math.floor(start.getTime() / 1000); // Convert to Unix timestamp
+
+    try {
+      // Fetch all blessings by this user from the blockchain
+      const allBlessings = await contractService.getUserBlessings(
+        walletAddress as Address
+      );
+
+      // Count only blessings performed in the current period
+      const blessingsInPeriod = allBlessings.filter(
+        (blessing) => Number(blessing.timestamp) >= periodStartTimestamp
+      );
+
+      return blessingsInPeriod.length;
+    } catch (error) {
+      console.error(
+        `Error fetching on-chain blessings for ${walletAddress}:`,
+        error
+      );
+      // Return 0 if we can't fetch from blockchain
+      return 0;
+    }
+  }
+
+  /**
    * Initialize or reset user blessing data
+   * Fetches actual blessing count from blockchain to ensure accuracy
    */
   private async initializeUserData(
     walletAddress: string
@@ -128,11 +161,16 @@ class BlessingService {
     const maxBlessings = nftCount * BLESSINGS_PER_NFT;
     const { start, end } = this.getCurrentPeriod();
 
+    // Fetch actual number of blessings used today from the blockchain
+    const usedBlessings = await this.countBlessingsInCurrentPeriod(
+      walletAddress
+    );
+
     const data: UserBlessingData = {
       walletAddress: walletAddress.toLowerCase(),
       nftCount,
       maxBlessings,
-      usedBlessings: 0,
+      usedBlessings,
       periodStart: start.toISOString(),
       periodEnd: end.toISOString(),
     };
