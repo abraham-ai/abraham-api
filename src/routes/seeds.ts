@@ -292,6 +292,143 @@ seeds.post("/prepare", withAuth, async (c) => {
 });
 
 /**
+ * GET /seeds
+ * Get all seeds with their IPFS metadata
+ * Supports pagination via query parameters
+ *
+ * Query params:
+ * - page: Page number (default: 1)
+ * - limit: Items per page (default: 10, max: 100)
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "seeds": [...],
+ *     "pagination": {
+ *       "page": number,
+ *       "limit": number,
+ *       "total": number,
+ *       "totalPages": number
+ *     }
+ *   }
+ * }
+ */
+seeds.get("/", async (c) => {
+  try {
+    // Parse pagination parameters
+    const page = parseInt(c.req.query("page") || "1");
+    const limit = Math.min(parseInt(c.req.query("limit") || "10"), 100);
+
+    if (isNaN(page) || page < 1) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid page number",
+        },
+        400
+      );
+    }
+
+    if (isNaN(limit) || limit < 1) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid limit",
+        },
+        400
+      );
+    }
+
+    // Get total seed count
+    const totalCount = await contractService.getSeedCount();
+    const total = Number(totalCount);
+
+    // Calculate pagination
+    const totalPages = Math.ceil(total / limit);
+    const startIndex = (page - 1) * limit;
+    const endIndex = Math.min(startIndex + limit, total);
+
+    // Fetch seeds for current page
+    const seeds = [];
+    for (let i = startIndex; i < endIndex; i++) {
+      try {
+        const seed = await contractService.getSeed(i);
+
+        // Fetch IPFS metadata
+        let metadata = null;
+        let metadataError = null;
+
+        if (seed.ipfsHash) {
+          try {
+            // Convert IPFS hash to HTTP gateway URL
+            const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
+              ? seed.ipfsHash.replace("ipfs://", "https://ipfs.io/ipfs/")
+              : seed.ipfsHash.startsWith("http")
+              ? seed.ipfsHash
+              : `https://ipfs.io/ipfs/${seed.ipfsHash}`;
+
+            const response = await fetch(ipfsUrl);
+
+            if (response.ok) {
+              metadata = await response.json();
+            } else {
+              metadataError = `HTTP ${response.status}`;
+            }
+          } catch (error) {
+            metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
+            console.error(`Error fetching IPFS metadata for seed ${i}:`, error);
+          }
+        }
+
+        seeds.push({
+          id: Number(seed.id),
+          creator: seed.creator,
+          ipfsHash: seed.ipfsHash,
+          title: seed.title,
+          description: seed.description,
+          votes: Number(seed.votes),
+          blessings: Number(seed.blessings),
+          createdAt: Number(seed.createdAt),
+          minted: seed.minted,
+          mintedInRound: Number(seed.mintedInRound),
+          metadata: metadata,
+          metadataError: metadataError,
+        });
+      } catch (error) {
+        console.error(`Error fetching seed ${i}:`, error);
+        // Continue with other seeds even if one fails
+      }
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        seeds,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching seeds:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch seeds",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
  * GET /seeds/:seedId
  * Get details of a specific seed
  */
