@@ -742,10 +742,9 @@ blessings.get("/firstworks/nfts/:address", async (c) => {
 
     // Create client to fetch metadata from contract
     const FIRSTWORKS_RPC_URL = process.env.FIRSTWORKS_RPC_URL;
-    // Use CONTRACT_ADDRESS (consistent with snapshot generator) or fallback to known address
+    // Use FIRSTWORKS_CONTRACT_ADDRESS or fallback to known address
     const FIRSTWORKS_ADDRESS = (
-      process.env.CONTRACT_ADDRESS ||
-      process.env.FIRSTWORKS_CONTRACT ||
+      process.env.FIRSTWORKS_CONTRACT_ADDRESS ||
       "0x8F814c7C75C5E9e0EDe0336F535604B1915C1985"
     ) as Address;
 

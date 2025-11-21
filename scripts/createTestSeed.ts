@@ -63,9 +63,9 @@ async function main() {
   console.log(`Chain ID: ${networkConfig.chain.id}`);
 
   // Get contract address from environment
-  const contractAddress = process.env.THESEEDS_CONTRACT_ADDRESS || process.env.L2_SEEDS_CONTRACT;
+  const contractAddress = process.env.L2_SEEDS_CONTRACT;
   if (!contractAddress) {
-    throw new Error("THESEEDS_CONTRACT_ADDRESS or L2_SEEDS_CONTRACT not set in environment");
+    throw new Error("L2_SEEDS_CONTRACT not set in environment");
   }
 
   // Get private key from environment - try multiple key names

@@ -16,15 +16,29 @@ dotenv.config();
  * 2. Generate Merkle tree
  * 3. Compile contracts
  * 4. Deploy TheSeeds contract
- * 5. Update .env with contract address
- * 6. Update ABI files
+ * 5. Update .env.local with contract address
+ * 6. Update ABI files (lib/abi/theSeeds.ts and lib/abi/TheSeeds.json)
  * 7. Update Merkle root on contract
  * 8. Grant CREATOR_ROLE to relayer
  * 9. Create test seed
  *
+ * Key Implementation Details:
+ * - Uses full compiled ABI (not parseAbi) for proper error decoding
+ * - Reads role hashes from contract instead of hardcoding
+ * - Includes state propagation delays (2s after state changes)
+ * - Gets seed ID from contract return value via simulation
+ * - Waits for contract to be ready after deployment
+ * - Handles both array and object return formats from viem
+ *
  * Usage:
  *   NETWORK=baseSepolia tsx scripts/deployComplete.ts
  *   NETWORK=base tsx scripts/deployComplete.ts
+ *
+ * Or via npm scripts:
+ *   npm run deploy:complete:base-sepolia
+ *   npm run deploy:complete:base
+ *
+ * See docs/DEPLOYMENT.md for detailed documentation.
  */
 
 // Test IPFS hash for initial seed
@@ -114,17 +128,7 @@ function updateEnvFile(contractAddress: string): void {
     envContent = readFileSync(envPath, "utf-8");
   }
 
-  // Update or add THESEEDS_CONTRACT_ADDRESS
-  if (envContent.includes("THESEEDS_CONTRACT_ADDRESS=")) {
-    envContent = envContent.replace(
-      /THESEEDS_CONTRACT_ADDRESS=.*/,
-      `THESEEDS_CONTRACT_ADDRESS=${contractAddress}`
-    );
-  } else {
-    envContent += `\nTHESEEDS_CONTRACT_ADDRESS=${contractAddress}\n`;
-  }
-
-  // Update or add L2_SEEDS_CONTRACT (for backward compatibility)
+  // Update or add L2_SEEDS_CONTRACT
   if (envContent.includes("L2_SEEDS_CONTRACT=")) {
     envContent = envContent.replace(
       /L2_SEEDS_CONTRACT=.*/,
@@ -336,6 +340,7 @@ async function main() {
     address: contractAddress as Address,
     abi: theSeedsAbi,
     functionName: "currentOwnershipRoot",
+    args: [],
   });
 
   console.log(`   Verified root: ${currentRoot}`);
@@ -434,7 +439,7 @@ async function main() {
     });
 
     console.log(`Transaction hash: ${seedHash}`);
-    const seedReceipt = await publicClient.waitForTransactionReceipt({ hash: seedHash });
+    await publicClient.waitForTransactionReceipt({ hash: seedHash });
 
     result.txHashes!.testSeed = seedHash;
     result.testSeedId = Number(createdSeedId);
@@ -454,7 +459,7 @@ async function main() {
   }
 
   // Fetch and display seed
-  let id: bigint, creator: Address, ipfsHash: string, votes: bigint, blessings: bigint, createdAt: bigint, minted: boolean, mintedInRound: bigint;
+  let id: bigint, creator: Address, ipfsHash: string, createdAt: bigint;
 
   try {
     console.log(`   Fetching seed #${result.testSeedId}...`);
@@ -471,29 +476,22 @@ async function main() {
 
     console.log("   Seed data received, parsing...");
 
-    // Handle both object and array return formats
-    if (Array.isArray(seed)) {
-      [id, creator, ipfsHash, votes, blessings, createdAt, minted, mintedInRound] = seed as [
-        bigint,
-        Address,
-        string,
-        bigint,
-        bigint,
-        bigint,
-        boolean,
-        bigint
-      ];
+    // Handle both object and array return formats from viem
+    // viem may return structs as arrays or objects depending on version/config
+    const s = seed as any;
+
+    if (Array.isArray(seed) && seed.length >= 8) {
+      // Array format: [id, creator, ipfsHash, votes, blessings, createdAt, minted, mintedInRound]
+      id = seed[0] as bigint;
+      creator = seed[1] as Address;
+      ipfsHash = seed[2] as string;
+      createdAt = seed[5] as bigint;
     } else {
-      // If returned as object
-      const s = seed as any;
+      // Object format with named properties
       id = s.id;
       creator = s.creator;
       ipfsHash = s.ipfsHash;
-      votes = s.votes;
-      blessings = s.blessings;
       createdAt = s.createdAt;
-      minted = s.minted;
-      mintedInRound = s.mintedInRound;
     }
   } catch (error: any) {
     console.error("\n❌ Failed to fetch seed details");
@@ -533,7 +531,7 @@ async function main() {
   console.log(`Test Seed:        ${networkConfig.explorer}/tx/${result.txHashes!.testSeed}`);
 
   console.log("\n📁 Updated Files:\n");
-  console.log(`✅ .env.local (added THESEEDS_CONTRACT_ADDRESS)`);
+  console.log(`✅ .env.local (added L2_SEEDS_CONTRACT)`);
   console.log(`✅ lib/abi/TheSeeds.json (compiled ABI)`);
   console.log(`✅ lib/abi/theSeeds.ts (TypeScript ABI with address)`);
 

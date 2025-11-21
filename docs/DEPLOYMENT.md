@@ -521,12 +521,272 @@ npm run update-snapshot               # Update snapshot + merkle + contract
 
 ---
 
+## Technical Implementation Details
+
+### How the Deployment Script Works
+
+The automated deployment script ([scripts/deployComplete.ts](../scripts/deployComplete.ts)) implements several key patterns to ensure reliable deployment:
+
+#### 1. **Contract Readiness Verification**
+
+After deploying the contract, the script waits for it to be ready for read operations:
+
+```typescript
+async function waitForContract(
+  publicClient: any,
+  contractAddress: Address,
+  abi: any,
+  maxRetries: number = 10
+): Promise<void> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await publicClient.readContract({
+        address: contractAddress,
+        abi,
+        functionName: "paused",
+      });
+      return; // Contract is ready
+    } catch (error) {
+      // Wait and retry
+      await sleep(3000);
+    }
+  }
+}
+```
+
+**Why:** Immediately after deployment, the contract may not be accessible for read operations. This retry logic ensures the contract is fully initialized before proceeding.
+
+#### 2. **Reading Role Hashes from Contract**
+
+Instead of hardcoding role hashes, the script reads them directly from the deployed contract:
+
+```typescript
+const roleAbi = parseAbi(["function CREATOR_ROLE() view returns (bytes32)"]);
+CREATOR_ROLE = await publicClient.readContract({
+  address: contractAddress,
+  abi: roleAbi,
+  functionName: "CREATOR_ROLE",
+});
+```
+
+**Why:** Role hashes are computed as `keccak256("ROLE_NAME")`. Reading them from the contract ensures we always use the correct hash, even if the contract implementation changes.
+
+#### 3. **State Propagation Delays**
+
+The script includes strategic delays after state-changing operations:
+
+```typescript
+// After granting role
+await sleep(2000);
+
+// Then verify
+const hasRole = await publicClient.readContract({
+  address: contractAddress,
+  abi: theSeedsAbi,
+  functionName: "hasRole",
+  args: [CREATOR_ROLE, relayerAccount.address],
+});
+```
+
+**Why:** Blockchain state changes (like role grants) take time to propagate. The 2-second delay ensures subsequent read operations see the updated state.
+
+#### 4. **Obtaining Seed ID from Contract Return Value**
+
+The script gets the created seed ID directly from the contract's return value:
+
+```typescript
+// Simulate to get the return value
+const { result: simulateResult } = await publicClient.simulateContract({
+  address: contractAddress,
+  abi: theSeedsAbi,
+  functionName: "submitSeed",
+  args: [TEST_IPFS_HASH],
+  account: relayerAccount,
+});
+
+// The submitSeed function returns the seed ID
+createdSeedId = simulateResult as bigint;
+
+// Execute the actual transaction
+seedHash = await relayerClient.writeContract({
+  address: contractAddress,
+  abi: theSeedsAbi,
+  functionName: "submitSeed",
+  args: [TEST_IPFS_HASH],
+});
+```
+
+**Why:** The `submitSeed` function in TheSeeds.sol returns the created seed ID:
+
+```solidity
+function submitSeed(string memory _ipfsHash)
+    external
+    returns (uint256)
+{
+    uint256 seedId = seedCount;
+    seedCount++;
+    // ... create seed ...
+    return seedId;
+}
+```
+
+By simulating the transaction first, we can capture this return value before executing the actual transaction. This is more reliable than trying to calculate the seed ID from `seedCount` after the transaction.
+
+#### 5. **Using Full Compiled ABI**
+
+The script uses the full compiled ABI instead of minimal function signatures:
+
+```typescript
+// Import full compiled ABI with error definitions
+import TheSeeds from "../artifacts/contracts/TheSeeds.sol/TheSeeds.json";
+const theSeedsAbi = TheSeeds.abi;
+
+// NOT this (minimal ABI without errors):
+// const abi = parseAbi([
+//   "function submitSeed(string) returns (uint256)",
+//   // ... missing custom error definitions
+// ]);
+```
+
+**Why:** The full ABI includes custom error definitions. When a transaction reverts, viem can properly decode the error signature (e.g., `0xe2517d3f`) into a readable error name (e.g., `NotAuthorized()`). With a minimal ABI, you only get the error signature.
+
+#### 6. **Handling viem Return Value Formats**
+
+The script handles both array and object return formats from viem:
+
+```typescript
+const seed = await publicClient.readContract({
+  address: contractAddress,
+  abi: theSeedsAbi,
+  functionName: "getSeed",
+  args: [seedId],
+});
+
+// viem may return as array or object
+if (Array.isArray(seed)) {
+  [id, creator, ipfsHash, votes, blessings, createdAt, minted, mintedInRound] = seed;
+} else {
+  const s = seed as any;
+  id = s.id;
+  creator = s.creator;
+  ipfsHash = s.ipfsHash;
+  // ... etc
+}
+```
+
+**Why:** Viem's return format can vary based on the Solidity struct definition and ABI version. This defensive programming ensures compatibility across different viem versions.
+
+#### 7. **Environment File Updates**
+
+The script updates `.env.local` (not `.env`) with the contract address:
+
+```typescript
+function updateEnvFile(contractAddress: string): void {
+  const envPath = ".env.local";
+  let envContent = "";
+
+  if (existsSync(envPath)) {
+    envContent = readFileSync(envPath, "utf-8");
+  }
+
+  // Update or add THESEEDS_CONTRACT_ADDRESS
+  if (envContent.includes("THESEEDS_CONTRACT_ADDRESS=")) {
+    envContent = envContent.replace(
+      /THESEEDS_CONTRACT_ADDRESS=.*/,
+      `THESEEDS_CONTRACT_ADDRESS=${contractAddress}`
+    );
+  } else {
+    envContent += `\nTHESEEDS_CONTRACT_ADDRESS=${contractAddress}\n`;
+  }
+
+  // Also update L2_SEEDS_CONTRACT
+  // ... similar logic
+
+  writeFileSync(envPath, envContent);
+}
+```
+
+**Why:** `.env.local` is the standard Next.js convention for local environment variables and is typically gitignored. This prevents accidentally committing sensitive contract addresses.
+
+### Error Handling and Validation
+
+The script includes comprehensive error handling:
+
+```typescript
+try {
+  // Simulate first to catch errors before sending transaction
+  await publicClient.simulateContract({
+    address: contractAddress,
+    abi: theSeedsAbi,
+    functionName: "submitSeed",
+    args: [TEST_IPFS_HASH],
+    account: relayerAccount,
+  });
+
+  // If simulation succeeds, execute actual transaction
+  const hash = await relayerClient.writeContract({
+    address: contractAddress,
+    abi: theSeedsAbi,
+    functionName: "submitSeed",
+    args: [TEST_IPFS_HASH],
+  });
+} catch (error: any) {
+  console.error("Error details:", error.message);
+
+  // Provide context-specific error messages
+  if (error.message.includes("0xe2517d3f")) {
+    console.error("This is likely an AccessControl issue.");
+    console.error("Check that the relayer has CREATOR_ROLE.");
+  }
+
+  throw error;
+}
+```
+
+**Benefits:**
+1. **Simulation catches errors before gas is spent**
+2. **Context-specific error messages help debugging**
+3. **Error codes are decoded using the full ABI**
+
+### Testing the Deployment
+
+After running the automated deployment, verify everything works:
+
+```bash
+# 1. Check that contract address was added to .env.local
+grep THESEEDS_CONTRACT_ADDRESS .env.local
+
+# 2. Check that ABI files were updated
+ls -la lib/abi/theSeeds.ts
+ls -la lib/abi/TheSeeds.json
+
+# 3. Check deployment result file
+cat deployment-result.json | jq
+
+# 4. Verify the test seed was created
+curl http://localhost:3000/api/seeds/0
+```
+
+### Maintenance and Updates
+
+**Daily Snapshot Updates:**
+
+The `npm run update-snapshot` command runs:
+1. `npm run snapshot:generate` - Generate new NFT ownership snapshot
+2. `npm run merkle:generate` - Generate new Merkle tree
+3. `npm run update-root` - Update Merkle root on-chain
+
+**Why daily updates?** NFT ownership changes as tokens are bought/sold. The Merkle root must be updated to reflect current ownership for voting eligibility.
+
+---
+
 ## Support
 
 For issues or questions:
 1. Check [BLESSING_SYSTEM.md](./BLESSING_SYSTEM.md) for blessing system details
 2. Review contract code in [contracts/TheSeeds.sol](../contracts/TheSeeds.sol)
 3. Check deployment logs in `deployment-result.json`
+4. Review deployment script implementation in [scripts/deployComplete.ts](../scripts/deployComplete.ts)
 
 ---
 
