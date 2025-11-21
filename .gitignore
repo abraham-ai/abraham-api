@@ -53,3 +53,6 @@ lib/snapshots/snapshot-*.json
 
 # Hardhat coverage reports
 /coverage
+
+# Deployment results
+deployment-result.json

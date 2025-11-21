@@ -43,6 +43,11 @@
   },
   {
     "inputs": [],
+    "name": "DailyBlessingLimitReached",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidBlesser",
     "type": "error"
   },
@@ -59,6 +64,11 @@
   {
     "inputs": [],
     "name": "InvalidSeedData",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "MustProvideNFTProof",
     "type": "error"
   },
   {
@@ -566,6 +576,19 @@
   },
   {
     "inputs": [],
+    "name": "BLESSINGS_PER_NFT",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "CREATOR_ROLE",
     "outputs": [
       {
@@ -710,6 +733,16 @@
         "internalType": "address[]",
         "name": "_blessers",
         "type": "address[]"
+      },
+      {
+        "internalType": "uint256[][]",
+        "name": "_tokenIdsArray",
+        "type": "uint256[][]"
+      },
+      {
+        "internalType": "bytes32[][]",
+        "name": "_merkleProofs",
+        "type": "bytes32[][]"
       }
     ],
     "name": "batchBlessSeedsFor",
@@ -723,6 +756,16 @@
         "internalType": "uint256",
         "name": "_seedId",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_tokenIds",
+        "type": "uint256[]"
+      },
+      {
+        "internalType": "bytes32[]",
+        "name": "_merkleProof",
+        "type": "bytes32[]"
       }
     ],
     "name": "blessSeed",
@@ -741,11 +784,45 @@
         "internalType": "address",
         "name": "_blesser",
         "type": "address"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_tokenIds",
+        "type": "uint256[]"
+      },
+      {
+        "internalType": "bytes32[]",
+        "name": "_merkleProof",
+        "type": "bytes32[]"
       }
     ],
     "name": "blessSeedFor",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_nftCount",
+        "type": "uint256"
+      }
+    ],
+    "name": "canBlessToday",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -808,6 +885,30 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_nftCount",
+        "type": "uint256"
+      }
+    ],
+    "name": "getRemainingBlessings",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "bytes32",
         "name": "role",
         "type": "bytes32"
@@ -849,16 +950,6 @@
           {
             "internalType": "string",
             "name": "ipfsHash",
-            "type": "string"
-          },
-          {
-            "internalType": "string",
-            "name": "title",
-            "type": "string"
-          },
-          {
-            "internalType": "string",
-            "name": "description",
             "type": "string"
           },
           {
@@ -974,16 +1065,6 @@
             "type": "string"
           },
           {
-            "internalType": "string",
-            "name": "title",
-            "type": "string"
-          },
-          {
-            "internalType": "string",
-            "name": "description",
-            "type": "string"
-          },
-          {
             "internalType": "uint256",
             "name": "votes",
             "type": "uint256"
@@ -1084,6 +1165,25 @@
         "internalType": "struct TheSeeds.Blessing[]",
         "name": "",
         "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      }
+    ],
+    "name": "getUserDailyBlessingCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -1511,16 +1611,6 @@
         "type": "string"
       },
       {
-        "internalType": "string",
-        "name": "title",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "description",
-        "type": "string"
-      },
-      {
         "internalType": "uint256",
         "name": "votes",
         "type": "uint256"
@@ -1567,16 +1657,6 @@
       {
         "internalType": "string",
         "name": "_ipfsHash",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "_title",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "_description",
         "type": "string"
       }
     ],
@@ -1657,6 +1737,30 @@
       }
     ],
     "name": "userBlessings",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "userDailyBlessings",
     "outputs": [
       {
         "internalType": "uint256",
