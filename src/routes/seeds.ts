@@ -63,45 +63,31 @@ seeds.post("/", withAuth, async (c) => {
 
     // Parse and validate request body
     const body = await c.req.json();
-    const { ipfsHash, title, description } = body;
+    const { ipfsHash } = body;
 
-    if (!ipfsHash || !title) {
+    if (!ipfsHash) {
       return c.json(
         {
           success: false,
-          error: "ipfsHash and title are required",
+          error: "ipfsHash is required",
         },
         400
       );
     }
 
     // Validate input
-    if (typeof ipfsHash !== "string" || typeof title !== "string") {
+    if (typeof ipfsHash !== "string") {
       return c.json(
         {
           success: false,
-          error: "ipfsHash and title must be strings",
-        },
-        400
-      );
-    }
-
-    if (description && typeof description !== "string") {
-      return c.json(
-        {
-          success: false,
-          error: "description must be a string",
+          error: "ipfsHash must be a string",
         },
         400
       );
     }
 
     // Submit seed to blockchain
-    const result = await contractService.submitSeed(
-      ipfsHash,
-      title,
-      description || ""
-    );
+    const result = await contractService.submitSeed(ipfsHash);
 
     if (!result.success) {
       let statusCode: 403 | 500 | 503 = 500;
@@ -144,8 +130,6 @@ seeds.post("/", withAuth, async (c) => {
               id: Number(seed.id),
               creator: seed.creator,
               ipfsHash: seed.ipfsHash,
-              title: seed.title,
-              description: seed.description,
               votes: Number(seed.votes),
               blessings: Number(seed.blessings),
               createdAt: Number(seed.createdAt),
@@ -216,34 +200,24 @@ seeds.post("/prepare", withAuth, async (c) => {
 
     // Parse and validate request body
     const body = await c.req.json();
-    const { ipfsHash, title, description } = body;
+    const { ipfsHash } = body;
 
-    if (!ipfsHash || !title) {
+    if (!ipfsHash) {
       return c.json(
         {
           success: false,
-          error: "ipfsHash and title are required",
+          error: "ipfsHash is required",
         },
         400
       );
     }
 
     // Validate input types
-    if (typeof ipfsHash !== "string" || typeof title !== "string") {
+    if (typeof ipfsHash !== "string") {
       return c.json(
         {
           success: false,
-          error: "ipfsHash and title must be strings",
-        },
-        400
-      );
-    }
-
-    if (description && typeof description !== "string") {
-      return c.json(
-        {
-          success: false,
-          error: "description must be a string",
+          error: "ipfsHash must be a string",
         },
         400
       );
@@ -257,8 +231,6 @@ seeds.post("/prepare", withAuth, async (c) => {
     // Prepare transaction data
     const transaction = contractService.prepareSeedSubmissionTransaction(
       ipfsHash,
-      title,
-      description || "",
       user.walletAddress as Address
     );
 
@@ -454,8 +426,6 @@ seeds.get("/:seedId", async (c) => {
         id: Number(seed.id),
         creator: seed.creator,
         ipfsHash: seed.ipfsHash,
-        title: seed.title,
-        description: seed.description,
         votes: Number(seed.votes),
         blessings: Number(seed.blessings),
         createdAt: Number(seed.createdAt),

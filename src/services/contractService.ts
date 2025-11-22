@@ -211,10 +211,13 @@ class ContractService {
   /**
    * Write: Bless a seed on behalf of a user (relayer pattern)
    * Requires RELAYER_ROLE or user delegation
+   * Now includes on-chain eligibility verification with NFT ownership proof
    */
   async blessSeedFor(
     seedId: number,
-    userAddress: Address
+    userAddress: Address,
+    tokenIds: number[],
+    merkleProof: string[]
   ): Promise<{
     success: boolean;
     txHash?: Hash;
@@ -228,12 +231,16 @@ class ContractService {
     }
 
     try {
+      // Convert tokenIds to BigInt array and proof to proper format
+      const tokenIdsBigInt = tokenIds.map((id) => BigInt(id));
+      const proofFormatted = merkleProof as `0x${string}`[];
+
       // Simulate first to catch errors
       await this.publicClient.simulateContract({
         address: this.contractAddress,
         abi: SEEDS_ABI,
         functionName: "blessSeedFor",
-        args: [BigInt(seedId), userAddress],
+        args: [BigInt(seedId), userAddress, tokenIdsBigInt, proofFormatted],
         account: this.relayerAccount,
       });
 
@@ -242,7 +249,7 @@ class ContractService {
         address: this.contractAddress,
         abi: SEEDS_ABI,
         functionName: "blessSeedFor",
-        args: [BigInt(seedId), userAddress],
+        args: [BigInt(seedId), userAddress, tokenIdsBigInt, proofFormatted],
       } as any);
 
       // Wait for confirmation
@@ -268,6 +275,12 @@ class ContractService {
         errorMessage = "Seed does not exist";
       } else if (error.message.includes("SeedAlreadyMinted")) {
         errorMessage = "Cannot bless a minted seed";
+      } else if (error.message.includes("InvalidMerkleProof")) {
+        errorMessage = "Invalid NFT ownership proof";
+      } else if (error.message.includes("DailyBlessingLimitReached")) {
+        errorMessage = "Daily blessing limit reached";
+      } else if (error.message.includes("NoVotingPower")) {
+        errorMessage = "No NFTs owned";
       }
 
       return {
@@ -330,14 +343,23 @@ class ContractService {
   /**
    * Prepare blessing transaction data for client-side signing
    * Returns the data user needs to sign the transaction themselves
+   * Now includes NFT ownership proof for on-chain verification
    */
-  prepareBlessingTransaction(seedId: number, userAddress: Address) {
+  prepareBlessingTransaction(
+    seedId: number,
+    userAddress: Address,
+    tokenIds: number[],
+    merkleProof: string[]
+  ) {
+    const tokenIdsBigInt = tokenIds.map((id) => BigInt(id));
+    const proofFormatted = merkleProof as `0x${string}`[];
+
     return {
       to: this.contractAddress,
       data: encodeFunctionData({
         abi: SEEDS_ABI,
         functionName: "blessSeed",
-        args: [BigInt(seedId)],
+        args: [BigInt(seedId), tokenIdsBigInt, proofFormatted],
       }),
       from: userAddress,
       chainId: this.publicClient.chain?.id,
@@ -384,11 +406,10 @@ class ContractService {
   /**
    * Write: Submit a seed to the blockchain (backend-signed)
    * Requires relayer to have CREATOR_ROLE
+   * Note: Title, description, and image are stored in IPFS metadata
    */
   async submitSeed(
-    ipfsHash: string,
-    title: string,
-    description: string
+    ipfsHash: string
   ): Promise<{
     success: boolean;
     seedId?: number;
@@ -416,7 +437,7 @@ class ContractService {
         address: this.contractAddress,
         abi: SEEDS_ABI,
         functionName: "submitSeed",
-        args: [ipfsHash, title, description],
+        args: [ipfsHash],
       } as any);
 
       const receipt = await this.publicClient.waitForTransactionReceipt({
@@ -463,11 +484,10 @@ class ContractService {
 
   /**
    * Prepare seed submission transaction for client-side signing
+   * Note: Title, description, and image are stored in IPFS metadata
    */
   prepareSeedSubmissionTransaction(
     ipfsHash: string,
-    title: string,
-    description: string,
     creatorAddress: Address
   ) {
     return {
@@ -475,7 +495,7 @@ class ContractService {
       data: encodeFunctionData({
         abi: SEEDS_ABI,
         functionName: "submitSeed",
-        args: [ipfsHash, title, description],
+        args: [ipfsHash],
       }),
       from: creatorAddress,
       chainId: this.publicClient.chain?.id,

@@ -22,6 +22,10 @@
     "grant-creator:base-sepolia": "hardhat run deploy/grant_creator_role.ts --network baseSepolia",
     "grant-creator:base": "hardhat run deploy/grant_creator_role.ts --network baseMainnet",
     "update-root": "tsx scripts/updateMerkleRoot.ts",
+    "test-seed:base-sepolia": "NETWORK=baseSepolia tsx scripts/createTestSeed.ts",
+    "test-seed:base": "NETWORK=base tsx scripts/createTestSeed.ts",
+    "deploy:complete:base-sepolia": "NETWORK=baseSepolia tsx scripts/deployComplete.ts",
+    "deploy:complete:base": "NETWORK=base tsx scripts/deployComplete.ts",
     "verify": "hardhat verify"
   },
   "dependencies": {

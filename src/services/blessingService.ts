@@ -20,8 +20,15 @@ import {
   getNFTsForAddress,
   FirstWorksSnapshot,
 } from "../../lib/snapshots/firstWorksSnapshot.js";
+import { loadMerkleTree } from "../../lib/snapshots/merkleTreeGenerator.js";
 import { contractService } from "./contractService.js";
 import type { Address, Hash } from "viem";
+
+interface MerkleProof {
+  root: string;
+  proofs: Record<string, string[]>;
+  leaves: Record<string, string>;
+}
 
 // Configuration: How many blessings per NFT owned
 const BLESSINGS_PER_NFT = 1;
@@ -46,12 +53,30 @@ class BlessingService {
   private blessingData: Map<string, UserBlessingData> = new Map();
 
   private snapshot: FirstWorksSnapshot | null = null;
+  private merkleTree: MerkleProof | null = null;
   private lastSnapshotLoad: number = 0;
   private readonly SNAPSHOT_CACHE_MS = 5 * 60 * 1000; // Reload snapshot every 5 minutes
 
   constructor() {
-    // Initialize snapshot on construction
+    // Initialize snapshot and merkle tree on construction
     this.loadSnapshot();
+    this.loadMerkleData();
+  }
+
+  /**
+   * Load Merkle tree for proof generation
+   */
+  private async loadMerkleData(): Promise<void> {
+    try {
+      this.merkleTree = await loadMerkleTree();
+      if (this.merkleTree) {
+        console.log("✅ Loaded Merkle tree with root:", this.merkleTree.root.slice(0, 10) + "...");
+      } else {
+        console.warn("⚠️  No Merkle tree found. Run 'npm run merkle:generate' to create one.");
+      }
+    } catch (error) {
+      console.error("❌ Error loading Merkle tree:", error);
+    }
   }
 
   /**
@@ -116,6 +141,35 @@ class BlessingService {
 
     const nfts = getNFTsForAddress(this.snapshot, walletAddress);
     return nfts.length;
+  }
+
+  /**
+   * Get tokenIds and Merkle proof for a user
+   * Required for on-chain eligibility verification
+   */
+  private async getTokenIdsAndProof(
+    walletAddress: string
+  ): Promise<{ tokenIds: number[]; proof: string[] } | null> {
+    await this.loadSnapshot();
+
+    if (!this.snapshot || !this.merkleTree) {
+      console.error("Snapshot or Merkle tree not loaded");
+      return null;
+    }
+
+    const addressLower = walletAddress.toLowerCase();
+
+    // Get token IDs from snapshot
+    const tokenIds = this.snapshot.holderIndex[addressLower] || [];
+
+    // Get Merkle proof
+    const proof = this.merkleTree.proofs[addressLower] || [];
+
+    if (tokenIds.length === 0) {
+      return null; // User owns no NFTs
+    }
+
+    return { tokenIds, proof };
   }
 
   /**
@@ -236,6 +290,7 @@ class BlessingService {
   /**
    * Perform a blessing onchain (backend-signed, gasless for user)
    * This is the main method that orchestrates the entire blessing flow
+   * Now with on-chain eligibility verification using Merkle proofs
    */
   async performBlessingOnchain(
     walletAddress: string,
@@ -248,14 +303,13 @@ class BlessingService {
     error?: string;
     blockExplorer?: string;
   }> {
-    // 1. Check eligibility (NFT ownership + rate limits)
-    const eligibility = await this.canBless(walletAddress);
+    // 1. Get tokenIds and Merkle proof for on-chain verification
+    const proofData = await this.getTokenIdsAndProof(walletAddress);
 
-    if (!eligibility.eligible) {
+    if (!proofData) {
       return {
         success: false,
-        remainingBlessings: eligibility.remainingBlessings,
-        error: eligibility.reason,
+        error: "No NFTs owned or unable to generate proof",
       };
     }
 
@@ -296,10 +350,13 @@ class BlessingService {
       };
     }
 
-    // 5. Submit blessing to blockchain
+    // 5. Submit blessing to blockchain with NFT proof
+    // Contract will verify ownership and daily limits on-chain
     const result = await contractService.blessSeedFor(
       seedId,
-      walletAddress as Address
+      walletAddress as Address,
+      proofData.tokenIds,
+      proofData.proof
     );
 
     if (!result.success) {
@@ -309,14 +366,13 @@ class BlessingService {
       };
     }
 
-    // 6. Update local tracking (for rate limiting only)
-    const data = await this.getUserData(walletAddress);
-    data.usedBlessings += 1;
-
-    const remainingBlessings = data.maxBlessings - data.usedBlessings;
-
-    // 7. Get updated seed info from blockchain
+    // 6. Get updated seed info and calculate remaining blessings
     const updatedSeed = await contractService.getSeed(seedId);
+
+    // Calculate remaining blessings based on on-chain data
+    const maxBlessings = proofData.tokenIds.length * BLESSINGS_PER_NFT;
+    const usedBlessings = await this.countBlessingsInCurrentPeriod(walletAddress);
+    const remainingBlessings = Math.max(0, maxBlessings - usedBlessings);
 
     const blockExplorer =
       process.env.NETWORK === "base"
@@ -340,6 +396,7 @@ class BlessingService {
   /**
    * Prepare a blessing transaction for client-side signing
    * Returns transaction data for user to sign with their wallet
+   * Now includes NFT ownership proof for on-chain verification
    */
   async prepareBlessingTransaction(
     walletAddress: string,
@@ -365,13 +422,13 @@ class BlessingService {
     };
     error?: string;
   }> {
-    // 1. Check eligibility
-    const eligibility = await this.canBless(walletAddress);
+    // 1. Get tokenIds and Merkle proof
+    const proofData = await this.getTokenIdsAndProof(walletAddress);
 
-    if (!eligibility.eligible) {
+    if (!proofData) {
       return {
         success: false,
-        error: eligibility.reason,
+        error: "No NFTs owned or unable to generate proof",
       };
     }
 
@@ -405,11 +462,18 @@ class BlessingService {
       };
     }
 
-    // 4. Prepare transaction data
+    // 4. Prepare transaction data with NFT proof
     const transaction = contractService.prepareBlessingTransaction(
       seedId,
-      walletAddress as Address
+      walletAddress as Address,
+      proofData.tokenIds,
+      proofData.proof
     );
+
+    // Calculate remaining blessings
+    const maxBlessings = proofData.tokenIds.length * BLESSINGS_PER_NFT;
+    const usedBlessings = await this.countBlessingsInCurrentPeriod(walletAddress);
+    const remainingBlessings = Math.max(0, maxBlessings - usedBlessings);
 
     return {
       success: true,
@@ -422,8 +486,8 @@ class BlessingService {
       },
       userInfo: {
         address: walletAddress,
-        nftCount: eligibility.nftCount,
-        remainingBlessings: eligibility.remainingBlessings,
+        nftCount: proofData.tokenIds.length,
+        remainingBlessings,
       },
     };
   }

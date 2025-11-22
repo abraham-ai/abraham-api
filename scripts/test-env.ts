@@ -17,8 +17,9 @@ console.log("🔍 Testing Environment Variables\n");
 const envVars = [
   { name: "PRIVY_APP_ID", required: true },
   { name: "PRIVY_APP_SECRET", required: true },
-  { name: "CONTRACT_ADDRESS", required: true },
+  { name: "FIRSTWORKS_CONTRACT_ADDRESS", required: true },
   { name: "FIRSTWORKS_RPC_URL", required: true },
+  { name: "L2_SEEDS_CONTRACT", required: true },
   { name: "PORT", required: false },
 ];
 

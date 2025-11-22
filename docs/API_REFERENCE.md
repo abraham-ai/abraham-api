@@ -684,7 +684,7 @@ L2_SEEDS_CONTRACT=0x878baad70577cf114a3c60fd01b5a036fd0c4bc8
 
 # FirstWorks NFT (L1)
 MAINNET_RPC_URL=https://eth.llamarpc.com
-FIRSTWORKS_CONTRACT=0x...
+FIRSTWORKS_CONTRACT_ADDRESS=0x...
 ```
 
 ### Optional (for Gasless Blessings)

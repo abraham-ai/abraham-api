@@ -55,12 +55,17 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     /// @notice Total blessings count across all seeds
     uint256 public totalBlessingsCount;
 
+    /// @notice How many blessings each NFT grants per day
+    uint256 public constant BLESSINGS_PER_NFT = 1;
+
+    /// @notice Track user's blessing count per day: user => day => count
+    /// @dev Day is calculated as block.timestamp / 1 days
+    mapping(address => mapping(uint256 => uint256)) public userDailyBlessings;
+
     struct Seed {
         uint256 id;
         address creator;
-        string ipfsHash;        // IPFS hash of the artwork
-        string title;
-        string description;
+        string ipfsHash;        // IPFS hash of the artwork (contains all metadata)
         uint256 votes;
         uint256 blessings;      // Total blessings received
         uint256 createdAt;
@@ -199,6 +204,8 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     error AlreadyBlessed();
     error NotAuthorized();
     error InvalidBlesser();
+    error DailyBlessingLimitReached();
+    error MustProvideNFTProof();
 
     /*//////////////////////////////////////////////////////////////
                               CONSTRUCTOR
@@ -230,17 +237,13 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     /**
      * @notice Submit a new Seed (artwork proposal)
      * @dev Only addresses with CREATOR_ROLE can submit seeds
-     * @param _ipfsHash IPFS hash of the artwork
-     * @param _title Title of the artwork
-     * @param _description Description of the artwork
+     * @param _ipfsHash IPFS hash of the artwork metadata (contains title, description, image, etc.)
      * @return seedId The ID of the newly created Seed
      */
     function submitSeed(
-        string memory _ipfsHash,
-        string memory _title,
-        string memory _description
+        string memory _ipfsHash
     ) external whenNotPaused onlyRole(CREATOR_ROLE) returns (uint256) {
-        if (bytes(_ipfsHash).length == 0 || bytes(_title).length == 0) {
+        if (bytes(_ipfsHash).length == 0) {
             revert InvalidSeedData();
         }
 
@@ -251,8 +254,6 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
             id: seedId,
             creator: msg.sender,
             ipfsHash: _ipfsHash,
-            title: _title,
-            description: _description,
             votes: 0,
             blessings: 0,
             createdAt: block.timestamp,
@@ -260,7 +261,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
             mintedInRound: 0
         });
 
-        emit SeedSubmitted(seedId, msg.sender, _ipfsHash, _title, block.timestamp);
+        emit SeedSubmitted(seedId, msg.sender, _ipfsHash, "", block.timestamp);
 
         return seedId;
     }
@@ -377,11 +378,27 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     }
 
     /**
-     * @notice Directly bless a seed
+     * @notice Directly bless a seed with NFT ownership verification
      * @param _seedId ID of the seed to bless
-     * @dev User calls this directly to bless a seed
+     * @param _tokenIds Array of FirstWorks token IDs owned (determines max daily blessings)
+     * @param _merkleProof Merkle proof of NFT ownership
+     * @dev User calls this directly to bless a seed. NFT ownership is verified on-chain.
      */
-    function blessSeed(uint256 _seedId) external whenNotPaused nonReentrant {
+    function blessSeed(
+        uint256 _seedId,
+        uint256[] memory _tokenIds,
+        bytes32[] memory _merkleProof
+    ) external whenNotPaused nonReentrant {
+        // Verify NFT ownership
+        if (!_verifyOwnership(msg.sender, _tokenIds, _merkleProof)) {
+            revert InvalidMerkleProof();
+        }
+
+        if (_tokenIds.length == 0) revert NoVotingPower();
+
+        // Check daily blessing limit
+        _checkAndUpdateDailyLimit(msg.sender, _tokenIds.length);
+
         _processBless(_seedId, msg.sender, msg.sender, false);
     }
 
@@ -389,12 +406,16 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
      * @notice Bless a seed on behalf of a user (for relayers/delegates)
      * @param _seedId ID of the seed to bless
      * @param _blesser Address of the user giving the blessing
+     * @param _tokenIds Array of FirstWorks token IDs owned by the blesser
+     * @param _merkleProof Merkle proof of NFT ownership
      * @dev Only callable by approved delegates or relayers
-     * @dev Backend server should call this after verifying user eligibility off-chain
+     * @dev Backend server must provide NFT proof - eligibility is verified on-chain
      */
     function blessSeedFor(
         uint256 _seedId,
-        address _blesser
+        address _blesser,
+        uint256[] memory _tokenIds,
+        bytes32[] memory _merkleProof
     ) external whenNotPaused nonReentrant {
         if (_blesser == address(0)) revert InvalidBlesser();
 
@@ -406,6 +427,16 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
             revert NotAuthorized();
         }
 
+        // Verify NFT ownership
+        if (!_verifyOwnership(_blesser, _tokenIds, _merkleProof)) {
+            revert InvalidMerkleProof();
+        }
+
+        if (_tokenIds.length == 0) revert NoVotingPower();
+
+        // Check daily blessing limit
+        _checkAndUpdateDailyLimit(_blesser, _tokenIds.length);
+
         _processBless(_seedId, _blesser, msg.sender, true);
     }
 
@@ -413,14 +444,23 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
      * @notice Batch bless multiple seeds on behalf of users (for relayers)
      * @param _seedIds Array of seed IDs to bless
      * @param _blessers Array of user addresses giving blessings
-     * @dev Only callable by relayers. Arrays must be same length.
+     * @param _tokenIdsArray Array of token ID arrays for each blesser
+     * @param _merkleProofs Array of Merkle proofs for each blesser
+     * @dev Only callable by relayers. All arrays must be same length.
      * @dev Useful for batch processing verified blessings from backend
      */
     function batchBlessSeedsFor(
         uint256[] calldata _seedIds,
-        address[] calldata _blessers
+        address[] calldata _blessers,
+        uint256[][] calldata _tokenIdsArray,
+        bytes32[][] calldata _merkleProofs
     ) external whenNotPaused nonReentrant onlyRole(RELAYER_ROLE) {
-        if (_seedIds.length != _blessers.length || _seedIds.length == 0) {
+        if (
+            _seedIds.length != _blessers.length ||
+            _seedIds.length != _tokenIdsArray.length ||
+            _seedIds.length != _merkleProofs.length ||
+            _seedIds.length == 0
+        ) {
             revert InvalidSeedData();
         }
 
@@ -432,8 +472,42 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
                 continue;
             }
 
+            // Verify NFT ownership
+            if (!_verifyOwnership(_blessers[i], _tokenIdsArray[i], _merkleProofs[i])) {
+                continue; // Skip invalid proofs
+            }
+
+            if (_tokenIdsArray[i].length == 0) {
+                continue; // Skip if no NFTs
+            }
+
+            // Check daily blessing limit (skip if limit reached)
+            uint256 currentDay = block.timestamp / 1 days;
+            uint256 maxBlessings = _tokenIdsArray[i].length * BLESSINGS_PER_NFT;
+            if (userDailyBlessings[_blessers[i]][currentDay] >= maxBlessings) {
+                continue;
+            }
+
+            userDailyBlessings[_blessers[i]][currentDay]++;
             _processBless(_seedIds[i], _blessers[i], msg.sender, true);
         }
+    }
+
+    /**
+     * @dev Check if user has reached daily blessing limit and update counter
+     * @param _user User address
+     * @param _nftCount Number of NFTs owned (determines max blessings)
+     */
+    function _checkAndUpdateDailyLimit(address _user, uint256 _nftCount) internal {
+        uint256 currentDay = block.timestamp / 1 days;
+        uint256 maxBlessings = _nftCount * BLESSINGS_PER_NFT;
+        uint256 currentBlessings = userDailyBlessings[_user][currentDay];
+
+        if (currentBlessings >= maxBlessings) {
+            revert DailyBlessingLimitReached();
+        }
+
+        userDailyBlessings[_user][currentDay]++;
     }
 
     /**
@@ -748,6 +822,45 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
      */
     function isDelegate(address _user, address _delegate) external view returns (bool) {
         return isDelegateApproved[_user][_delegate];
+    }
+
+    /**
+     * @notice Get user's blessing count for today
+     * @param _user User address
+     * @return Number of blessings used today
+     */
+    function getUserDailyBlessingCount(address _user) external view returns (uint256) {
+        uint256 currentDay = block.timestamp / 1 days;
+        return userDailyBlessings[_user][currentDay];
+    }
+
+    /**
+     * @notice Get user's remaining blessings for today
+     * @param _user User address
+     * @param _nftCount Number of NFTs owned
+     * @return Number of blessings remaining today
+     */
+    function getRemainingBlessings(address _user, uint256 _nftCount) external view returns (uint256) {
+        uint256 currentDay = block.timestamp / 1 days;
+        uint256 maxBlessings = _nftCount * BLESSINGS_PER_NFT;
+        uint256 used = userDailyBlessings[_user][currentDay];
+
+        if (used >= maxBlessings) {
+            return 0;
+        }
+        return maxBlessings - used;
+    }
+
+    /**
+     * @notice Check if user can bless today (requires NFT ownership verification)
+     * @param _user User address
+     * @param _nftCount Number of NFTs owned
+     * @return True if user has remaining blessings today
+     */
+    function canBlessToday(address _user, uint256 _nftCount) external view returns (bool) {
+        uint256 currentDay = block.timestamp / 1 days;
+        uint256 maxBlessings = _nftCount * BLESSINGS_PER_NFT;
+        return userDailyBlessings[_user][currentDay] < maxBlessings;
     }
 
     /*//////////////////////////////////////////////////////////////
