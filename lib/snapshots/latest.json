@@ -2,8 +2,8 @@
   "contractAddress": "0x9734c959A5FEC7BaD8b0b560AD94F9740B90Efd8",
   "contractName": "Abraham's First Works",
   "totalSupply": 2034,
-  "timestamp": "2025-11-21T15:08:46.261Z",
-  "blockNumber": 23848172,
+  "timestamp": "2025-11-22T22:37:53.643Z",
+  "blockNumber": 23857492,
   "holders": [
     {
       "address": "0x826be0f079a18c7f318efbead5f90df70a7b2e29",
@@ -3251,13 +3251,6 @@
       ]
     },
     {
-      "address": "0x931c52fde4ae552314445cc2f32e6de5f432ccef",
-      "balance": 1,
-      "tokenIds": [
-        1514
-      ]
-    },
-    {
       "address": "0x9505755dba47e1d9d61e89db4cb322459979c42d",
       "balance": 1,
       "tokenIds": [
@@ -3290,6 +3283,13 @@
       "balance": 1,
       "tokenIds": [
         1528
+      ]
+    },
+    {
+      "address": "0xa3f7af478fd496ad74dd272693757e92f74f48fd",
+      "balance": 1,
+      "tokenIds": [
+        1514
       ]
     },
     {
@@ -5887,9 +5887,6 @@
     "0x917bcafbd684c39fe3f0c0ef3d7090747c07b943": [
       304
     ],
-    "0x931c52fde4ae552314445cc2f32e6de5f432ccef": [
-      1514
-    ],
     "0x9505755dba47e1d9d61e89db4cb322459979c42d": [
       1529
     ],
@@ -5904,6 +5901,9 @@
     ],
     "0xa00cc8e0328a67371c270197e62b20b6428f7163": [
       1528
+    ],
+    "0xa3f7af478fd496ad74dd272693757e92f74f48fd": [
+      1514
     ],
     "0xa49958fa14309f3720159c83cd92c5f38b1e3306": [
       444

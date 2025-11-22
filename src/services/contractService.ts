@@ -266,9 +266,7 @@ class ContractService {
 
       // Parse common errors
       let errorMessage = "Failed to submit blessing";
-      if (error.message.includes("AlreadyBlessed")) {
-        errorMessage = "User has already blessed this seed";
-      } else if (error.message.includes("NotAuthorized")) {
+      if (error.message.includes("NotAuthorized")) {
         errorMessage =
           "Backend not authorized - user must approve backend as delegate";
       } else if (error.message.includes("SeedNotFound")) {
