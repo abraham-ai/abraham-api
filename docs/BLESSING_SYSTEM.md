@@ -39,7 +39,7 @@ Backend servers with `RELAYER_ROLE` can submit verified blessings on behalf of u
 2. **Daily Blessing Limits**: Contract enforces N blessings per day (N = NFTs owned)
 3. **Access Control**: Uses OpenZeppelin's `AccessControl` for role-based permissions
 4. **Reentrancy Protection**: `ReentrancyGuard` on all state-changing functions
-5. **Double-Blessing Prevention**: Users can only bless each seed once
+5. **Multiple Blessings Allowed**: Users can bless the same seed multiple times (subject to daily limits)
 6. **Authorization Checks**: Validates that only authorized parties can submit delegated blessings
 
 ## Contract Functions
@@ -60,7 +60,6 @@ function blessSeed(
 **Requirements:**
 - Must own FirstWorks NFTs (verified via Merkle proof)
 - Must not have reached daily blessing limit
-- Must not have already blessed this seed
 
 **Example:**
 ```javascript
@@ -108,7 +107,6 @@ function blessSeedFor(
 **On-Chain Checks:**
 - Verifies NFT ownership via Merkle proof
 - Checks daily blessing limit (N NFTs = N blessings/day)
-- Prevents double-blessing
 
 **Example:**
 ```javascript
@@ -213,13 +211,23 @@ function getUserBlessings(address _user)
     external view returns (Blessing[] memory)
 ```
 
-#### `hasBlessed(address _user, uint256 _seedId)`
-Check if a user has blessed a specific seed.
+#### `getBlessingCount(address _user, uint256 _seedId)`
+Get the number of times a user has blessed a specific seed.
+
+```solidity
+function getBlessingCount(address _user, uint256 _seedId)
+    external view returns (uint256)
+```
+
+#### `hasBlessed(address _user, uint256 _seedId)` (Legacy)
+Check if a user has blessed a specific seed at least once.
 
 ```solidity
 function hasBlessed(address _user, uint256 _seedId)
     external view returns (bool)
 ```
+
+**Note:** This function is deprecated. Use `getBlessingCount()` for accurate blessing counts. This returns `true` if the user has blessed the seed at least once.
 
 #### `isDelegate(address _user, address _delegate)`
 Check if an address is an approved delegate for a user.
@@ -342,13 +350,7 @@ app.post('/api/blessings', async (req, res) => {
   const merkleTree = await loadMerkleTree();
   const proof = merkleTree.proofs[user.address.toLowerCase()] || [];
 
-  // 3. Check if user already blessed (optional pre-check)
-  const hasBlessed = await contract.hasBlessed(user.address, seedId);
-  if (hasBlessed) {
-    return res.status(400).json({ error: 'Already blessed this seed' });
-  }
-
-  // 4. Check if backend is approved delegate
+  // 3. Check if backend is approved delegate
   const isApproved = await contract.isDelegate(
     user.address,
     BACKEND_WALLET_ADDRESS
@@ -361,8 +363,9 @@ app.post('/api/blessings', async (req, res) => {
     });
   }
 
-  // 5. Submit blessing with NFT proof
+  // 4. Submit blessing with NFT proof
   // Contract will verify ownership and daily limits on-chain
+  // Users can bless the same seed multiple times (subject to daily limits)
   try {
     const tx = await contract.blessSeedFor(
       seedId,
@@ -372,9 +375,13 @@ app.post('/api/blessings', async (req, res) => {
     );
     await tx.wait();
 
+    // Get updated blessing count for this seed
+    const blessingCount = await contract.getBlessingCount(user.address, seedId);
+
     res.json({
       success: true,
       txHash: tx.hash,
+      blessingCount: Number(blessingCount),
       remainingBlessings: await calculateRemainingBlessings(user.address)
     });
   } catch (error) {
@@ -426,10 +433,12 @@ app.post('/api/blessings', async (req, res) => {
 - **Reset:** Automatic at midnight UTC (based on `block.timestamp / 1 days`)
 - **Tracking:** Contract maintains `userDailyBlessings[user][day]` mapping
 
-### Per-Seed Limits
+### Multiple Blessings Per Seed
 
-- Users can only bless each seed **once** (lifetime)
-- Tracked via `hasUserBlessedSeed[user][seedId]` mapping
+- Users can bless the same seed **multiple times** (subject to daily limits)
+- Each blessing counts against the user's daily total
+- Blessing count per user per seed tracked via `userSeedBlessingCount[user][seedId]` mapping
+- Example: User with 3 NFTs can use all 3 daily blessings on one seed, or distribute across multiple seeds
 
 ### NFT Ownership Verification
 
@@ -451,7 +460,7 @@ app.post('/api/blessings', async (req, res) => {
 
 1. **Role-Based Access Control**: Only authorized relayers can submit delegated blessings
 2. **Reentrancy Guards**: All state-changing functions protected
-3. **Double-Blessing Prevention**: Per-seed and per-day tracking
+3. **Daily Limit Tracking**: Per-day blessing limits enforced on-chain
 4. **Authorization Validation**: Strict delegate/relayer checks
 
 ### 🔒 Best Practices
@@ -466,7 +475,7 @@ app.post('/api/blessings', async (req, res) => {
 
 - **Delegation is Powerful**: Users trust delegates with their blessing rights
 - **Relayer Role is Privileged**: RELAYER_ROLE can bless for ANY user (with valid proof)
-- **One Blessing Per Seed**: Users cannot bless the same seed twice
+- **Multiple Blessings Allowed**: Users can bless the same seed multiple times within their daily limit
 - **Merkle Root Currency**: Ensure root is updated when FirstWorks ownership changes
 
 ## Error Messages
@@ -476,7 +485,6 @@ app.post('/api/blessings', async (req, res) => {
 - `InvalidMerkleProof`: NFT ownership proof is invalid
 - `DailyBlessingLimitReached`: User has used all daily blessings
 - `NoVotingPower`: User owns no NFTs (0 tokenIds provided)
-- `AlreadyBlessed`: User has already blessed this seed
 - `NotAuthorized`: Caller not approved as delegate or relayer
 - `SeedNotFound`: Seed does not exist
 - `SeedAlreadyMinted`: Cannot bless minted seeds
@@ -491,14 +499,16 @@ app.post('/api/blessings', async (req, res) => {
    - Zero NFTs → transaction reverts
 
 2. **Daily Blessing Limits**
-   - Own 3 NFTs → can bless 3 times per day
-   - 4th blessing same day → reverts
+   - Own 3 NFTs → can bless 3 times per day (total across all seeds)
+   - 4th blessing same day → reverts with `DailyBlessingLimitReached`
    - Next day → limit resets, can bless again
+   - Can use all 3 blessings on one seed or distribute across multiple
 
-3. **Double-Blessing Prevention**
-   - Bless seed once → succeeds
-   - Bless same seed again → reverts
-   - Bless different seed → succeeds
+3. **Multiple Blessings Per Seed**
+   - Bless seed #1 once → succeeds (2 blessings remaining)
+   - Bless seed #1 again → succeeds (1 blessing remaining)
+   - Bless seed #1 third time → succeeds (0 blessings remaining)
+   - Try to bless again → reverts with `DailyBlessingLimitReached`
 
 4. **Delegation**
    - User approves delegate → delegate can bless
