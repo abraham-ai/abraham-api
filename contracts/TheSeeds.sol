@@ -103,8 +103,8 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     /// @dev Users can approve delegates (e.g., backend server, smart wallets) to bless on their behalf
     mapping(address => mapping(address => bool)) public isDelegateApproved;
 
-    /// @notice Track if a user has blessed a specific seed
-    mapping(address => mapping(uint256 => bool)) public hasUserBlessedSeed;
+    /// @notice Track blessing count per user per seed (allows multiple blessings)
+    mapping(address => mapping(uint256 => uint256)) public userSeedBlessingCount;
 
     /// @notice Array of all blessings for tracking and querying
     Blessing[] public allBlessings;
@@ -201,7 +201,6 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     error CannotRetractMintedSeed();
     error InvalidOwnershipRoot();
     error NoVotingPower();
-    error AlreadyBlessed();
     error NotAuthorized();
     error InvalidBlesser();
     error DailyBlessingLimitReached();
@@ -467,11 +466,6 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         for (uint256 i = 0; i < _seedIds.length; i++) {
             if (_blessers[i] == address(0)) revert InvalidBlesser();
 
-            // Skip if already blessed (don't revert to allow partial success)
-            if (hasUserBlessedSeed[_blessers[i]][_seedIds[i]]) {
-                continue;
-            }
-
             // Verify NFT ownership
             if (!_verifyOwnership(_blessers[i], _tokenIdsArray[i], _merkleProofs[i])) {
                 continue; // Skip invalid proofs
@@ -529,13 +523,8 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         if (seed.createdAt == 0) revert SeedNotFound();
         if (seed.minted) revert SeedAlreadyMinted();
 
-        // Check if user has already blessed this seed
-        if (hasUserBlessedSeed[_blesser][_seedId]) {
-            revert AlreadyBlessed();
-        }
-
-        // Mark as blessed
-        hasUserBlessedSeed[_blesser][_seedId] = true;
+        // Increment blessing count for this user-seed pair
+        userSeedBlessingCount[_blesser][_seedId]++;
         seed.blessings++;
 
         // Store blessing record
@@ -805,13 +794,24 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     }
 
     /**
-     * @notice Check if a user has blessed a specific seed
+     * @notice Get how many times a user has blessed a specific seed
      * @param _user User address
      * @param _seedId Seed ID
-     * @return True if user has blessed this seed
+     * @return Number of times user has blessed this seed
+     */
+    function getBlessingCount(address _user, uint256 _seedId) external view returns (uint256) {
+        return userSeedBlessingCount[_user][_seedId];
+    }
+
+    /**
+     * @notice Check if a user has blessed a specific seed (legacy compatibility)
+     * @param _user User address
+     * @param _seedId Seed ID
+     * @return True if user has blessed this seed at least once
+     * @dev Deprecated: Use getBlessingCount for accurate count
      */
     function hasBlessed(address _user, uint256 _seedId) external view returns (bool) {
-        return hasUserBlessedSeed[_user][_seedId];
+        return userSeedBlessingCount[_user][_seedId] > 0;
     }
 
     /**

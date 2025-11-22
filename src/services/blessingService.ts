@@ -337,20 +337,7 @@ class BlessingService {
       };
     }
 
-    // 4. Check if user already blessed this seed (on blockchain)
-    const hasBlessed = await contractService.hasBlessed(
-      walletAddress as Address,
-      seedId
-    );
-
-    if (hasBlessed) {
-      return {
-        success: false,
-        error: "You have already blessed this seed",
-      };
-    }
-
-    // 5. Submit blessing to blockchain with NFT proof
+    // 4. Submit blessing to blockchain with NFT proof
     // Contract will verify ownership and daily limits on-chain
     const result = await contractService.blessSeedFor(
       seedId,
@@ -449,20 +436,7 @@ class BlessingService {
       };
     }
 
-    // 3. Check if user already blessed
-    const hasBlessed = await contractService.hasBlessed(
-      walletAddress as Address,
-      seedId
-    );
-
-    if (hasBlessed) {
-      return {
-        success: false,
-        error: "You have already blessed this seed",
-      };
-    }
-
-    // 4. Prepare transaction data with NFT proof
+    // 3. Prepare transaction data with NFT proof
     const transaction = contractService.prepareBlessingTransaction(
       seedId,
       walletAddress as Address,

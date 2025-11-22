@@ -162,9 +162,9 @@ blessings.post("/", withAuth, async (c) => {
       let statusCode: 400 | 403 | 404 | 500 | 503 = 500;
       if (result.error?.includes("not eligible")) statusCode = 403;
       else if (result.error?.includes("not found")) statusCode = 404;
-      else if (result.error?.includes("already blessed")) statusCode = 400;
       else if (result.error?.includes("not configured")) statusCode = 503;
       else if (result.error?.includes("not authorized")) statusCode = 403;
+      else if (result.error?.includes("limit reached")) statusCode = 400;
 
       return c.json(
         {
@@ -278,8 +278,8 @@ blessings.post("/prepare", withAuth, async (c) => {
       let statusCode: 400 | 403 | 404 | 500 = 500;
       if (result.error?.includes("not eligible")) statusCode = 403;
       else if (result.error?.includes("not found")) statusCode = 404;
-      else if (result.error?.includes("already blessed")) statusCode = 400;
       else if (result.error?.includes("Cannot bless")) statusCode = 400;
+      else if (result.error?.includes("limit reached")) statusCode = 400;
 
       return c.json(
         {
