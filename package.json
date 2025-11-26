@@ -26,7 +26,10 @@
     "test-seed:base": "NETWORK=base tsx scripts/createTestSeed.ts",
     "deploy:complete:base-sepolia": "NETWORK=baseSepolia tsx scripts/deployComplete.ts",
     "deploy:complete:base": "NETWORK=base tsx scripts/deployComplete.ts",
-    "verify": "hardhat verify"
+    "verify": "hardhat verify",
+    "verify:contract": "tsx scripts/verifyContract.ts",
+    "verify:contract:base-sepolia": "tsx scripts/verifyContract.ts -- --network baseSepolia",
+    "verify:contract:base": "tsx scripts/verifyContract.ts -- --network baseMainnet"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.5",
@@ -38,6 +41,7 @@
     "viem": "^2.38.4"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-verify": "^3.0.7",
     "@openzeppelin/contracts": "^5.4.0",
     "@types/node": "^20.11.17",
     "hardhat": "^3.0.10",

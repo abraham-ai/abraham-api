@@ -4,12 +4,31 @@ import { updateSnapshotAndMerkle } from "../../scripts/updateSnapshot.js";
 const admin = new Hono();
 
 /**
- * Middleware to check admin key
- * Admin endpoints only require the admin key, not Privy authentication
+ * Middleware to check admin key or cron secret
+ * Supports two authentication methods:
+ * 1. X-Admin-Key header (for manual API calls)
+ * 2. Authorization Bearer token with CRON_SECRET (for Vercel cron jobs)
  */
 function requireAdminKey(c: any, next: any) {
   const adminKey = c.req.header("X-Admin-Key");
+  const authHeader = c.req.header("Authorization");
 
+  // Check if CRON_SECRET is configured (for cron job authentication)
+  const cronSecret = process.env.CRON_SECRET;
+
+  // Check if request is from Vercel cron (has Authorization header with Bearer token)
+  const isCronRequest = authHeader?.startsWith("Bearer ") && cronSecret;
+
+  if (isCronRequest) {
+    // Verify CRON_SECRET matches
+    const token = authHeader.split(" ")[1];
+    if (token === cronSecret) {
+      console.log("Authenticated via CRON_SECRET");
+      return next();
+    }
+  }
+
+  // Fall back to X-Admin-Key authentication
   if (!process.env.ADMIN_KEY) {
     return c.json(
       {
@@ -34,7 +53,7 @@ function requireAdminKey(c: any, next: any) {
 }
 
 /**
- * POST /admin/update-snapshot
+ * POST/GET /admin/update-snapshot
  * Update FirstWorks snapshot, generate merkle tree, and update contract
  *
  * This endpoint performs all three steps in one action:
@@ -44,13 +63,16 @@ function requireAdminKey(c: any, next: any) {
  *
  * ⚡ Performance: Completes in ~10-30 seconds with Alchemy API
  *
- * Authentication: X-Admin-Key header only (no Privy token required)
+ * Authentication (either method):
+ * - X-Admin-Key header (for manual API calls)
+ * - Authorization Bearer token with CRON_SECRET (for Vercel cron jobs)
  *
  * Query Parameters:
  * - skipContract: Set to 'true' to skip contract update (optional)
  *
  * Request Headers:
- * - X-Admin-Key: Admin authentication key (required)
+ * - X-Admin-Key: Admin authentication key (for manual calls)
+ * - Authorization: Bearer <CRON_SECRET> (for cron jobs)
  *
  * Response:
  * {
@@ -69,7 +91,9 @@ function requireAdminKey(c: any, next: any) {
  *   }
  * }
  */
-admin.post("/update-snapshot", requireAdminKey, async (c) => {
+
+// Handler function for the update-snapshot endpoint
+const updateSnapshotHandler = async (c: any) => {
   try {
     console.log(`Snapshot update requested at: ${new Date().toISOString()}`);
 
@@ -138,7 +162,11 @@ admin.post("/update-snapshot", requireAdminKey, async (c) => {
       statusCode
     );
   }
-});
+};
+
+// Register both POST and GET handlers for the update-snapshot endpoint
+admin.post("/update-snapshot", requireAdminKey, updateSnapshotHandler);
+admin.get("/update-snapshot", requireAdminKey, updateSnapshotHandler);
 
 /**
  * POST /admin/reload-snapshot
