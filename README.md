@@ -7,6 +7,7 @@ A Hono-based API for managing onchain Seeds (artwork proposals) and NFT-based bl
 This API provides:
 1. **Seed Creation** - Onchain artwork proposals with authorized creator control
 2. **Blessings System** - NFT-based support/likes for Seeds
+3. **Leaderboard** - Hybrid ranking system that rewards quality curation over quantity
 
 The system uses:
 - **TheSeeds Contract** (Base L2) for onchain seed and blessing storage
@@ -1277,6 +1278,7 @@ For detailed setup instructions, API documentation, and deployment guides, see:
 - [Full Deployment Guide](./docs/DEPLOYMENT_GUIDE.md) - Complete deployment and role setup
 - [Seed Creation System](./docs/SEED_CREATION_SYSTEM.md) - Architecture and integration
 - [Blessing System](./docs/BLESSING_SYSTEM.md) - Blessing mechanics
+- [Leaderboard System](./docs/LEADERBOARD.md) - Ranking and scoring mechanics
 
 ## API Endpoints
 
@@ -1308,6 +1310,131 @@ curl http://localhost:3000
   }
 }
 ```
+
+---
+
+## Leaderboard Endpoints
+
+The leaderboard ranks users by their blessing activity using a hybrid scoring system that prevents whale dominance while rewarding quality curation.
+
+### Get Leaderboard
+
+**Endpoint:** `GET /api/leaderboard`
+
+**Description:** Get ranked list of users by engagement score across different timeframes
+
+**Authentication:** None required (public endpoint)
+
+**Query Parameters:**
+- `limit` (optional) - Number of entries to return (default: 100, max: 500)
+- `timeframe` (optional) - Time period: `daily` | `weekly` | `monthly` | `yearly` | `lifetime` (default: `lifetime`)
+
+**cURL Examples:**
+```bash
+# Lifetime leaderboard (all-time)
+curl 'http://localhost:3000/api/leaderboard?limit=10'
+
+# Daily leaderboard (last 24 hours)
+curl 'http://localhost:3000/api/leaderboard?limit=10&timeframe=daily'
+
+# Weekly leaderboard (last 7 days)
+curl 'http://localhost:3000/api/leaderboard?limit=10&timeframe=weekly'
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "timeframe": "lifetime",
+  "count": 1,
+  "leaderboard": [
+    {
+      "address": "0x8eaba6d5bb11c1bf2589c90184f07f304e365d03",
+      "nftCount": 2,
+      "blessingCount": 9,
+      "winningBlessings": 0,
+      "recentActivity": true,
+      "score": 260,
+      "blessingEfficiency": 0.5,
+      "curationAccuracy": 0,
+      "rank": 1
+    }
+  ],
+  "scoring": {
+    "description": "Hybrid lifetime leaderboard that prevents whale dominance",
+    "strategy": "Combines square root scaling for volume with daily efficiency tracking",
+    "formula": { ... }
+  }
+}
+```
+
+### Get User Rank
+
+**Endpoint:** `GET /api/leaderboard/user/:address`
+
+**Description:** Get rank and detailed stats for a specific user
+
+**Authentication:** None required (public endpoint)
+
+**Query Parameters:**
+- `timeframe` (optional) - Time period: `daily` | `weekly` | `monthly` | `yearly` | `lifetime` (default: `lifetime`)
+
+**cURL Examples:**
+```bash
+# Lifetime rank
+curl 'http://localhost:3000/api/leaderboard/user/0x8eaba6d5bb11c1bf2589c90184f07f304e365d03'
+
+# Weekly rank
+curl 'http://localhost:3000/api/leaderboard/user/0x8eaba6d5bb11c1bf2589c90184f07f304e365d03?timeframe=weekly'
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "timeframe": "lifetime",
+  "address": "0x8eaba6d5bb11c1bf2589c90184f07f304e365d03",
+  "rank": 1,
+  "totalParticipants": 238,
+  "score": 260,
+  "stats": {
+    "nftCount": 2,
+    "blessingCount": 9,
+    "winningBlessings": 0,
+    "recentActivity": true
+  },
+  "blessings": [...]
+}
+```
+
+**Scoring System:**
+
+The leaderboard uses a hybrid scoring system:
+
+1. **Square Root Scaling** (50 pts per √blessing) - Prevents whale dominance
+   - 100 blessings = 500 points, 10 blessings = 158 points (3x not 10x)
+
+2. **Blessing Efficiency** (100 pts max) - Rewards daily consistency
+   - Measured over 7-day rolling window
+   - Efficiency = (Blessings / Max Possible) × 100
+
+3. **Winning Blessings** (50-150 pts each) - Rewards early curation
+   - Base 50 points × early bird multiplier (1x to 3x)
+   - Earlier blessings on winning seeds score higher
+
+4. **Curation Accuracy** (150 pts max) - Quality over quantity
+   - (Winning Blessings / Total Blessings) × 150
+
+5. **Recent Activity** (1.3x multiplier) - Engagement bonus
+   - Multiplies score if active in last 30 days
+
+**Key Principles:**
+- 0 blessings = 0 points (NFTs don't give points directly)
+- NFT count only used for efficiency calculation
+- Square root scaling prevents whale dominance
+- Quality curation beats quantity
+
+For complete scoring details and strategy guide, see [LEADERBOARD.md](./docs/LEADERBOARD.md).
 
 ---
 
