@@ -1811,7 +1811,7 @@ async function createSeed(ipfsHash: string, title: string, description: string) 
 
 **Endpoint:** `GET /api/seeds/:seedId`
 
-**Description:** Get details of a specific seed from the blockchain
+**Description:** Get details of a specific seed from the blockchain with its IPFS metadata
 
 **Authentication:** None required
 
@@ -1832,10 +1832,19 @@ curl http://localhost:3000/api/seeds/0
     "createdAt": 1729785600,
     "isWinner": false,
     "winnerInRound": 0,
-    "submittedInRound": 1
+    "submittedInRound": 1,
+    "metadata": {
+      "name": "Seed Title",
+      "description": "Seed description",
+      "image": "ipfs://QmImage...",
+      "attributes": []
+    },
+    "metadataError": null
   }
 }
 ```
+
+**Note:** The `metadata` field contains the JSON data fetched from IPFS. If the metadata fetch fails, `metadata` will be `null` and `metadataError` will contain the error message.
 
 ---
 

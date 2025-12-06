@@ -51,7 +51,7 @@ async removeCreator(creatorAddress: Address)
 **Endpoints:**
 - `POST /api/seeds` - Create seed (backend-signed, requires admin key)
 - `POST /api/seeds/prepare` - Prepare transaction (client-signed)
-- `GET /api/seeds/:seedId` - Get seed details
+- `GET /api/seeds/:seedId` - Get seed details with IPFS metadata
 - `GET /api/seeds/count` - Get total seed count
 - `GET /api/seeds/creator/:address/check` - Check if address has CREATOR_ROLE
 
@@ -272,10 +272,36 @@ curl -X POST http://localhost:3000/api/seeds \
   }'
 ```
 
-### 3. Get seed details
+### 3. Get seed details (with IPFS metadata)
 ```bash
 curl http://localhost:3000/api/seeds/0
 ```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 0,
+    "creator": "0x...",
+    "ipfsHash": "QmTest123",
+    "blessings": 10,
+    "createdAt": 1729785600,
+    "isWinner": false,
+    "winnerInRound": 0,
+    "submittedInRound": 1,
+    "metadata": {
+      "name": "Test Seed",
+      "description": "Testing seed creation",
+      "image": "ipfs://QmImage...",
+      "attributes": []
+    },
+    "metadataError": null
+  }
+}
+```
+
+**Note:** The endpoint automatically fetches metadata from IPFS. If the fetch fails, `metadata` will be `null` and `metadataError` will contain the error message.
 
 ### 4. Get total seed count
 ```bash
