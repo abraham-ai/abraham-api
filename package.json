@@ -26,6 +26,7 @@
     "test-seed:base": "NETWORK=base tsx scripts/createTestSeed.ts",
     "deploy:complete:base-sepolia": "NETWORK=baseSepolia tsx scripts/deployComplete.ts",
     "deploy:complete:base": "NETWORK=base tsx scripts/deployComplete.ts",
+    "deploy:abraham:sepolia": "hardhat run deploy/deploy_abraham.ts --network sepolia",
     "verify": "hardhat verify",
     "verify:contract": "tsx scripts/verifyContract.ts",
     "verify:contract:base-sepolia": "tsx scripts/verifyContract.ts -- --network baseSepolia",
