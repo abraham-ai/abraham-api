@@ -321,13 +321,13 @@ class BlessingService {
       };
     }
 
-    // 3. Check if seed exists and is not minted
+    // 3. Check if seed exists and is not a winner
     try {
       const seed = await contractService.getSeed(seedId);
-      if (seed.minted) {
+      if (seed.isWinner) {
         return {
           success: false,
-          error: "Cannot bless a minted seed",
+          error: "Cannot bless a winning seed",
         };
       }
     } catch (error) {
@@ -419,14 +419,14 @@ class BlessingService {
       };
     }
 
-    // 2. Check if seed exists and is not minted
+    // 2. Check if seed exists and is not a winner
     let seed;
     try {
       seed = await contractService.getSeed(seedId);
-      if (seed.minted) {
+      if (seed.isWinner) {
         return {
           success: false,
-          error: "Cannot bless a minted seed",
+          error: "Cannot bless a winning seed",
         };
       }
     } catch (error) {

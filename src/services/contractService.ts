@@ -35,11 +35,11 @@ export interface Seed {
   ipfsHash: string;
   title: string;
   description: string;
-  votes: bigint;
   blessings: bigint;
   createdAt: bigint;
-  minted: boolean;
-  mintedInRound: bigint;
+  isWinner: boolean;
+  winnerInRound: bigint;
+  submittedInRound: bigint;
 }
 
 export interface Blessing {
@@ -209,6 +209,46 @@ class ContractService {
   }
 
   /**
+   * Read: Get current round number
+   */
+  async getCurrentRound(): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "currentRound",
+      args: [],
+    })) as bigint;
+  }
+
+  /**
+   * Read: Get seeds by round number
+   */
+  async getSeedsByRound(round: number): Promise<Seed[]> {
+    const seeds = await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "getSeedsByRound",
+      args: [BigInt(round)],
+    });
+
+    return seeds as unknown as Seed[];
+  }
+
+  /**
+   * Read: Get seeds from current round
+   */
+  async getCurrentRoundSeeds(): Promise<Seed[]> {
+    const seeds = await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "getCurrentRoundSeeds",
+      args: [],
+    });
+
+    return seeds as unknown as Seed[];
+  }
+
+  /**
    * Write: Bless a seed on behalf of a user (relayer pattern)
    * Requires RELAYER_ROLE or user delegation
    * Now includes on-chain eligibility verification with NFT ownership proof
@@ -271,8 +311,8 @@ class ContractService {
           "Backend not authorized - user must approve backend as delegate";
       } else if (error.message.includes("SeedNotFound")) {
         errorMessage = "Seed does not exist";
-      } else if (error.message.includes("SeedAlreadyMinted")) {
-        errorMessage = "Cannot bless a minted seed";
+      } else if (error.message.includes("SeedAlreadyWinner")) {
+        errorMessage = "Cannot bless a winning seed";
       } else if (error.message.includes("InvalidMerkleProof")) {
         errorMessage = "Invalid NFT ownership proof";
       } else if (error.message.includes("DailyBlessingLimitReached")) {
@@ -578,6 +618,84 @@ class ContractService {
       return {
         success: false,
         error: error.message || "Failed to remove creator",
+      };
+    }
+  }
+
+  /*//////////////////////////////////////////////////////////////
+                      WINNER SELECTION FUNCTIONS
+  //////////////////////////////////////////////////////////////*/
+
+  /**
+   * Admin: Select daily winner (call contract's selectDailyWinner)
+   * Only callable by relayer/admin account
+   */
+  async selectDailyWinner(): Promise<{
+    success: boolean;
+    winningSeedId?: number;
+    txHash?: Hash;
+    error?: string;
+  }> {
+    if (!this.walletClient || !this.relayerAccount) {
+      return {
+        success: false,
+        error: "Wallet client not initialized",
+      };
+    }
+
+    try {
+      // Call the contract's selectDailyWinner function
+      const hash = await this.walletClient.writeContract({
+        address: this.contractAddress,
+        abi: SEEDS_ABI,
+        functionName: "selectDailyWinner",
+        args: [],
+      } as any);
+
+      const receipt = await this.publicClient.waitForTransactionReceipt({
+        hash,
+      });
+
+      if (receipt.status !== "success") {
+        return {
+          success: false,
+          error: "Transaction failed",
+        };
+      }
+
+      // Parse the WinnerSelected event to get the winner ID
+      let winningSeedId: number | undefined;
+      for (const log of receipt.logs) {
+        try {
+          // WinnerSelected event has seedId as second indexed parameter
+          if (log.topics[0] && log.topics[2]) {
+            winningSeedId = Number(BigInt(log.topics[2]));
+            break;
+          }
+        } catch (e) {
+          // Continue if this log doesn't match
+        }
+      }
+
+      return {
+        success: true,
+        winningSeedId,
+        txHash: hash,
+      };
+    } catch (error: any) {
+      console.error("Error selecting daily winner:", error);
+
+      // Parse common errors
+      let errorMessage = "Failed to select daily winner";
+      if (error.message?.includes("VotingPeriodNotEnded") || error.message?.includes("BlessingPeriodNotEnded")) {
+        errorMessage = "Blessing period has not ended yet (24 hours not elapsed)";
+      } else if (error.message?.includes("NoValidWinner")) {
+        errorMessage = "No valid winner (no seeds with blessings)";
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
       };
     }
   }

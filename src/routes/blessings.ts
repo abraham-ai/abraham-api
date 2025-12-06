@@ -516,7 +516,6 @@ blessings.get("/seed/:seedId", async (c) => {
           title: seed.title,
           creator: seed.creator,
           blessings: Number(seed.blessings),
-          votes: Number(seed.votes),
         },
         blessings: blessings.map((b) => ({
           blesser: b.blesser,

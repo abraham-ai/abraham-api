@@ -6,11 +6,12 @@ A Hono-based API for managing onchain Seeds (artwork proposals) and NFT-based bl
 
 This API provides:
 1. **Seed Creation** - Onchain artwork proposals with authorized creator control
-2. **Blessings System** - NFT-based support/likes for Seeds
-3. **Leaderboard** - Hybrid ranking system that rewards quality curation over quantity
+2. **Round-Based Winner Selection** - Daily competition with anti-manipulation mechanics
+3. **Blessings System** - NFT-based support with time decay to prevent last-minute swings
+4. **Leaderboard** - Hybrid ranking system that rewards quality curation over quantity
 
 The system uses:
-- **TheSeeds Contract** (Base L2) for onchain seed and blessing storage
+- **TheSeeds Contract** (Base L2) for onchain seed and blessing storage with round-based competition
 - **Privy** for authentication
 - **Viem** for Ethereum blockchain interactions
 - **Hono** as the lightweight web framework
@@ -25,12 +26,223 @@ The system uses:
   - **Client-Signed**: Creator signs transaction directly with their wallet
 - ✅ **Access Control**: Role-based permissions using OpenZeppelin AccessControl
 
+#### Winner Selection System
+- ✅ **Round-Based Competition**: Each 24-hour period is an independent competition
+- ✅ **Square Root Anti-Whale Scoring**: Score = Σ√(blessings per user) prevents dominance
+- ✅ **Time Decay Anti-Manipulation**: Earlier blessings weighted higher (quadratic decay)
+- ✅ **Daily Winners**: One winner selected per 24-hour period from that day's seeds only
+- ✅ **Scalable**: O(current_round_seeds) complexity, not O(all_seeds)
+
 #### Blessing System
 - ✅ **Onchain Blessings**: All blessings stored on blockchain
 - ✅ **NFT-based eligibility**: If you own N FirstWorks NFTs, you get N blessings per day
-- ✅ **24-hour blessing period**: Resets at midnight UTC
+- ✅ **24-hour blessing period**: Resets daily (UTC-based)
+- ✅ **Time-Based Scoring**: Blessings earlier in period worth more (prevents last-minute dumps)
 - ✅ **Delegation Support**: Users can approve backend to bless on their behalf (gasless)
 - ✅ **Daily NFT snapshots**: Fast lookup for eligibility
+
+#### How Winner Selection Works
+1. **Seeds compete only within their round**: Seeds submitted on Day 1 only compete with other Day 1 seeds
+2. **Square root prevents whale dominance**: 100 blessings = score of 10, not 100
+3. **Time decay prevents manipulation**:
+   - Blessing at hour 0 (24h remaining): 100% weight
+   - Blessing at hour 12 (12h remaining): 25% weight
+   - Blessing at hour 23 (1h remaining): 4.2% weight
+4. **Winner selected after 24 hours**: Highest score wins, then new round begins
+
+---
+
+## Technical Deep Dive: Round-Based Winner Selection
+
+### Architecture Overview
+
+The winner selection system uses a three-layer approach to ensure fairness:
+
+**1. Round-Based Isolation**
+- Each seed is tagged with `submittedInRound` when created
+- Winner selection only considers seeds where `submittedInRound == currentRound`
+- Past rounds' seeds are automatically excluded from future competitions
+- Scalability: O(current_round_seeds) instead of O(all_seeds)
+
+**2. Anti-Whale Scoring (Square Root)**
+- Score formula: `Score = Σ√(blessings_from_user_i)` for all users
+- Per-user blessing tracking prevents gaming via multiple accounts
+- Mathematical property: 100 blessings = score 10, not 100
+- Whale with 10,000 NFTs giving 10,000 blessings gets score ~100, not 10,000
+
+**3. Time Decay (Anti-Manipulation)**
+- Quadratic decay based on time remaining in period
+- Formula: `decay = (hours_remaining / 24)²`
+- Prevents last-minute "blessing dumps" to swing results
+- Encourages early discovery and authentic curation
+
+### Score Calculation Example
+
+**Scenario:** Seed with 3 blessers
+- User A: owns 100 NFTs, blesses with 100 blessings at hour 1 (23h remaining)
+- User B: owns 10 NFTs, blesses with 10 blessings at hour 1 (23h remaining)
+- User C: owns 5 NFTs, blesses with 5 blessings at hour 23 (1h remaining)
+
+**Calculation:**
+```
+Time decay factor (hour 1):  (23/24)² = 0.917
+Time decay factor (hour 23): (1/24)²  = 0.0017
+
+User A contribution: √100 × 0.917 = 10 × 0.917 = 9.17
+User B contribution: √10 × 0.917  = 3.16 × 0.917 = 2.90
+User C contribution: √5 × 0.0017  = 2.24 × 0.0017 = 0.004
+
+Total seed score: 9.17 + 2.90 + 0.004 = 12.07
+```
+
+**Key Insights:**
+- User A (100 blessings) contributes 9.17 points, not 100 points
+- User C's late blessing contributes almost nothing (0.004 vs 2.90 if blessed early)
+- Early curation by smaller holders matters more than late dumps by whales
+
+### Round Lifecycle
+
+```
+Round 1 (Day 1, 00:00 - 23:59 UTC)
+├─ 00:00: Round 1 begins, currentRound = 1
+├─ Seeds created during this period get submittedInRound = 1
+├─ Blessings accumulate with time decay
+└─ 24:00: selectDailyWinner() called
+    ├─ Only considers seeds with submittedInRound == 1
+    ├─ Winner selected based on highest score
+    ├─ Winner marked with isWinner = true, winnerInRound = 1
+    └─ currentRound increments to 2
+
+Round 2 (Day 2, 00:00 - 23:59 UTC)
+├─ 00:00: Round 2 begins, currentRound = 2
+├─ Seeds from Round 1 are NOT in competition
+├─ New seeds get submittedInRound = 2
+└─ Winner selected from Round 2 seeds only
+```
+
+### Database Schema Changes
+
+**Before (Voting System):**
+```solidity
+struct Seed {
+    uint256 id;
+    address creator;
+    string ipfsHash;
+    uint256 votes;        // ← Removed
+    uint256 blessings;
+    uint256 createdAt;
+    bool minted;          // ← Renamed to isWinner
+    uint256 mintedInRound; // ← Renamed to winnerInRound
+}
+```
+
+**After (Round-Based System):**
+```solidity
+struct Seed {
+    uint256 id;
+    address creator;
+    string ipfsHash;
+    uint256 blessings;
+    uint256 createdAt;
+    bool isWinner;
+    uint256 winnerInRound;
+    uint256 submittedInRound; // ← NEW: Which round this seed was created in
+}
+```
+
+### API Impact
+
+**New Contract Functions:**
+- `getCurrentRound()` - Returns current active round number
+- `getSeedsByRound(uint256)` - Get all seeds from a specific round
+- `getCurrentRoundSeeds()` - Get seeds competing in current round
+
+**New API Endpoints:**
+- `GET /api/seeds/round/current` - Today's competition entries
+- `GET /api/seeds/round/:roundNumber` - Historical round results
+
+**Updated Response Fields:**
+All seed objects now include:
+- `submittedInRound`: Which round the seed was created in
+- `isWinner`: Whether this seed won its round
+- `winnerInRound`: Which round this seed won (0 if not winner)
+
+### Performance Optimizations
+
+**Before:** Winner selection looped through ALL seeds ever created
+```solidity
+// O(N) where N = total seeds in contract history
+for (uint256 i = 0; i < seedCount; i++) {
+    if (!seeds[i].minted) {
+        // Calculate score...
+    }
+}
+```
+
+**After:** Winner selection only loops through current round
+```solidity
+// O(M) where M = seeds in current round (typically 10-50)
+for (uint256 i = 0; i < seedCount; i++) {
+    if (seeds[i].submittedInRound == currentRound) {
+        // Calculate score...
+    }
+}
+```
+
+**Score Pre-calculation:**
+- Scores calculated incrementally during blessing submission
+- Stored in `seedBlessingScore` mapping
+- Winner selection reads pre-calculated scores (no recalculation needed)
+- Gas savings: ~100k gas per winner selection
+
+### Anti-Gaming Mechanisms
+
+**1. Sybil Resistance (Square Root Scoring)**
+- Prevents splitting blessings across multiple accounts
+- √(100) = 10, but √(50) + √(50) = 7.07 + 7.07 = 14.14
+- Consolidating blessings from one account is optimal strategy
+
+**2. Whale Resistance (Diminishing Returns)**
+- Large holders can't dominate by dumping all blessings on one seed
+- 1000 blessings → score ~31, not 1000
+- Encourages spreading blessings across multiple quality seeds
+
+**3. Manipulation Resistance (Time Decay)**
+- Last-minute blessing dumps worth almost nothing
+- Blessing at hour 23: 0.17% of early blessing value
+- Forces authentic early discovery vs strategic late gaming
+
+**4. Round Isolation**
+- Can't stockpile old seeds to dominate future rounds
+- Each round is independent competition
+- Winners from past rounds don't affect current competition
+
+### Testing Strategy
+
+The round-based system includes comprehensive tests in [test/TheSeeds.test.ts](test/TheSeeds.test.ts):
+
+**Round Competition Tests:**
+- Seeds from different rounds don't compete
+- Winner selection only considers current round
+- Round advancement increments properly
+- Historical rounds remain queryable
+
+**Time Decay Tests:**
+- Early blessings worth more than late blessings
+- Quadratic decay formula validated
+- Prevents last-minute manipulation
+
+**Score Calculation Tests:**
+- Square root scaling verified
+- Per-user blessing tracking works correctly
+- Multiple users' contributions combine properly
+
+Run tests with:
+```bash
+npm run test:contracts
+```
+
+---
 
 ## Quick Start
 
@@ -1484,12 +1696,11 @@ curl -X POST http://localhost:3000/api/seeds \
       "id": 0,
       "creator": "0x...",
       "ipfsHash": "QmX123...",
-      "title": "My First Seed",
-      "description": "A beautiful artwork",
-      "votes": 0,
       "blessings": 0,
       "createdAt": 1729785600,
-      "minted": false
+      "isWinner": false,
+      "winnerInRound": 0,
+      "submittedInRound": 1
     }
   }
 }
@@ -1617,13 +1828,11 @@ curl http://localhost:3000/api/seeds/0
     "id": 0,
     "creator": "0x...",
     "ipfsHash": "QmX123...",
-    "title": "My First Seed",
-    "description": "A beautiful artwork",
-    "votes": 5,
     "blessings": 10,
     "createdAt": 1729785600,
-    "minted": false,
-    "mintedInRound": 0
+    "isWinner": false,
+    "winnerInRound": 0,
+    "submittedInRound": 1
   }
 }
 ```
@@ -1678,6 +1887,181 @@ curl http://localhost:3000/api/seeds/creator/0x1234.../check
   }
 }
 ```
+
+---
+
+### 7. Get All Seeds (Paginated)
+
+**Endpoint:** `GET /api/seeds`
+
+**Description:** Get all seeds with pagination and IPFS metadata
+
+**Authentication:** None required
+
+**Query Parameters:**
+- `page` (optional) - Page number (default: 1)
+- `limit` (optional) - Items per page (default: 10, max: 100)
+
+**cURL Example:**
+```bash
+# Get first page with default limit
+curl http://localhost:3000/api/seeds
+
+# Get page 2 with 20 items
+curl 'http://localhost:3000/api/seeds?page=2&limit=20'
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "seeds": [
+      {
+        "id": 0,
+        "creator": "0x...",
+        "ipfsHash": "QmX123...",
+        "blessings": 10,
+        "createdAt": 1729785600,
+        "isWinner": false,
+        "winnerInRound": 0,
+        "submittedInRound": 1,
+        "metadata": {
+          "name": "Artwork Title",
+          "description": "Description",
+          "image": "ipfs://..."
+        },
+        "metadataError": null
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 10,
+      "total": 42,
+      "totalPages": 5,
+      "hasNextPage": true,
+      "hasPrevPage": false
+    }
+  }
+}
+```
+
+---
+
+### 8. Get Current Round Seeds
+
+**Endpoint:** `GET /api/seeds/round/current`
+
+**Description:** Get all seeds from the current active round (today's competition)
+
+**Authentication:** None required
+
+**cURL Example:**
+```bash
+curl http://localhost:3000/api/seeds/round/current
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "currentRound": 5,
+    "seeds": [
+      {
+        "id": 12,
+        "creator": "0x...",
+        "ipfsHash": "QmAbc...",
+        "blessings": 15,
+        "createdAt": 1729785600,
+        "isWinner": false,
+        "winnerInRound": 0,
+        "submittedInRound": 5
+      },
+      {
+        "id": 13,
+        "creator": "0x...",
+        "ipfsHash": "QmDef...",
+        "blessings": 8,
+        "createdAt": 1729789200,
+        "isWinner": false,
+        "winnerInRound": 0,
+        "submittedInRound": 5
+      }
+    ],
+    "count": 2
+  }
+}
+```
+
+**Use Cases:**
+- Display today's seed submissions
+- Show current competition entries
+- Real-time leaderboard for today's round
+- Filter seeds by active competition period
+
+---
+
+### 9. Get Seeds by Round Number
+
+**Endpoint:** `GET /api/seeds/round/:roundNumber`
+
+**Description:** Get all seeds from a specific historical round
+
+**Authentication:** None required
+
+**cURL Example:**
+```bash
+# Get seeds from round 3
+curl http://localhost:3000/api/seeds/round/3
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "round": 3,
+    "seeds": [
+      {
+        "id": 7,
+        "creator": "0x...",
+        "ipfsHash": "QmXyz...",
+        "blessings": 25,
+        "createdAt": 1729612800,
+        "isWinner": true,
+        "winnerInRound": 3,
+        "submittedInRound": 3
+      },
+      {
+        "id": 8,
+        "creator": "0x...",
+        "ipfsHash": "QmUvw...",
+        "blessings": 18,
+        "createdAt": 1729616400,
+        "isWinner": false,
+        "winnerInRound": 0,
+        "submittedInRound": 3
+      }
+    ],
+    "count": 2
+  }
+}
+```
+
+**Error Response - Invalid Round (400):**
+```json
+{
+  "success": false,
+  "error": "Invalid round number"
+}
+```
+
+**Use Cases:**
+- View historical competition results
+- Display past winners with their competitors
+- Build round-by-round archive
+- Compare performance across different rounds
 
 ---
 
