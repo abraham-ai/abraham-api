@@ -130,10 +130,10 @@ seeds.post("/", withAuth, async (c) => {
               id: Number(seed.id),
               creator: seed.creator,
               ipfsHash: seed.ipfsHash,
-              votes: Number(seed.votes),
               blessings: Number(seed.blessings),
               createdAt: Number(seed.createdAt),
-              minted: seed.minted,
+              isWinner: seed.isWinner,
+              submittedInRound: Number(seed.submittedInRound),
             }
           : null,
       },
@@ -359,11 +359,11 @@ seeds.get("/", async (c) => {
           ipfsHash: seed.ipfsHash,
           title: seed.title,
           description: seed.description,
-          votes: Number(seed.votes),
           blessings: Number(seed.blessings),
           createdAt: Number(seed.createdAt),
-          minted: seed.minted,
-          mintedInRound: Number(seed.mintedInRound),
+          isWinner: seed.isWinner,
+          winnerInRound: Number(seed.winnerInRound),
+          submittedInRound: Number(seed.submittedInRound),
           metadata: metadata,
           metadataError: metadataError,
         });
@@ -426,11 +426,11 @@ seeds.get("/:seedId", async (c) => {
         id: Number(seed.id),
         creator: seed.creator,
         ipfsHash: seed.ipfsHash,
-        votes: Number(seed.votes),
         blessings: Number(seed.blessings),
         createdAt: Number(seed.createdAt),
-        minted: seed.minted,
-        mintedInRound: Number(seed.mintedInRound),
+        isWinner: seed.isWinner,
+        winnerInRound: Number(seed.winnerInRound),
+        submittedInRound: Number(seed.submittedInRound),
       },
     });
   } catch (error) {
@@ -506,6 +506,99 @@ seeds.get("/creator/:address/check", async (c) => {
       {
         success: false,
         error: "Failed to check creator role",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /seeds/round/current
+ * Get all seeds from the current round
+ */
+seeds.get("/round/current", async (c) => {
+  try {
+    const currentRound = await contractService.getCurrentRound();
+    const roundSeeds = await contractService.getCurrentRoundSeeds();
+
+    const seeds = roundSeeds.map((seed) => ({
+      id: Number(seed.id),
+      creator: seed.creator,
+      ipfsHash: seed.ipfsHash,
+      blessings: Number(seed.blessings),
+      createdAt: Number(seed.createdAt),
+      isWinner: seed.isWinner,
+      winnerInRound: Number(seed.winnerInRound),
+      submittedInRound: Number(seed.submittedInRound),
+    }));
+
+    return c.json({
+      success: true,
+      data: {
+        currentRound: Number(currentRound),
+        seeds,
+        count: seeds.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching current round seeds:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch current round seeds",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /seeds/round/:roundNumber
+ * Get all seeds from a specific round
+ */
+seeds.get("/round/:roundNumber", async (c) => {
+  try {
+    const roundNumber = parseInt(c.req.param("roundNumber"));
+
+    if (isNaN(roundNumber) || roundNumber < 1) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid round number",
+        },
+        400
+      );
+    }
+
+    const roundSeeds = await contractService.getSeedsByRound(roundNumber);
+
+    const seeds = roundSeeds.map((seed) => ({
+      id: Number(seed.id),
+      creator: seed.creator,
+      ipfsHash: seed.ipfsHash,
+      blessings: Number(seed.blessings),
+      createdAt: Number(seed.createdAt),
+      isWinner: seed.isWinner,
+      winnerInRound: Number(seed.winnerInRound),
+      submittedInRound: Number(seed.submittedInRound),
+    }));
+
+    return c.json({
+      success: true,
+      data: {
+        round: roundNumber,
+        seeds,
+        count: seeds.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching round seeds:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch round seeds",
         details: error instanceof Error ? error.message : String(error),
       },
       500

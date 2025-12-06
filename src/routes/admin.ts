@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { updateSnapshotAndMerkle } from "../../scripts/updateSnapshot.js";
+import { contractService } from "../services/contractService.js";
 
 const admin = new Hono();
 
@@ -289,5 +290,120 @@ admin.get("/snapshot-status", async (c) => {
     );
   }
 });
+
+/**
+ * POST/GET /admin/select-winner
+ * Automatically select the daily winner based on blessing scores
+ *
+ * This endpoint triggers the winner selection process:
+ * 1. Calls selectDailyWinner() on The Seeds contract
+ * 2. Winner is determined by: sqrt(per-user blessings) * time_decay
+ * 3. Starts a new 24-hour blessing period
+ *
+ * Authentication (either method):
+ * - X-Admin-Key header (for manual API calls)
+ * - Authorization Bearer token with CRON_SECRET (for Vercel cron jobs)
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "winningSeedId": number,
+ *     "txHash": string,
+ *     "blockExplorer": string,
+ *     "seed": {...}
+ *   }
+ * }
+ */
+
+// Handler function for the select-winner endpoint
+const selectWinnerHandler = async (c: any) => {
+  try {
+    console.log(`Winner selection requested at: ${new Date().toISOString()}`);
+
+    // Call contract service to select winner
+    const result = await contractService.selectDailyWinner();
+
+    if (!result.success) {
+      let statusCode: 400 | 500 | 503 = 500;
+      if (result.error?.includes("not ended")) statusCode = 400;
+      else if (result.error?.includes("No valid winner")) statusCode = 400;
+      else if (result.error?.includes("RPC") || result.error?.includes("network")) {
+        statusCode = 503;
+      }
+
+      return c.json(
+        {
+          success: false,
+          error: result.error || "Winner selection failed",
+        },
+        statusCode
+      );
+    }
+
+    // Get the winning seed details
+    let seed = null;
+    if (result.winningSeedId !== undefined) {
+      try {
+        seed = await contractService.getSeed(result.winningSeedId);
+      } catch (error) {
+        console.warn("Winner selected but couldn't fetch seed details:", error);
+      }
+    }
+
+    const blockExplorer =
+      process.env.NETWORK === "base"
+        ? `https://basescan.org/tx/${result.txHash}`
+        : `https://sepolia.basescan.org/tx/${result.txHash}`;
+
+    return c.json({
+      success: true,
+      data: {
+        winningSeedId: result.winningSeedId,
+        txHash: result.txHash,
+        blockExplorer,
+        seed: seed
+          ? {
+              id: Number(seed.id),
+              creator: seed.creator,
+              ipfsHash: seed.ipfsHash,
+              blessings: Number(seed.blessings),
+              createdAt: Number(seed.createdAt),
+              isWinner: seed.isWinner,
+              winnerInRound: Number(seed.winnerInRound),
+            }
+          : null,
+        timestamp: new Date().toISOString(),
+        message: "Winner selected successfully. New blessing period started.",
+      },
+    });
+  } catch (error) {
+    console.error("Error selecting winner:", error);
+
+    let statusCode: 500 | 503 = 500;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    if (
+      errorMessage.includes("RPC") ||
+      errorMessage.includes("network") ||
+      errorMessage.includes("timeout")
+    ) {
+      statusCode = 503;
+    }
+
+    return c.json(
+      {
+        success: false,
+        error: "Failed to select winner",
+        details: errorMessage,
+      },
+      statusCode
+    );
+  }
+};
+
+// Register both POST and GET handlers for the select-winner endpoint
+admin.post("/select-winner", requireAdminKey, selectWinnerHandler);
+admin.get("/select-winner", requireAdminKey, selectWinnerHandler);
 
 export default admin;

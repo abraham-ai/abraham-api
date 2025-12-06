@@ -2,8 +2,8 @@
   "contractAddress": "0x9734c959A5FEC7BaD8b0b560AD94F9740B90Efd8",
   "contractName": "Abraham's First Works",
   "totalSupply": 2034,
-  "timestamp": "2025-11-22T22:37:53.643Z",
-  "blockNumber": 23857492,
+  "timestamp": "2025-12-06T12:43:26.744Z",
+  "blockNumber": 23953912,
   "holders": [
     {
       "address": "0x826be0f079a18c7f318efbead5f90df70a7b2e29",
@@ -286,7 +286,7 @@
     },
     {
       "address": "0xd246978aa69a4fc3c441f7a78d03fa1055819688",
-      "balance": 181,
+      "balance": 179,
       "tokenIds": [
         2,
         21,
@@ -336,7 +336,6 @@
         454,
         458,
         460,
-        503,
         586,
         627,
         634,
@@ -424,7 +423,6 @@
         1912,
         1913,
         1916,
-        1919,
         1930,
         1956,
         1976,
@@ -1591,14 +1589,13 @@
     },
     {
       "address": "0xf7425fb026f9297fcc57b14ace187215442586a2",
-      "balance": 13,
+      "balance": 12,
       "tokenIds": [
         11,
         155,
         227,
         305,
         343,
-        577,
         709,
         1314,
         1741,
@@ -2915,6 +2912,20 @@
       ]
     },
     {
+      "address": "0x2c2690038daf35b6217a8115a0b5e191b4ed1de8",
+      "balance": 1,
+      "tokenIds": [
+        577
+      ]
+    },
+    {
+      "address": "0x2e27240e01f4dfe4c2f51a5f663bf369be1ae65c",
+      "balance": 1,
+      "tokenIds": [
+        1919
+      ]
+    },
+    {
       "address": "0x2f5fc65b9c6d1fee8ba4ca23fb2d7c363c95133c",
       "balance": 1,
       "tokenIds": [
@@ -2996,6 +3007,13 @@
       "balance": 1,
       "tokenIds": [
         1222
+      ]
+    },
+    {
+      "address": "0x3cbd57da2f08b3268da07e5c9038c11861828637",
+      "balance": 1,
+      "tokenIds": [
+        503
       ]
     },
     {
@@ -3468,7 +3486,7 @@
       ]
     }
   ],
-  "totalHolders": 238,
+  "totalHolders": 241,
   "holderIndex": {
     "0x826be0f079a18c7f318efbead5f90df70a7b2e29": [
       344,
@@ -3794,7 +3812,6 @@
       454,
       458,
       460,
-      503,
       586,
       627,
       634,
@@ -3882,7 +3899,6 @@
       1912,
       1913,
       1916,
-      1919,
       1930,
       1956,
       1976,
@@ -4960,7 +4976,6 @@
       227,
       305,
       343,
-      577,
       709,
       1314,
       1741,
@@ -5743,6 +5758,12 @@
     "0x2b0386bbdd314d8356c21f39be2491f975bd6361": [
       1031
     ],
+    "0x2c2690038daf35b6217a8115a0b5e191b4ed1de8": [
+      577
+    ],
+    "0x2e27240e01f4dfe4c2f51a5f663bf369be1ae65c": [
+      1919
+    ],
     "0x2f5fc65b9c6d1fee8ba4ca23fb2d7c363c95133c": [
       2135
     ],
@@ -5778,6 +5799,9 @@
     ],
     "0x3b6c6115aeafad8bf1b93bb3ba6d34d7972d31ba": [
       1222
+    ],
+    "0x3cbd57da2f08b3268da07e5c9038c11861828637": [
+      503
     ],
     "0x3fbf3747128c03d0715438e6e1fcd9df8aa27b0a": [
       1788

@@ -128,18 +128,18 @@ class LeaderboardService {
 
           // Calculate early bird score (0-1)
           // Earlier blessings get higher scores
-          // If seed was minted, calculate relative timing
+          // If seed was a winner, calculate relative timing
           let earlyBirdScore = 0;
-          if (seed.minted && blessingTime > seedCreatedAt) {
-            // Assume average time to mint is 7 days (adjustable)
-            const avgTimeToMint = 7 * 24 * 60 * 60; // 7 days in seconds
+          if (seed.isWinner && blessingTime > seedCreatedAt) {
+            // Assume average time to winner selection is 7 days (adjustable)
+            const avgTimeToWinner = 7 * 24 * 60 * 60; // 7 days in seconds
             const timeSinceCreation = blessingTime - seedCreatedAt;
-            const timeRatio = timeSinceCreation / avgTimeToMint;
+            const timeRatio = timeSinceCreation / avgTimeToWinner;
 
             // Score from 1 (immediate) to 0 (very late)
             // Using exponential decay for more dramatic early bird advantage
             earlyBirdScore = Math.max(0, Math.exp(-timeRatio * 2));
-          } else if (!seed.minted && blessingTime > seedCreatedAt) {
+          } else if (!seed.isWinner && blessingTime > seedCreatedAt) {
             // For non-winning seeds, just give a small score for early blessing
             const daysSinceCreation = (blessingTime - seedCreatedAt) / (24 * 60 * 60);
             earlyBirdScore = Math.max(0, 1 - daysSinceCreation / 30); // Decay over 30 days
@@ -148,7 +148,7 @@ class LeaderboardService {
           return {
             seedId: Number(blessing.seedId),
             timestamp: blessingTime,
-            wasWinner: seed.minted,
+            wasWinner: seed.isWinner,
             seedCreatedAt,
             earlyBirdScore: Math.max(0, Math.min(1, earlyBirdScore)), // Clamp 0-1
           };

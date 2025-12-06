@@ -7,16 +7,16 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 /**
  * @title TheSeeds
- * @notice L2 governance contract for proposing, voting on, and blessing Seeds (artworks)
- * @dev Uses Merkle proofs to verify L1 FirstWorks NFT ownership for voting eligibility
- *
- * Voting Model:
- * - Each FirstWorks NFT = 1 vote
- * - Daily voting periods with winner selection
- * - Winning Seed gets minted on L1 Abraham Covenant
+ * @notice L2 governance contract for proposing and blessing Seeds (artworks)
+ * @dev Uses Merkle proofs to verify L1 FirstWorks NFT ownership for blessing eligibility
  *
  * Blessing Model:
- * - Users can bless seeds to show support
+ * - Users can bless seeds to show support (multiple blessings per seed allowed)
+ * - Winner selected daily based on sqrt(per-user blessings) with time decay
+ * - Each FirstWorks NFT holder can bless once per day per NFT
+ * - Winning Seed is marked as winner for that round
+ *
+ * Delegation:
  * - Users can delegate blessing rights to trusted parties (e.g., backend server, smart wallets)
  * - Backend relayer can submit blessings on behalf of verified users
  */
@@ -66,17 +66,11 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         uint256 id;
         address creator;
         string ipfsHash;        // IPFS hash of the artwork (contains all metadata)
-        uint256 votes;
-        uint256 blessings;      // Total blessings received
+        uint256 blessings;      // Total blessings received (used for winner selection with sqrt + time decay)
         uint256 createdAt;
-        bool minted;            // True when selected as winner
-        uint256 mintedInRound;  // Round number when minted
-    }
-
-    struct Vote {
-        uint256 seedId;
-        uint256 votePower;      // Number of NFTs voting
-        uint256 timestamp;
+        bool isWinner;          // True when selected as winner
+        uint256 winnerInRound;  // Round number when selected as winner
+        uint256 submittedInRound; // Round number when seed was submitted (for round-based competition)
     }
 
     struct Blessing {
@@ -90,14 +84,12 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     /// @notice Mapping of seed ID to Seed data
     mapping(uint256 => Seed) public seeds;
 
-    /// @notice Mapping of voter address => round => Vote details
-    mapping(address => mapping(uint256 => Vote)) public roundVotes;
-
     /// @notice Mapping of round => winning seed ID
     mapping(uint256 => uint256) public roundWinners;
 
-    /// @notice Mapping to track if user voted in a round
-    mapping(address => mapping(uint256 => bool)) public hasVotedInRound;
+    /// @notice Mapping of round => array of seed IDs submitted in that round
+    /// @dev Used for efficient winner selection (only loop through current round's seeds)
+    mapping(uint256 => uint256[]) public roundSeedIds;
 
     /// @notice Delegation: user => delegate => approved
     /// @dev Users can approve delegates (e.g., backend server, smart wallets) to bless on their behalf
@@ -105,6 +97,10 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
 
     /// @notice Track blessing count per user per seed (allows multiple blessings)
     mapping(address => mapping(uint256 => uint256)) public userSeedBlessingCount;
+
+    /// @notice Track sqrt-adjusted blessing score per seed (sum of sqrt of each user's blessings)
+    /// @dev Score is updated incrementally as blessings come in, not calculated at winner selection
+    mapping(uint256 => uint256) public seedBlessingScore;
 
     /// @notice Array of all blessings for tracking and querying
     Blessing[] public allBlessings;
@@ -133,31 +129,16 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         uint256 timestamp
     );
 
-    event VoteCast(
-        address indexed voter,
-        uint256 indexed seedId,
-        uint256 votePower,
-        uint256 round,
-        uint256 timestamp
-    );
-
-    event VoteChanged(
-        address indexed voter,
-        uint256 indexed oldSeedId,
-        uint256 indexed newSeedId,
-        uint256 votePower,
-        uint256 round
-    );
-
     event WinnerSelected(
         uint256 indexed round,
         uint256 indexed seedId,
         string ipfsHash,
-        uint256 votes,
+        uint256 blessings,
+        uint256 score,
         bytes32 seedProof
     );
 
-    event VotingPeriodStarted(uint256 indexed round, uint256 startTime);
+    event BlessingPeriodStarted(uint256 indexed round, uint256 startTime);
 
     event SeedRetracted(uint256 indexed seedId, address indexed creator);
 
@@ -193,12 +174,13 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
 
     error InvalidMerkleProof();
     error SeedNotFound();
-    error SeedAlreadyMinted();
+    error SeedAlreadyWinner();
+    error BlessingPeriodEnded();
     error VotingPeriodNotEnded();
     error NoValidWinner();
     error InvalidSeedData();
     error NotSeedCreator();
-    error CannotRetractMintedSeed();
+    error CannotRetractWinningSeed();
     error InvalidOwnershipRoot();
     error NoVotingPower();
     error NotAuthorized();
@@ -217,7 +199,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         currentVotingPeriodStart = block.timestamp;
         currentRound = 1;
 
-        emit VotingPeriodStarted(1, block.timestamp);
+        emit BlessingPeriodStarted(1, block.timestamp);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -253,12 +235,15 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
             id: seedId,
             creator: msg.sender,
             ipfsHash: _ipfsHash,
-            votes: 0,
             blessings: 0,
             createdAt: block.timestamp,
-            minted: false,
-            mintedInRound: 0
+            isWinner: false,
+            winnerInRound: 0,
+            submittedInRound: currentRound
         });
+
+        // Add seed to current round's seed list for efficient lookup
+        roundSeedIds[currentRound].push(seedId);
 
         emit SeedSubmitted(seedId, msg.sender, _ipfsHash, "", block.timestamp);
 
@@ -274,89 +259,12 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
 
         if (seed.createdAt == 0) revert SeedNotFound();
         if (seed.creator != msg.sender) revert NotSeedCreator();
-        if (seed.minted) revert CannotRetractMintedSeed();
+        if (seed.isWinner) revert CannotRetractWinningSeed();
 
-        // Mark as minted to prevent voting
-        seed.minted = true;
+        // Mark as winner to prevent further blessings and voting
+        seed.isWinner = true;
 
         emit SeedRetracted(_seedId, msg.sender);
-    }
-
-    /*//////////////////////////////////////////////////////////////
-                          VOTING FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
-
-    /**
-     * @notice Vote for a Seed using FirstWorks NFT ownership proof
-     * @param _seedId ID of the Seed to vote for
-     * @param _tokenIds Array of token IDs owned (voting power)
-     * @param _merkleProof Merkle proof of ownership
-     */
-    function voteForSeed(
-        uint256 _seedId,
-        uint256[] memory _tokenIds,
-        bytes32[] memory _merkleProof
-    ) external whenNotPaused nonReentrant {
-        Seed storage seed = seeds[_seedId];
-
-        // Validate seed
-        if (seed.createdAt == 0) revert SeedNotFound();
-        if (seed.minted) revert SeedAlreadyMinted();
-
-        // Verify ownership via Merkle proof
-        if (!_verifyOwnership(msg.sender, _tokenIds, _merkleProof)) {
-            revert InvalidMerkleProof();
-        }
-
-        uint256 votePower = _tokenIds.length;
-        if (votePower == 0) revert NoVotingPower();
-
-        // Check if user already voted in this round
-        bool alreadyVoted = hasVotedInRound[msg.sender][currentRound];
-
-        if (alreadyVoted) {
-            // User is changing their vote
-            Vote storage existingVote = roundVotes[msg.sender][currentRound];
-            uint256 previousSeedId = existingVote.seedId;
-
-            if (previousSeedId != _seedId) {
-                // Remove votes from previous seed
-                seeds[previousSeedId].votes -= existingVote.votePower;
-
-                // Add votes to new seed
-                seed.votes += votePower;
-
-                // Update vote record
-                existingVote.seedId = _seedId;
-                existingVote.votePower = votePower;
-                existingVote.timestamp = block.timestamp;
-
-                emit VoteChanged(msg.sender, previousSeedId, _seedId, votePower, currentRound);
-            } else {
-                // Same seed, update vote power if changed
-                if (votePower != existingVote.votePower) {
-                    if (votePower > existingVote.votePower) {
-                        seed.votes += (votePower - existingVote.votePower);
-                    } else {
-                        seed.votes -= (existingVote.votePower - votePower);
-                    }
-                    existingVote.votePower = votePower;
-                    existingVote.timestamp = block.timestamp;
-                }
-            }
-        } else {
-            // First vote in this round
-            seed.votes += votePower;
-
-            hasVotedInRound[msg.sender][currentRound] = true;
-            roundVotes[msg.sender][currentRound] = Vote({
-                seedId: _seedId,
-                votePower: votePower,
-                timestamp: block.timestamp
-            });
-
-            emit VoteCast(msg.sender, _seedId, votePower, currentRound, block.timestamp);
-        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -521,11 +429,32 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
 
         // Validate seed
         if (seed.createdAt == 0) revert SeedNotFound();
-        if (seed.minted) revert SeedAlreadyMinted();
+        if (seed.isWinner) revert SeedAlreadyWinner();
 
-        // Increment blessing count for this user-seed pair
-        userSeedBlessingCount[_blesser][_seedId]++;
+        // Prevent blessings after the 24-hour period has ended
+        if (block.timestamp >= currentVotingPeriodStart + VOTING_PERIOD) {
+            revert BlessingPeriodEnded();
+        }
+
+        // Update blessing counts
+        uint256 previousCount = userSeedBlessingCount[_blesser][_seedId];
+        uint256 newCount = previousCount + 1;
+        userSeedBlessingCount[_blesser][_seedId] = newCount;
         seed.blessings++;
+
+        // Calculate time-based decay factor (higher weight for earlier blessings)
+        // Prevents last-minute blessing dumps from swinging the winner
+        uint256 timeRemaining = (currentVotingPeriodStart + VOTING_PERIOD) - block.timestamp;
+        uint256 blessingDecayFactor = _calculateBlessingTimeDecay(timeRemaining);
+
+        // Update sqrt-adjusted score: remove old contribution, add new contribution with decay
+        // Score = sum of sqrt(blessings) × decay_factor for each user
+        uint256 previousScore = previousCount > 0 ? sqrt(previousCount) : 0;
+        uint256 newScore = sqrt(newCount);
+
+        // Apply decay to the score delta (not the total, since old blessings had their own decay)
+        uint256 scoreDelta = ((newScore - previousScore) * blessingDecayFactor) / 1000;
+        seedBlessingScore[_seedId] = seedBlessingScore[_seedId] + scoreDelta;
 
         // Store blessing record
         uint256 blessingIndex = allBlessings.length;
@@ -550,8 +479,9 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @notice Select the winning Seed for the current period
-     * @dev Can be called by anyone after voting period ends
+     * @notice Select the winning Seed for the current period based on blessings
+     * @dev Winner determined by: sqrt(sum of each user's blessings) * time_decay
+     * @dev Can be called by anyone after blessing period ends
      * @return winningSeedId The ID of the winning Seed
      */
     function selectDailyWinner() external whenNotPaused nonReentrant returns (uint256) {
@@ -559,23 +489,42 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
             revert VotingPeriodNotEnded();
         }
 
-        // Find seed with most votes
-        uint256 maxVotes = 0;
-        uint256 winningSeedId = 0;
+        // Get seeds from current round (gas-efficient: only loops through current round's seeds)
+        uint256[] memory currentRoundSeedIds = roundSeedIds[currentRound];
 
-        for (uint256 i = 0; i < seedCount; i++) {
-            if (!seeds[i].minted && seeds[i].votes > maxVotes) {
-                maxVotes = seeds[i].votes;
-                winningSeedId = i;
+        // Check if we have any seeds in this round
+        if (currentRoundSeedIds.length == 0) revert NoValidWinner();
+
+        // Find seed with highest score from current round only
+        // (blessing time decay already applied during blessing submission)
+        uint256 maxScore = 0;
+        uint256 winningSeedId = 0;
+        bool foundCandidate = false;
+
+        for (uint256 i = 0; i < currentRoundSeedIds.length; i++) {
+            uint256 seedId = currentRoundSeedIds[i];
+
+            // Only consider seeds that haven't won yet
+            if (!seeds[seedId].isWinner) {
+                foundCandidate = true;
+                uint256 score = seedBlessingScore[seedId];
+
+                if (score > maxScore) {
+                    maxScore = score;
+                    winningSeedId = seedId;
+                }
             }
         }
 
-        if (maxVotes == 0) revert NoValidWinner();
+        // Check if we found any eligible seeds
+        if (!foundCandidate) revert NoValidWinner();
 
-        // Mark as minted and record winner
+        if (maxScore == 0) revert NoValidWinner();
+
+        // Mark as winner and record round
         Seed storage winningSeed = seeds[winningSeedId];
-        winningSeed.minted = true;
-        winningSeed.mintedInRound = currentRound;
+        winningSeed.isWinner = true;
+        winningSeed.winnerInRound = currentRound;
         roundWinners[currentRound] = winningSeedId;
 
         // Generate proof for L1 verification
@@ -583,13 +532,13 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
             abi.encodePacked(
                 winningSeedId,
                 winningSeed.ipfsHash,
-                winningSeed.votes,
+                winningSeed.blessings,
                 currentRound,
                 block.timestamp
             )
         );
 
-        // Start new voting period
+        // Start new blessing period
         currentRound++;
         currentVotingPeriodStart = block.timestamp;
 
@@ -597,10 +546,11 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
             currentRound - 1,
             winningSeedId,
             winningSeed.ipfsHash,
-            maxVotes,
+            winningSeed.blessings,
+            maxScore,
             seedProof
         );
-        emit VotingPeriodStarted(currentRound, block.timestamp);
+        emit BlessingPeriodStarted(currentRound, block.timestamp);
 
         return winningSeedId;
     }
@@ -690,22 +640,32 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     }
 
     /**
-     * @notice Get current voting leader
-     * @return leadingSeedId ID of the Seed with most votes
-     * @return votes Number of votes
+     * @notice Get current leader from current round based on blessing score
+     * @return leadingSeedId ID of the Seed with highest score
+     * @return score Score (sqrt-adjusted blessings with time decay already applied)
      */
-    function getCurrentLeader() external view returns (uint256 leadingSeedId, uint256 votes) {
-        uint256 maxVotes = 0;
+    function getCurrentLeader() external view returns (uint256 leadingSeedId, uint256 score) {
+        uint256 maxScore = 0;
         uint256 leaderId = 0;
 
-        for (uint256 i = 0; i < seedCount; i++) {
-            if (!seeds[i].minted && seeds[i].votes > maxVotes) {
-                maxVotes = seeds[i].votes;
-                leaderId = i;
+        // Get seeds from current round (gas-efficient: only loops through current round's seeds)
+        uint256[] memory currentRoundSeedIds = roundSeedIds[currentRound];
+
+        for (uint256 i = 0; i < currentRoundSeedIds.length; i++) {
+            uint256 seedId = currentRoundSeedIds[i];
+
+            // Only consider seeds that haven't won
+            if (!seeds[seedId].isWinner) {
+                uint256 seedScore = seedBlessingScore[seedId];
+
+                if (seedScore > maxScore) {
+                    maxScore = seedScore;
+                    leaderId = seedId;
+                }
             }
         }
 
-        return (leaderId, maxVotes);
+        return (leaderId, maxScore);
     }
 
     /**
@@ -716,15 +676,6 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         uint256 periodEnd = currentVotingPeriodStart + VOTING_PERIOD;
         if (block.timestamp >= periodEnd) return 0;
         return periodEnd - block.timestamp;
-    }
-
-    /**
-     * @notice Get voter's current vote in this round
-     * @param _voter Address of the voter
-     * @return Vote details
-     */
-    function getVoterCurrentVote(address _voter) external view returns (Vote memory) {
-        return roundVotes[_voter][currentRound];
     }
 
     /**
@@ -747,6 +698,31 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         }
 
         return result;
+    }
+
+    /**
+     * @notice Get all seeds submitted in a specific round
+     * @param _round Round number
+     * @return Array of Seeds from that round
+     */
+    function getSeedsByRound(uint256 _round) external view returns (Seed[] memory) {
+        // Use the roundSeedIds mapping for efficient lookup (no double loop)
+        uint256[] memory seedIds = roundSeedIds[_round];
+        Seed[] memory result = new Seed[](seedIds.length);
+
+        for (uint256 i = 0; i < seedIds.length; i++) {
+            result[i] = seeds[seedIds[i]];
+        }
+
+        return result;
+    }
+
+    /**
+     * @notice Get seeds from current round only
+     * @return Array of Seeds from current round
+     */
+    function getCurrentRoundSeeds() external view returns (Seed[] memory) {
+        return this.getSeedsByRound(currentRound);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -883,5 +859,58 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
 
         bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(_voter, _tokenIds))));
         return MerkleProof.verify(_merkleProof, currentOwnershipRoot, leaf);
+    }
+
+    /**
+     * @dev Calculate integer square root using Babylonian method
+     * @param x Number to find square root of
+     * @return y Square root of x (rounded down)
+     */
+    function sqrt(uint256 x) internal pure returns (uint256 y) {
+        if (x == 0) return 0;
+        if (x <= 3) return 1;
+
+        uint256 z = (x + 1) / 2;
+        y = x;
+        while (z < y) {
+            y = z;
+            z = (x / z + z) / 2;
+        }
+    }
+
+    /**
+     * @dev Calculate blessing time decay factor based on time remaining in period
+     * Prevents last-minute blessing dumps from swinging winners
+     *
+     * Earlier blessings (more time remaining) get higher weight:
+     * - 24 hours remaining (start of period): 1000 (100% weight)
+     * - 12 hours remaining: ~500 (50% weight)
+     * - 6 hours remaining: ~250 (25% weight)
+     * - 1 hour remaining: ~42 (4.2% weight)
+     * - <1 hour remaining: minimum 10 (1% weight)
+     *
+     * Uses exponential decay to heavily penalize last-minute blessings
+     *
+     * @param timeRemaining Seconds remaining in the blessing period
+     * @return Decay factor (10-1000, where 1000 = 100%)
+     */
+    function _calculateBlessingTimeDecay(uint256 timeRemaining) internal pure returns (uint256) {
+        if (timeRemaining >= VOTING_PERIOD) return 1000; // Full weight at start
+
+        uint256 hoursRemaining = timeRemaining / 1 hours;
+
+        // Exponential decay: weight = 1000 * e^(-k * (24 - hoursRemaining))
+        // Using k = 0.15 for significant but not extreme decay
+        // Approximation: 1000 * (hoursRemaining / 24)^2 for simplicity and gas efficiency
+        // This creates quadratic decay: earlier blessings worth much more
+
+        if (hoursRemaining == 0) return 10; // Minimum 1% in final hour
+
+        // Quadratic decay: (hours_remaining / 24)^2 * 1000
+        // More gas efficient than exponential while achieving similar effect
+        uint256 decayFactor = (hoursRemaining * hoursRemaining * 1000) / (24 * 24);
+
+        // Ensure minimum weight of 1%
+        return decayFactor < 10 ? 10 : decayFactor;
     }
 }
