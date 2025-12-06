@@ -1,0 +1,17 @@
+{
+  "network": "sepolia",
+  "timestamp": "2025-12-06T22:51:26.928Z",
+  "deployer": "0x641f5ffC5F6239A0873Bd00F9975091FB035aAFC",
+  "contracts": {
+    "abrahamCovenant": {
+      "address": "0x5bd79b4bb138e39a42168e9d60e308c86f9dcf15",
+      "blockNumber": "9784581",
+      "txHash": "0xd75dcd35602244f62d79063b612f53981ded0938c6307bbee0b2b56d6710942e"
+    },
+    "abrahamAuction": {
+      "address": "0xb0eb83b00f0f9673ebdfb0933d37646b3315b179",
+      "blockNumber": "9784582",
+      "txHash": "0xdf7eac9adea60ab70da3a8413d4e17ea2dd523ee483e661541a5e7e8e8d01aa0"
+    }
+  }
+}

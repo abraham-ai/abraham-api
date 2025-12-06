@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { updateSnapshotAndMerkle } from "../../scripts/updateSnapshot.js";
 import { contractService } from "../services/contractService.js";
+import { abrahamService } from "../services/abrahamService.js";
 
 const admin = new Hono();
 
@@ -293,25 +294,43 @@ admin.get("/snapshot-status", async (c) => {
 
 /**
  * POST/GET /admin/select-winner
- * Automatically select the daily winner based on blessing scores
+ * Select the daily winner on TheSeeds contract with optional auto-elevation
  *
- * This endpoint triggers the winner selection process:
- * 1. Calls selectDailyWinner() on The Seeds contract
+ * This endpoint:
+ * 1. Calls selectDailyWinner() on The Seeds contract (Base)
  * 2. Winner is determined by: sqrt(per-user blessings) * time_decay
  * 3. Starts a new 24-hour blessing period
+ * 4. Optionally elevates winner to Abraham creation (if autoElevate=true)
+ *
+ * Query Parameters:
+ * - autoElevate: Set to 'true' to automatically elevate winner to Abraham creation (optional)
  *
  * Authentication (either method):
  * - X-Admin-Key header (for manual API calls)
  * - Authorization Bearer token with CRON_SECRET (for Vercel cron jobs)
  *
- * Response:
+ * Response (without autoElevate):
  * {
  *   "success": true,
  *   "data": {
  *     "winningSeedId": number,
- *     "txHash": string,
- *     "blockExplorer": string,
- *     "seed": {...}
+ *     "seed": {...},
+ *     "nextStep": "Call POST /admin/elevate-seed?seedId=X to mint Abraham creation"
+ *   }
+ * }
+ *
+ * Response (with autoElevate=true):
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "winningSeedId": number,
+ *     "seed": {...},
+ *     "abraham": {
+ *       "tokenId": number,
+ *       "auctionId": number,
+ *       "mintTxHash": string,
+ *       "auctionTxHash": string
+ *     }
  *   }
  * }
  */
@@ -319,9 +338,18 @@ admin.get("/snapshot-status", async (c) => {
 // Handler function for the select-winner endpoint
 const selectWinnerHandler = async (c: any) => {
   try {
-    console.log(`Winner selection requested at: ${new Date().toISOString()}`);
+    const autoElevate = c.req.query("autoElevate") === "true";
 
-    // Call contract service to select winner
+    console.log(`\n${"=".repeat(60)}`);
+    console.log(`🎯 Winner selection ${autoElevate ? '& auto-elevation ' : ''}started`);
+    console.log(`   Time: ${new Date().toISOString()}`);
+    console.log(`   Auto-Elevate: ${autoElevate ? 'YES' : 'NO'}`);
+    console.log(`${"=".repeat(60)}\n`);
+
+    // ============================================================
+    // STEP 1: Select winner on TheSeeds (Base)
+    // ============================================================
+    console.log("📍 STEP 1: Selecting winner on TheSeeds (Base)...");
     const result = await contractService.selectDailyWinner();
 
     if (!result.success) {
@@ -332,6 +360,7 @@ const selectWinnerHandler = async (c: any) => {
         statusCode = 503;
       }
 
+      console.error(`❌ Winner selection failed: ${result.error}`);
       return c.json(
         {
           success: false,
@@ -341,25 +370,156 @@ const selectWinnerHandler = async (c: any) => {
       );
     }
 
-    // Get the winning seed details
+    console.log(`✅ Winner selected on Base`);
+    console.log(`   Seed ID: ${result.winningSeedId}`);
+    console.log(`   Tx Hash: ${result.txHash}`);
+    console.log("");
+
+    // Get winning seed details
     let seed = null;
     if (result.winningSeedId !== undefined) {
       try {
         seed = await contractService.getSeed(result.winningSeedId);
+        console.log(`✅ Seed details retrieved`);
+        console.log(`   IPFS Hash: ${seed.ipfsHash}`);
+        console.log(`   Creator: ${seed.creator}`);
+        console.log(`   Blessings: ${seed.blessings}`);
+        console.log("");
       } catch (error) {
-        console.warn("Winner selected but couldn't fetch seed details:", error);
+        console.warn("⚠️  Couldn't fetch seed details:", error);
       }
     }
+
+    // Get current round (it's now incremented after winner selection)
+    const currentRound = await contractService.getCurrentRound();
+    const winnerRound = Number(currentRound) - 1; // Winner is from previous round
 
     const blockExplorer =
       process.env.NETWORK === "base"
         ? `https://basescan.org/tx/${result.txHash}`
         : `https://sepolia.basescan.org/tx/${result.txHash}`;
 
+    // ============================================================
+    // STEP 2: Auto-elevate if requested and configured
+    // ============================================================
+    if (autoElevate && seed) {
+      console.log("📍 STEP 2: Auto-elevating to Abraham creation (Sepolia)...");
+
+      // Check if Abraham service is configured
+      if (!abrahamService.isConfigured()) {
+        console.warn("⚠️  Abraham service not configured - skipping auto-elevation");
+        console.log(`${"=".repeat(60)}`);
+        console.log(`✅ WINNER SELECTED (elevation skipped)`);
+        console.log(`${"=".repeat(60)}\n`);
+
+        return c.json({
+          success: true,
+          data: {
+            winningSeedId: result.winningSeedId,
+            round: winnerRound,
+            txHash: result.txHash,
+            blockExplorer,
+            seed: {
+              id: Number(seed.id),
+              creator: seed.creator,
+              ipfsHash: seed.ipfsHash,
+              blessings: Number(seed.blessings),
+              createdAt: Number(seed.createdAt),
+              isWinner: seed.isWinner,
+              winnerInRound: Number(seed.winnerInRound),
+            },
+            abraham: null,
+            warning: "Abraham service not configured - auto-elevation skipped",
+            timestamp: new Date().toISOString(),
+          },
+        });
+      }
+
+      // Elevate the seed to an Abraham creation
+      const elevationResult = await abrahamService.elevateSeedToCreation(
+        {
+          id: result.winningSeedId!,
+          ipfsHash: seed.ipfsHash,
+          creator: seed.creator,
+          blessings: Number(seed.blessings),
+        },
+        winnerRound
+      );
+
+      if (!elevationResult.success) {
+        console.error(`❌ Auto-elevation failed: ${elevationResult.error}`);
+
+        // Return partial success - winner was selected but elevation failed
+        return c.json({
+          success: false,
+          error: `Winner selected but elevation failed: ${elevationResult.error}`,
+          step: "elevation",
+          data: {
+            winningSeedId: result.winningSeedId,
+            round: winnerRound,
+            txHash: result.txHash,
+            blockExplorer,
+            seed: {
+              id: Number(seed.id),
+              creator: seed.creator,
+              ipfsHash: seed.ipfsHash,
+              blessings: Number(seed.blessings),
+              createdAt: Number(seed.createdAt),
+              isWinner: seed.isWinner,
+              winnerInRound: Number(seed.winnerInRound),
+            },
+            abraham: null,
+            timestamp: new Date().toISOString(),
+            nextStep: `Retry elevation with: POST /admin/elevate-seed?seedId=${result.winningSeedId}`,
+          },
+        }, 500);
+      }
+
+      // Success - both winner selection and elevation completed
+      console.log(`${"=".repeat(60)}`);
+      console.log(`✅ COMPLETE SUCCESS (winner selected & elevated)`);
+      console.log(`${"=".repeat(60)}\n`);
+
+      return c.json({
+        success: true,
+        data: {
+          winningSeedId: result.winningSeedId,
+          round: winnerRound,
+          txHash: result.txHash,
+          blockExplorer,
+          seed: {
+            id: Number(seed.id),
+            creator: seed.creator,
+            ipfsHash: seed.ipfsHash,
+            blessings: Number(seed.blessings),
+            createdAt: Number(seed.createdAt),
+            isWinner: seed.isWinner,
+            winnerInRound: Number(seed.winnerInRound),
+          },
+          abraham: {
+            tokenId: elevationResult.tokenId,
+            auctionId: elevationResult.auctionId,
+            mintTxHash: elevationResult.mintTxHash,
+            auctionTxHash: elevationResult.auctionTxHash,
+            mintExplorer: `https://sepolia.etherscan.io/tx/${elevationResult.mintTxHash}`,
+            auctionExplorer: `https://sepolia.etherscan.io/tx/${elevationResult.auctionTxHash}`,
+          },
+          timestamp: new Date().toISOString(),
+          message: "Winner selected and auto-elevated to Abraham creation. Daily auction started.",
+        },
+      });
+    }
+
+    // No auto-elevation requested - return winner only
+    console.log(`${"=".repeat(60)}`);
+    console.log(`✅ WINNER SELECTED`);
+    console.log(`${"=".repeat(60)}\n`);
+
     return c.json({
       success: true,
       data: {
         winningSeedId: result.winningSeedId,
+        round: winnerRound,
         txHash: result.txHash,
         blockExplorer,
         seed: seed
@@ -375,10 +535,11 @@ const selectWinnerHandler = async (c: any) => {
           : null,
         timestamp: new Date().toISOString(),
         message: "Winner selected successfully. New blessing period started.",
+        nextStep: `To elevate to Abraham creation, call: POST /admin/elevate-seed?seedId=${result.winningSeedId}`,
       },
     });
   } catch (error) {
-    console.error("Error selecting winner:", error);
+    console.error("❌ Error in winner selection flow:", error);
 
     let statusCode: 500 | 503 = 500;
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -394,7 +555,7 @@ const selectWinnerHandler = async (c: any) => {
     return c.json(
       {
         success: false,
-        error: "Failed to select winner",
+        error: "Failed to complete winner selection flow",
         details: errorMessage,
       },
       statusCode
@@ -405,5 +566,177 @@ const selectWinnerHandler = async (c: any) => {
 // Register both POST and GET handlers for the select-winner endpoint
 admin.post("/select-winner", requireAdminKey, selectWinnerHandler);
 admin.get("/select-winner", requireAdminKey, selectWinnerHandler);
+
+/**
+ * POST /admin/elevate-seed
+ * Elevate a winning seed to an Abraham creation
+ *
+ * This endpoint takes a seed ID and:
+ * 1. Fetches the seed details from TheSeeds contract
+ * 2. Mints it as an Abraham creation NFT on Sepolia
+ * 3. Creates a daily auction for it
+ *
+ * Query Parameters:
+ * - seedId: The ID of the seed to elevate (required)
+ *
+ * Authentication (either method):
+ * - X-Admin-Key header (for manual API calls)
+ * - Authorization Bearer token with CRON_SECRET (for Vercel cron jobs)
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "seedId": number,
+ *     "seed": {...},
+ *     "abraham": {
+ *       "tokenId": number,
+ *       "auctionId": number,
+ *       "mintTxHash": string,
+ *       "auctionTxHash": string
+ *     }
+ *   }
+ * }
+ */
+admin.post("/elevate-seed", requireAdminKey, async (c) => {
+  try {
+    const seedIdParam = c.req.query("seedId");
+
+    if (!seedIdParam) {
+      return c.json(
+        {
+          success: false,
+          error: "Missing seedId query parameter",
+        },
+        400
+      );
+    }
+
+    const seedId = parseInt(seedIdParam);
+    if (isNaN(seedId)) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid seedId - must be a number",
+        },
+        400
+      );
+    }
+
+    console.log(`\n${"=".repeat(60)}`);
+    console.log(`🌟 Elevating seed ${seedId} to Abraham creation`);
+    console.log(`   Time: ${new Date().toISOString()}`);
+    console.log(`${"=".repeat(60)}\n`);
+
+    // Check if Abraham service is configured
+    if (!abrahamService.isConfigured()) {
+      return c.json(
+        {
+          success: false,
+          error: "Abraham service not configured - deploy contracts and set environment variables first",
+        },
+        503
+      );
+    }
+
+    // Fetch seed details
+    console.log("📍 Fetching seed details from TheSeeds...");
+    let seed;
+    try {
+      seed = await contractService.getSeed(seedId);
+    } catch (error) {
+      console.error("❌ Failed to fetch seed:", error);
+      return c.json(
+        {
+          success: false,
+          error: `Seed ${seedId} not found`,
+        },
+        404
+      );
+    }
+
+    // Verify seed is a winner
+    if (!seed.isWinner) {
+      return c.json(
+        {
+          success: false,
+          error: `Seed ${seedId} is not a winner - only winning seeds can be elevated`,
+        },
+        400
+      );
+    }
+
+    console.log(`✅ Seed details retrieved`);
+    console.log(`   IPFS Hash: ${seed.ipfsHash}`);
+    console.log(`   Creator: ${seed.creator}`);
+    console.log(`   Blessings: ${seed.blessings}`);
+    console.log(`   Winner in Round: ${seed.winnerInRound}`);
+    console.log("");
+
+    // Elevate the seed
+    const elevationResult = await abrahamService.elevateSeedToCreation(
+      {
+        id: seedId,
+        ipfsHash: seed.ipfsHash,
+        creator: seed.creator,
+        blessings: Number(seed.blessings),
+      },
+      Number(seed.winnerInRound)
+    );
+
+    if (!elevationResult.success) {
+      console.error(`❌ Elevation failed: ${elevationResult.error}`);
+      return c.json(
+        {
+          success: false,
+          error: elevationResult.error,
+        },
+        500
+      );
+    }
+
+    console.log(`${"=".repeat(60)}`);
+    console.log(`✅ ELEVATION COMPLETE`);
+    console.log(`${"=".repeat(60)}\n`);
+
+    return c.json({
+      success: true,
+      data: {
+        seedId,
+        seed: {
+          id: Number(seed.id),
+          creator: seed.creator,
+          ipfsHash: seed.ipfsHash,
+          blessings: Number(seed.blessings),
+          createdAt: Number(seed.createdAt),
+          isWinner: seed.isWinner,
+          winnerInRound: Number(seed.winnerInRound),
+        },
+        abraham: {
+          tokenId: elevationResult.tokenId,
+          auctionId: elevationResult.auctionId,
+          mintTxHash: elevationResult.mintTxHash,
+          auctionTxHash: elevationResult.auctionTxHash,
+          mintExplorer: `https://sepolia.etherscan.io/tx/${elevationResult.mintTxHash}`,
+          auctionExplorer: `https://sepolia.etherscan.io/tx/${elevationResult.auctionTxHash}`,
+        },
+        timestamp: new Date().toISOString(),
+        message: "Seed elevated to Abraham creation successfully. Daily auction started.",
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error elevating seed:", error);
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to elevate seed",
+        details: errorMessage,
+      },
+      500
+    );
+  }
+});
 
 export default admin;

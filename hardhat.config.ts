@@ -1,16 +1,25 @@
-import { defineConfig } from "hardhat/config";
+import type { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox-viem";
 import "@nomicfoundation/hardhat-ethers";
-import hardhatVerify from "@nomicfoundation/hardhat-verify";
 import { config as dotenvConfig } from "dotenv";
 
 // Load .env.local file
 dotenvConfig({ path: ".env.local" });
 
 const privateKey = process.env.PRIVATE_KEY || "";
+const sepoliaRpcUrl = process.env.SEPOLIA_RPC_URL || "https://rpc.sepolia.org";
 
-export default defineConfig({
-  plugins: [hardhatVerify],
+// Build API keys object only for networks with configured keys
+const apiKeys: Record<string, string> = {};
+if (process.env.ETHERSCAN_API_KEY) {
+  apiKeys.sepolia = process.env.ETHERSCAN_API_KEY;
+}
+if (process.env.BASESCAN_API_KEY) {
+  apiKeys.baseMainnet = process.env.BASESCAN_API_KEY;
+  apiKeys.baseSepolia = process.env.BASESCAN_API_KEY;
+}
+
+const config: HardhatUserConfig = {
   solidity: {
     version: "0.8.28",
     settings: {
@@ -25,15 +34,12 @@ export default defineConfig({
       type: "edr-simulated",
       chainId: 1337,
     },
-    ...(process.env.SEPOLIA_RPC_URL && process.env.SEPOLIA_PRIVATE_KEY
-      ? {
-          sepolia: {
-            type: "http" as const,
-            url: process.env.SEPOLIA_RPC_URL,
-            accounts: [process.env.SEPOLIA_PRIVATE_KEY],
-          },
-        }
-      : {}),
+    sepolia: {
+      type: "http",
+      url: sepoliaRpcUrl,
+      accounts: privateKey ? [privateKey] : [],
+      chainId: 11155111,
+    },
     baseMainnet: {
       type: "http",
       url: "https://mainnet.base.org",
@@ -47,9 +53,13 @@ export default defineConfig({
       chainId: 84532,
     },
   },
-  verify: {
+};
+
+// Add verification config if we have API keys
+if (Object.keys(apiKeys).length > 0) {
+  config.verify = {
     etherscan: {
-      apiKey: process.env.BASESCAN_API_KEY || "",
+      apiKey: apiKeys as any,
       customChains: [
         {
           network: "baseMainnet",
@@ -68,9 +78,11 @@ export default defineConfig({
           },
         },
       ],
-    } as any, // Type assertion for custom chains support
+    } as any,
     sourcify: {
       enabled: false,
     },
-  },
-});
+  };
+}
+
+export default config;
