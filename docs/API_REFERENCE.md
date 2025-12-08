@@ -14,6 +14,7 @@ The Abraham API provides two ways to submit blessings:
 - [User-Signed Blessings](#user-signed-blessings)
 - [Delegation](#delegation)
 - [Query Endpoints](#query-endpoints)
+- [Configuration Endpoints](#configuration-endpoints)
 - [Error Handling](#error-handling)
 - [Environment Variables](#environment-variables)
 
@@ -590,6 +591,178 @@ GET /blessings/firstworks/snapshot
     "holderIndex": {...}
   }
 }
+```
+
+---
+
+## Configuration Endpoints
+
+### GET `/config`
+
+Get current contract configuration parameters.
+
+**Request:**
+```
+GET /config
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "votingPeriod": 86400,
+    "votingPeriodHours": 24,
+    "votingPeriodDays": 1,
+    "blessingsPerNFT": 1,
+    "currentRound": 5,
+    "timeUntilPeriodEnd": 43200,
+    "contract": {
+      "address": "0x878baad70577cf114a3c60fd01b5a036fd0c4bc8",
+      "network": "Base Sepolia"
+    }
+  }
+}
+```
+
+**Frontend Implementation Example:**
+```typescript
+// Display current configuration to users
+const { data } = await fetch('/config').then(r => r.json());
+
+console.log(`Voting period: ${data.votingPeriodDays} day(s)`);
+console.log(`Blessings per NFT: ${data.blessingsPerNFT}`);
+console.log(`Time until round ends: ${data.timeUntilPeriodEnd}s`);
+```
+
+### POST `/admin/config/voting-period`
+
+Update the voting period duration (admin only).
+
+**Requirements:**
+- Admin role on the contract
+- Authenticated with admin wallet
+
+**Request:**
+```json
+POST /admin/config/voting-period
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+
+{
+  "votingPeriod": 43200  // 12 hours in seconds
+}
+```
+
+**Valid Range:** 3600 (1 hour) to 604800 (7 days)
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "previousPeriod": 86400,
+    "newPeriod": 43200,
+    "txHash": "0x123...",
+    "message": "Voting period updated successfully"
+  }
+}
+```
+
+**Error Responses:**
+
+**400 - Invalid Period**
+```json
+{
+  "success": false,
+  "error": "Voting period must be between 1 hour and 7 days"
+}
+```
+
+**403 - Not Admin**
+```json
+{
+  "success": false,
+  "error": "Unauthorized: Admin role required"
+}
+```
+
+### POST `/admin/config/blessings-per-nft`
+
+Update the number of blessings each NFT grants per day (admin only).
+
+**Requirements:**
+- Admin role on the contract
+- Authenticated with admin wallet
+
+**Request:**
+```json
+POST /admin/config/blessings-per-nft
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+
+{
+  "blessingsPerNFT": 3
+}
+```
+
+**Valid Range:** 1 to 100
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "previousAmount": 1,
+    "newAmount": 3,
+    "txHash": "0x123...",
+    "message": "Blessings per NFT updated successfully"
+  }
+}
+```
+
+**Error Responses:**
+
+**400 - Invalid Amount**
+```json
+{
+  "success": false,
+  "error": "Blessings per NFT must be between 1 and 100"
+}
+```
+
+**403 - Not Admin**
+```json
+{
+  "success": false,
+  "error": "Unauthorized: Admin role required"
+}
+```
+
+### Configuration Events
+
+The contract emits events when configuration changes. Monitor these via WebSocket or polling:
+
+**VotingPeriodUpdated Event:**
+```typescript
+contract.on('VotingPeriodUpdated', (previousPeriod, newPeriod) => {
+  console.log('Voting period changed:', {
+    from: Number(previousPeriod),
+    to: Number(newPeriod)
+  });
+  // Notify users, update UI, etc.
+});
+```
+
+**BlessingsPerNFTUpdated Event:**
+```typescript
+contract.on('BlessingsPerNFTUpdated', (previousAmount, newAmount) => {
+  console.log('Blessings per NFT changed:', {
+    from: Number(previousAmount),
+    to: Number(newAmount)
+  });
+  // Update user's available blessings display
+});
 ```
 
 ---

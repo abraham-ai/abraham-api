@@ -372,7 +372,120 @@ cast send $THESEEDS_CONTRACT_ADDRESS \
   --private-key $PRIVATE_KEY
 ```
 
-### 4. Set Up Daily Snapshot Updates
+### 4. Configure Contract Parameters (Optional)
+
+The Seeds contract includes configurable governance parameters that can be adjusted after deployment without redeployment:
+
+#### Default Configuration
+
+The contract deploys with these default values:
+- **Voting Period**: 1 day (86,400 seconds)
+- **Blessings Per NFT**: 1 blessing per NFT per day
+
+#### Update Voting Period
+
+Change the duration of each voting/blessing round:
+
+```bash
+# Update to 12 hours (43200 seconds)
+cast send $THESEEDS_CONTRACT_ADDRESS \
+  "updateVotingPeriod(uint256)" \
+  43200 \
+  --rpc-url https://sepolia.base.org \
+  --private-key $ADMIN_PRIVATE_KEY
+
+# Valid range: 3600 (1 hour) to 604800 (7 days)
+```
+
+**Via API (if admin endpoints are implemented):**
+```bash
+curl -X POST https://your-api.com/api/admin/config/voting-period \
+  -H "X-Admin-Key: your_admin_key" \
+  -H "Content-Type: application/json" \
+  -d '{"votingPeriod": 43200}'
+```
+
+#### Update Blessings Per NFT
+
+Change how many blessings each NFT holder can cast per day:
+
+```bash
+# Update to 3 blessings per NFT
+cast send $THESEEDS_CONTRACT_ADDRESS \
+  "updateBlessingsPerNFT(uint256)" \
+  3 \
+  --rpc-url https://sepolia.base.org \
+  --private-key $ADMIN_PRIVATE_KEY
+
+# Valid range: 1 to 100
+```
+
+**Via API (if admin endpoints are implemented):**
+```bash
+curl -X POST https://your-api.com/api/admin/config/blessings-per-nft \
+  -H "X-Admin-Key: your_admin_key" \
+  -H "Content-Type: application/json" \
+  -d '{"blessingsPerNFT": 3}'
+```
+
+#### Monitor Configuration Changes
+
+Listen for configuration update events:
+
+```typescript
+import { createPublicClient, http } from 'viem';
+import { baseSepolia } from 'viem/chains';
+
+const client = createPublicClient({
+  chain: baseSepolia,
+  transport: http()
+});
+
+// Watch for voting period updates
+client.watchEvent({
+  address: contractAddress,
+  event: parseAbiItem('event VotingPeriodUpdated(uint256 indexed previousPeriod, uint256 indexed newPeriod)'),
+  onLogs: logs => {
+    console.log('Voting period updated:', logs[0].args);
+  }
+});
+
+// Watch for blessings per NFT updates
+client.watchEvent({
+  address: contractAddress,
+  event: parseAbiItem('event BlessingsPerNFTUpdated(uint256 indexed previousAmount, uint256 indexed newAmount)'),
+  onLogs: logs => {
+    console.log('Blessings per NFT updated:', logs[0].args);
+  }
+});
+```
+
+#### Read Current Configuration
+
+```bash
+# Get current voting period
+cast call $THESEEDS_CONTRACT_ADDRESS \
+  "votingPeriod()" \
+  --rpc-url https://sepolia.base.org
+
+# Get current blessings per NFT
+cast call $THESEEDS_CONTRACT_ADDRESS \
+  "blessingsPerNFT()" \
+  --rpc-url https://sepolia.base.org
+
+# Get time until current period ends
+cast call $THESEEDS_CONTRACT_ADDRESS \
+  "getTimeUntilPeriodEnd()" \
+  --rpc-url https://sepolia.base.org
+```
+
+**Important Notes:**
+- Only accounts with `ADMIN_ROLE` can update these parameters
+- Changes to `votingPeriod` do NOT affect the current round, only future rounds
+- Changes to `blessingsPerNFT` take effect immediately for all users
+- All configuration updates emit events for transparency
+
+### 5. Set Up Daily Snapshot Updates
 
 **Option A: Cron Job**
 
