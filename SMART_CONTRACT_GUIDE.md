@@ -9,9 +9,11 @@ This guide covers deploying and integrating The Seeds governance contract with t
 ### Key Features
 
 - **Merkle Proof Voting**: Verify L1 NFT ownership on L2 without bridging assets
-- **Daily Governance**: 24-hour voting periods with automatic winner selection
+- **Configurable Governance**: Flexible voting periods and blessing limits (configurable after deployment)
+- **Daily Governance**: 24-hour voting periods with automatic winner selection (default, can be adjusted)
 - **Decentralized Curation**: Community-driven artwork selection
 - **Gas Efficient**: All voting happens on L2 (Base)
+- **Admin Controls**: Runtime configuration of key parameters without redeployment
 
 ## Prerequisites
 
@@ -268,6 +270,73 @@ async function submitSeed(ipfsHash: string, title: string, description: string) 
 
   return seedId;
 }
+```
+
+## Configuration Management
+
+### Configurable Parameters
+
+The Seeds contract supports runtime configuration of key parameters:
+
+#### 1. Voting Period Duration
+
+Control how long each voting round lasts:
+
+```typescript
+// Update voting period to 12 hours
+const contract = new ethers.Contract(address, abi, signer);
+const tx = await contract.updateVotingPeriod(43200); // 12 hours in seconds
+await tx.wait();
+
+// Valid range: 1 hour (3600) to 7 days (604800)
+```
+
+Default: **1 day (86400 seconds)**
+
+#### 2. Blessings Per NFT
+
+Control how many blessings each NFT grants per day:
+
+```typescript
+// Update to 3 blessings per NFT per day
+const tx = await contract.updateBlessingsPerNFT(3);
+await tx.wait();
+
+// Valid range: 1 to 100
+```
+
+Default: **1 blessing per NFT**
+
+### Reading Current Configuration
+
+```typescript
+// Get current voting period
+const votingPeriod = await contract.votingPeriod();
+console.log(`Voting period: ${votingPeriod} seconds`);
+
+// Get current blessings per NFT
+const blessingsPerNFT = await contract.blessingsPerNFT();
+console.log(`Blessings per NFT: ${blessingsPerNFT}`);
+```
+
+### Configuration Events
+
+Monitor configuration changes:
+
+```typescript
+contract.on('VotingPeriodUpdated', (previousPeriod, newPeriod, event) => {
+  console.log('Voting period updated:', {
+    previous: previousPeriod.toString(),
+    new: newPeriod.toString()
+  });
+});
+
+contract.on('BlessingsPerNFTUpdated', (previousAmount, newAmount, event) => {
+  console.log('Blessings per NFT updated:', {
+    previous: previousAmount.toString(),
+    new: newAmount.toString()
+  });
+});
 ```
 
 ## Daily Operations
