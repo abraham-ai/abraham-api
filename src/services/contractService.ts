@@ -249,6 +249,45 @@ class ContractService {
   }
 
   /**
+   * Read: Get time remaining until voting period ends
+   */
+  async getTimeUntilPeriodEnd(): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "getTimeUntilPeriodEnd",
+      args: [],
+    })) as bigint;
+  }
+
+  /**
+   * Read: Get current leading seed and its blessing score
+   */
+  async getCurrentLeader(): Promise<{ leadingSeedId: bigint; score: bigint }> {
+    const result = await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "getCurrentLeader",
+      args: [],
+    });
+
+    const [leadingSeedId, score] = result as [bigint, bigint];
+    return { leadingSeedId, score };
+  }
+
+  /**
+   * Read: Get blessing score for a specific seed
+   */
+  async getSeedBlessingScore(seedId: number): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "seedBlessingScore",
+      args: [BigInt(seedId)],
+    })) as bigint;
+  }
+
+  /**
    * Write: Bless a seed on behalf of a user (relayer pattern)
    * Requires RELAYER_ROLE or user delegation
    * Now includes on-chain eligibility verification with NFT ownership proof
@@ -635,6 +674,12 @@ class ContractService {
     winningSeedId?: number;
     txHash?: Hash;
     error?: string;
+    diagnostics?: {
+      currentRound: number;
+      seedsInRound: number;
+      timeRemaining: number;
+      currentLeader: { seedId: number; score: string; blessings: string };
+    };
   }> {
     if (!this.walletClient || !this.relayerAccount) {
       return {
@@ -644,7 +689,104 @@ class ContractService {
     }
 
     try {
-      // Call the contract's selectDailyWinner function
+      // ============================================================
+      // PRE-FLIGHT DIAGNOSTICS
+      // ============================================================
+      console.log("🔍 Running pre-flight diagnostics...");
+
+      // Check 1: Get current round
+      const currentRound = await this.getCurrentRound();
+      console.log(`   Current Round: ${currentRound}`);
+
+      // Check 2: Get seeds in current round
+      const roundSeeds = await this.getCurrentRoundSeeds();
+      console.log(`   Seeds in Round: ${roundSeeds.length}`);
+
+      if (roundSeeds.length === 0) {
+        return {
+          success: false,
+          error: "No seeds submitted in current round",
+          diagnostics: {
+            currentRound: Number(currentRound),
+            seedsInRound: 0,
+            timeRemaining: 0,
+            currentLeader: { seedId: 0, score: "0", blessings: "0" },
+          },
+        };
+      }
+
+      // Check 3: Get time remaining
+      const timeRemaining = await this.getTimeUntilPeriodEnd();
+      console.log(`   Time Until Period End: ${timeRemaining}s`);
+
+      if (timeRemaining > 0n) {
+        return {
+          success: false,
+          error: `Voting period not ended (${timeRemaining}s remaining)`,
+          diagnostics: {
+            currentRound: Number(currentRound),
+            seedsInRound: roundSeeds.length,
+            timeRemaining: Number(timeRemaining),
+            currentLeader: { seedId: 0, score: "0", blessings: "0" },
+          },
+        };
+      }
+
+      // Check 4: Get current leader and score
+      const leader = await this.getCurrentLeader();
+      console.log(`   Leading Seed ID: ${leader.leadingSeedId}`);
+      console.log(`   Leading Score: ${leader.score}`);
+
+      // Get the seed details to show blessing count
+      let leaderSeed = null;
+      if (leader.leadingSeedId > 0n) {
+        leaderSeed = await this.getSeed(Number(leader.leadingSeedId));
+        console.log(`   Leading Seed Blessings: ${leaderSeed.blessings}`);
+      }
+
+      // Check if there are any non-winner seeds with scores > 0
+      const eligibleSeeds = roundSeeds.filter(seed => !seed.isWinner);
+      console.log(`   Eligible Seeds (not already winners): ${eligibleSeeds.length}`);
+
+      if (eligibleSeeds.length === 0) {
+        return {
+          success: false,
+          error: "All seeds in current round have already won",
+          diagnostics: {
+            currentRound: Number(currentRound),
+            seedsInRound: roundSeeds.length,
+            timeRemaining: 0,
+            currentLeader: {
+              seedId: Number(leader.leadingSeedId),
+              score: leader.score.toString(),
+              blessings: leaderSeed?.blessings.toString() || "0",
+            },
+          },
+        };
+      }
+
+      if (leader.score === 0n) {
+        return {
+          success: false,
+          error: "Leading seed has blessing score of 0 (no valid blessings counted)",
+          diagnostics: {
+            currentRound: Number(currentRound),
+            seedsInRound: roundSeeds.length,
+            timeRemaining: 0,
+            currentLeader: {
+              seedId: Number(leader.leadingSeedId),
+              score: "0",
+              blessings: leaderSeed?.blessings.toString() || "0",
+            },
+          },
+        };
+      }
+
+      console.log("✅ Pre-flight checks passed, proceeding with winner selection...");
+
+      // ============================================================
+      // EXECUTE WINNER SELECTION
+      // ============================================================
       const hash = await this.walletClient.writeContract({
         address: this.contractAddress,
         abi: SEEDS_ABI,
@@ -681,6 +823,16 @@ class ContractService {
         success: true,
         winningSeedId,
         txHash: hash,
+        diagnostics: {
+          currentRound: Number(currentRound),
+          seedsInRound: roundSeeds.length,
+          timeRemaining: 0,
+          currentLeader: {
+            seedId: Number(leader.leadingSeedId),
+            score: leader.score.toString(),
+            blessings: leaderSeed?.blessings.toString() || "0",
+          },
+        },
       };
     } catch (error: any) {
       console.error("Error selecting daily winner:", error);
@@ -690,7 +842,7 @@ class ContractService {
       if (error.message?.includes("VotingPeriodNotEnded") || error.message?.includes("BlessingPeriodNotEnded")) {
         errorMessage = "Blessing period has not ended yet (24 hours not elapsed)";
       } else if (error.message?.includes("NoValidWinner")) {
-        errorMessage = "No valid winner (no seeds with blessings)";
+        errorMessage = "No valid winner (contract validation failed)";
       }
 
       return {
