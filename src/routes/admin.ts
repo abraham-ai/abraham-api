@@ -361,10 +361,23 @@ const selectWinnerHandler = async (c: any) => {
       }
 
       console.error(`❌ Winner selection failed: ${result.error}`);
+
+      // Log diagnostics if available
+      if (result.diagnostics) {
+        console.error(`\n📊 Diagnostics:`);
+        console.error(`   Round: ${result.diagnostics.currentRound}`);
+        console.error(`   Seeds in Round: ${result.diagnostics.seedsInRound}`);
+        console.error(`   Time Remaining: ${result.diagnostics.timeRemaining}s`);
+        console.error(`   Leader Seed ID: ${result.diagnostics.currentLeader.seedId}`);
+        console.error(`   Leader Score: ${result.diagnostics.currentLeader.score}`);
+        console.error(`   Leader Blessings: ${result.diagnostics.currentLeader.blessings}`);
+      }
+
       return c.json(
         {
           success: false,
           error: result.error || "Winner selection failed",
+          diagnostics: result.diagnostics,
         },
         statusCode
       );
@@ -562,6 +575,148 @@ const selectWinnerHandler = async (c: any) => {
     );
   }
 };
+
+/**
+ * GET /admin/winner-diagnostics
+ * Check winner selection readiness without executing the transaction
+ *
+ * Returns diagnostic information about:
+ * - Current round and seeds
+ * - Voting period status
+ * - Current leader and blessing scores
+ * - Eligibility for winner selection
+ */
+admin.get("/winner-diagnostics", requireAdminKey, async (c) => {
+  try {
+    console.log(`\n${"=".repeat(60)}`);
+    console.log(`🔍 Winner Selection Diagnostics`);
+    console.log(`   Time: ${new Date().toISOString()}`);
+    console.log(`${"=".repeat(60)}\n`);
+
+    // Get current round
+    const currentRound = await contractService.getCurrentRound();
+    console.log(`Current Round: ${currentRound}`);
+
+    // Get seeds in current round
+    const roundSeeds = await contractService.getCurrentRoundSeeds();
+    console.log(`Seeds in Round: ${roundSeeds.length}`);
+
+    // Get time remaining
+    const timeRemaining = await contractService.getTimeUntilPeriodEnd();
+    console.log(`Time Until Period End: ${timeRemaining}s`);
+
+    // Get current leader
+    const leader = await contractService.getCurrentLeader();
+    console.log(`Leading Seed ID: ${leader.leadingSeedId}`);
+    console.log(`Leading Blessing Score: ${leader.score}`);
+
+    // Get leader details
+    let leaderSeed = null;
+    if (leader.leadingSeedId > 0n) {
+      leaderSeed = await contractService.getSeed(Number(leader.leadingSeedId));
+      console.log(`Leader Raw Blessings: ${leaderSeed.blessings}`);
+      console.log(`Leader Is Winner: ${leaderSeed.isWinner}`);
+    }
+
+    // Check eligible seeds
+    const eligibleSeeds = roundSeeds.filter(seed => !seed.isWinner);
+    console.log(`Eligible Seeds (not winners): ${eligibleSeeds.length}`);
+
+    // Get blessing scores for all seeds in round
+    const seedScores = await Promise.all(
+      roundSeeds.map(async (seed) => ({
+        id: Number(seed.id),
+        blessings: Number(seed.blessings),
+        isWinner: seed.isWinner,
+        score: Number(await contractService.getSeedBlessingScore(Number(seed.id))),
+      }))
+    );
+
+    // Get detailed blessing info for leading seed to diagnose scoring issue
+    let blessingDetails = null;
+    if (leader.leadingSeedId > 0n) {
+      const blessings = await contractService.getSeedBlessings(Number(leader.leadingSeedId));
+
+      // Group blessings by user to see blessing count per user
+      const blesserCounts = new Map<string, number>();
+      for (const blessing of blessings) {
+        const blesser = blessing.blesser.toLowerCase();
+        blesserCounts.set(blesser, (blesserCounts.get(blesser) || 0) + 1);
+      }
+
+      blessingDetails = {
+        totalBlessings: blessings.length,
+        uniqueBlessers: blesserCounts.size,
+        blessingsPerUser: Array.from(blesserCounts.entries()).map(([user, count]) => ({
+          user,
+          count,
+          sqrtCount: Math.floor(Math.sqrt(count)),
+        })),
+      };
+
+      console.log(`\nBlessing Distribution for Seed ${leader.leadingSeedId}:`);
+      console.log(`  Total Blessings: ${blessingDetails.totalBlessings}`);
+      console.log(`  Unique Users: ${blessingDetails.uniqueBlessers}`);
+      console.log(`  Blessings per user:`, blessingDetails.blessingsPerUser);
+    }
+
+    // Determine readiness
+    const isReady =
+      roundSeeds.length > 0 &&
+      timeRemaining === 0n &&
+      eligibleSeeds.length > 0 &&
+      leader.score > 0n;
+
+    const issues = [];
+    if (roundSeeds.length === 0) {
+      issues.push("No seeds in current round");
+    }
+    if (timeRemaining > 0n) {
+      issues.push(`Voting period not ended (${timeRemaining}s remaining)`);
+    }
+    if (eligibleSeeds.length === 0) {
+      issues.push("All seeds have already won");
+    }
+    if (leader.score === 0n) {
+      issues.push("Leading seed has blessing score of 0");
+    }
+
+    console.log(`\nReady for winner selection: ${isReady ? '✅ YES' : '❌ NO'}`);
+    if (!isReady) {
+      console.log(`Issues: ${issues.join(', ')}`);
+    }
+
+    return c.json({
+      success: true,
+      ready: isReady,
+      issues: issues.length > 0 ? issues : undefined,
+      diagnostics: {
+        currentRound: Number(currentRound),
+        seedsInRound: roundSeeds.length,
+        timeRemaining: Number(timeRemaining),
+        votingPeriodEnded: timeRemaining === 0n,
+        currentLeader: {
+          seedId: Number(leader.leadingSeedId),
+          score: leader.score.toString(),
+          blessings: leaderSeed ? leaderSeed.blessings.toString() : "0",
+          isWinner: leaderSeed?.isWinner || false,
+          blessingDistribution: blessingDetails,
+        },
+        eligibleSeeds: eligibleSeeds.length,
+        allSeedScores: seedScores,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error running diagnostics:", error);
+    return c.json(
+      {
+        success: false,
+        error: error.message || "Failed to run diagnostics",
+      },
+      500
+    );
+  }
+});
 
 // Register both POST and GET handlers for the select-winner endpoint
 admin.post("/select-winner", requireAdminKey, selectWinnerHandler);

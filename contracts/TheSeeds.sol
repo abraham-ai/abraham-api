@@ -31,8 +31,8 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     /// @notice Role for authorized seed creators
     bytes32 public constant CREATOR_ROLE = keccak256("CREATOR_ROLE");
 
-    /// @notice Duration of each voting period (24 hours)
-    uint256 public constant VOTING_PERIOD = 1 days;
+    /// @notice Duration of each voting period (default: 24 hours, configurable)
+    uint256 public votingPeriod;
 
     /// @notice Current Merkle root of FirstWorks NFT ownership (updated daily)
     bytes32 public currentOwnershipRoot;
@@ -55,8 +55,8 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     /// @notice Total blessings count across all seeds
     uint256 public totalBlessingsCount;
 
-    /// @notice How many blessings each NFT grants per day
-    uint256 public constant BLESSINGS_PER_NFT = 1;
+    /// @notice How many blessings each NFT grants per day (default: 1, configurable)
+    uint256 public blessingsPerNFT;
 
     /// @notice Track user's blessing count per day: user => day => count
     /// @dev Day is calculated as block.timestamp / 1 days
@@ -168,6 +168,10 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
 
     event CreatorRemoved(address indexed creator, address indexed removedBy);
 
+    event VotingPeriodUpdated(uint256 previousPeriod, uint256 newPeriod);
+
+    event BlessingsPerNFTUpdated(uint256 previousAmount, uint256 newAmount);
+
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
     //////////////////////////////////////////////////////////////*/
@@ -187,6 +191,8 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     error InvalidBlesser();
     error DailyBlessingLimitReached();
     error MustProvideNFTProof();
+    error InvalidVotingPeriod();
+    error InvalidBlessingsPerNFT();
 
     /*//////////////////////////////////////////////////////////////
                               CONSTRUCTOR
@@ -195,6 +201,10 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     constructor(address _admin) {
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(ADMIN_ROLE, _admin);
+
+        // Initialize with default values
+        votingPeriod = 1 days;
+        blessingsPerNFT = 1;
 
         currentVotingPeriodStart = block.timestamp;
         currentRound = 1;
@@ -385,7 +395,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
 
             // Check daily blessing limit (skip if limit reached)
             uint256 currentDay = block.timestamp / 1 days;
-            uint256 maxBlessings = _tokenIdsArray[i].length * BLESSINGS_PER_NFT;
+            uint256 maxBlessings = _tokenIdsArray[i].length * blessingsPerNFT;
             if (userDailyBlessings[_blessers[i]][currentDay] >= maxBlessings) {
                 continue;
             }
@@ -402,7 +412,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
      */
     function _checkAndUpdateDailyLimit(address _user, uint256 _nftCount) internal {
         uint256 currentDay = block.timestamp / 1 days;
-        uint256 maxBlessings = _nftCount * BLESSINGS_PER_NFT;
+        uint256 maxBlessings = _nftCount * blessingsPerNFT;
         uint256 currentBlessings = userDailyBlessings[_user][currentDay];
 
         if (currentBlessings >= maxBlessings) {
@@ -431,8 +441,8 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         if (seed.createdAt == 0) revert SeedNotFound();
         if (seed.isWinner) revert SeedAlreadyWinner();
 
-        // Prevent blessings after the 24-hour period has ended
-        if (block.timestamp >= currentVotingPeriodStart + VOTING_PERIOD) {
+        // Prevent blessings after the voting period has ended
+        if (block.timestamp >= currentVotingPeriodStart + votingPeriod) {
             revert BlessingPeriodEnded();
         }
 
@@ -444,13 +454,14 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
 
         // Calculate time-based decay factor (higher weight for earlier blessings)
         // Prevents last-minute blessing dumps from swinging the winner
-        uint256 timeRemaining = (currentVotingPeriodStart + VOTING_PERIOD) - block.timestamp;
+        uint256 timeRemaining = (currentVotingPeriodStart + votingPeriod) - block.timestamp;
         uint256 blessingDecayFactor = _calculateBlessingTimeDecay(timeRemaining);
 
         // Update sqrt-adjusted score: remove old contribution, add new contribution with decay
-        // Score = sum of sqrt(blessings) × decay_factor for each user
-        uint256 previousScore = previousCount > 0 ? sqrt(previousCount) : 0;
-        uint256 newScore = sqrt(newCount);
+        // Score = sum of (sqrt(blessings) × 1000) × decay_factor for each user
+        // Note: We scale sqrt by 1000 to prevent integer truncation (single blessing = score of 10 at min decay)
+        uint256 previousScore = previousCount > 0 ? sqrt(previousCount) * 1000 : 0;
+        uint256 newScore = sqrt(newCount) * 1000;
 
         // Apply decay to the score delta (not the total, since old blessings had their own decay)
         uint256 scoreDelta = ((newScore - previousScore) * blessingDecayFactor) / 1000;
@@ -485,7 +496,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
      * @return winningSeedId The ID of the winning Seed
      */
     function selectDailyWinner() external whenNotPaused nonReentrant returns (uint256) {
-        if (block.timestamp < currentVotingPeriodStart + VOTING_PERIOD) {
+        if (block.timestamp < currentVotingPeriodStart + votingPeriod) {
             revert VotingPeriodNotEnded();
         }
 
@@ -625,6 +636,42 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         emit ContractUnpaused(msg.sender);
     }
 
+    /**
+     * @notice Update the voting period duration
+     * @dev Can only be called by admin
+     * @dev Does not affect current round, only future rounds
+     * @dev Must be at least 1 hour and at most 7 days
+     * @param _newVotingPeriod New voting period duration in seconds
+     */
+    function updateVotingPeriod(uint256 _newVotingPeriod) external onlyRole(ADMIN_ROLE) {
+        if (_newVotingPeriod < 1 hours || _newVotingPeriod > 7 days) {
+            revert InvalidVotingPeriod();
+        }
+
+        uint256 previousPeriod = votingPeriod;
+        votingPeriod = _newVotingPeriod;
+
+        emit VotingPeriodUpdated(previousPeriod, _newVotingPeriod);
+    }
+
+    /**
+     * @notice Update the number of blessings each NFT grants per day
+     * @dev Can only be called by admin
+     * @dev Takes effect immediately for all users
+     * @dev Must be at least 1 and at most 100
+     * @param _newBlessingsPerNFT New blessings per NFT amount
+     */
+    function updateBlessingsPerNFT(uint256 _newBlessingsPerNFT) external onlyRole(ADMIN_ROLE) {
+        if (_newBlessingsPerNFT == 0 || _newBlessingsPerNFT > 100) {
+            revert InvalidBlessingsPerNFT();
+        }
+
+        uint256 previousAmount = blessingsPerNFT;
+        blessingsPerNFT = _newBlessingsPerNFT;
+
+        emit BlessingsPerNFTUpdated(previousAmount, _newBlessingsPerNFT);
+    }
+
     /*//////////////////////////////////////////////////////////////
                           VIEW FUNCTIONS - SEEDS
     //////////////////////////////////////////////////////////////*/
@@ -673,7 +720,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
      * @return seconds remaining
      */
     function getTimeUntilPeriodEnd() external view returns (uint256) {
-        uint256 periodEnd = currentVotingPeriodStart + VOTING_PERIOD;
+        uint256 periodEnd = currentVotingPeriodStart + votingPeriod;
         if (block.timestamp >= periodEnd) return 0;
         return periodEnd - block.timestamp;
     }
@@ -818,7 +865,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
      */
     function getRemainingBlessings(address _user, uint256 _nftCount) external view returns (uint256) {
         uint256 currentDay = block.timestamp / 1 days;
-        uint256 maxBlessings = _nftCount * BLESSINGS_PER_NFT;
+        uint256 maxBlessings = _nftCount * blessingsPerNFT;
         uint256 used = userDailyBlessings[_user][currentDay];
 
         if (used >= maxBlessings) {
@@ -835,7 +882,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
      */
     function canBlessToday(address _user, uint256 _nftCount) external view returns (bool) {
         uint256 currentDay = block.timestamp / 1 days;
-        uint256 maxBlessings = _nftCount * BLESSINGS_PER_NFT;
+        uint256 maxBlessings = _nftCount * blessingsPerNFT;
         return userDailyBlessings[_user][currentDay] < maxBlessings;
     }
 
@@ -883,32 +930,36 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
      * Prevents last-minute blessing dumps from swinging winners
      *
      * Earlier blessings (more time remaining) get higher weight:
-     * - 24 hours remaining (start of period): 1000 (100% weight)
-     * - 12 hours remaining: ~500 (50% weight)
-     * - 6 hours remaining: ~250 (25% weight)
-     * - 1 hour remaining: ~42 (4.2% weight)
+     * - At period start: 1000 (100% weight)
+     * - At 50% remaining: ~250 (25% weight)
+     * - At 25% remaining: ~62 (6.2% weight)
      * - <1 hour remaining: minimum 10 (1% weight)
      *
-     * Uses exponential decay to heavily penalize last-minute blessings
+     * Uses quadratic decay to heavily penalize last-minute blessings
      *
      * @param timeRemaining Seconds remaining in the blessing period
      * @return Decay factor (10-1000, where 1000 = 100%)
      */
-    function _calculateBlessingTimeDecay(uint256 timeRemaining) internal pure returns (uint256) {
-        if (timeRemaining >= VOTING_PERIOD) return 1000; // Full weight at start
+    function _calculateBlessingTimeDecay(uint256 timeRemaining) internal view returns (uint256) {
+        if (timeRemaining >= votingPeriod) return 1000; // Full weight at start
 
         uint256 hoursRemaining = timeRemaining / 1 hours;
+        uint256 periodHours = votingPeriod / 1 hours;
 
-        // Exponential decay: weight = 1000 * e^(-k * (24 - hoursRemaining))
-        // Using k = 0.15 for significant but not extreme decay
-        // Approximation: 1000 * (hoursRemaining / 24)^2 for simplicity and gas efficiency
-        // This creates quadratic decay: earlier blessings worth much more
+        // If voting period is less than an hour, use minutes for finer granularity
+        if (periodHours == 0) {
+            uint256 minutesRemaining = timeRemaining / 1 minutes;
+            uint256 periodMinutes = votingPeriod / 1 minutes;
+            if (minutesRemaining == 0) return 10; // Minimum 1% in final minute
+            uint256 minuteDecayFactor = (minutesRemaining * minutesRemaining * 1000) / (periodMinutes * periodMinutes);
+            return minuteDecayFactor < 10 ? 10 : minuteDecayFactor;
+        }
 
         if (hoursRemaining == 0) return 10; // Minimum 1% in final hour
 
-        // Quadratic decay: (hours_remaining / 24)^2 * 1000
+        // Quadratic decay: (hours_remaining / period_hours)^2 * 1000
         // More gas efficient than exponential while achieving similar effect
-        uint256 decayFactor = (hoursRemaining * hoursRemaining * 1000) / (24 * 24);
+        uint256 decayFactor = (hoursRemaining * hoursRemaining * 1000) / (periodHours * periodHours);
 
         // Ensure minimum weight of 1%
         return decayFactor < 10 ? 10 : decayFactor;

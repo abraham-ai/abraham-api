@@ -2,8 +2,8 @@
   "contractAddress": "0x9734c959A5FEC7BaD8b0b560AD94F9740B90Efd8",
   "contractName": "Abraham's First Works",
   "totalSupply": 2034,
-  "timestamp": "2025-12-06T12:43:26.744Z",
-  "blockNumber": 23953912,
+  "timestamp": "2025-12-08T10:24:56.238Z",
+  "blockNumber": 23967473,
   "holders": [
     {
       "address": "0x826be0f079a18c7f318efbead5f90df70a7b2e29",
@@ -2455,14 +2455,6 @@
       ]
     },
     {
-      "address": "0x2b2c869539188c28c202d086fe99c554493f72dd",
-      "balance": 2,
-      "tokenIds": [
-        1422,
-        1424
-      ]
-    },
-    {
       "address": "0x373e6fa7f17153bd7994aeae8f0047a9f8135b28",
       "balance": 2,
       "tokenIds": [
@@ -2912,6 +2904,13 @@
       ]
     },
     {
+      "address": "0x2b2c869539188c28c202d086fe99c554493f72dd",
+      "balance": 1,
+      "tokenIds": [
+        1422
+      ]
+    },
+    {
       "address": "0x2c2690038daf35b6217a8115a0b5e191b4ed1de8",
       "balance": 1,
       "tokenIds": [
@@ -3147,6 +3146,13 @@
       "balance": 1,
       "tokenIds": [
         632
+      ]
+    },
+    {
+      "address": "0x624a420aa9e1011cfd4dba5ffa5e1abfaa51bf8e",
+      "balance": 1,
+      "tokenIds": [
+        1424
       ]
     },
     {
@@ -3486,7 +3492,7 @@
       ]
     }
   ],
-  "totalHolders": 241,
+  "totalHolders": 242,
   "holderIndex": {
     "0x826be0f079a18c7f318efbead5f90df70a7b2e29": [
       344,
@@ -5537,10 +5543,6 @@
       1039,
       1482
     ],
-    "0x2b2c869539188c28c202d086fe99c554493f72dd": [
-      1422,
-      1424
-    ],
     "0x373e6fa7f17153bd7994aeae8f0047a9f8135b28": [
       1752,
       1776
@@ -5758,6 +5760,9 @@
     "0x2b0386bbdd314d8356c21f39be2491f975bd6361": [
       1031
     ],
+    "0x2b2c869539188c28c202d086fe99c554493f72dd": [
+      1422
+    ],
     "0x2c2690038daf35b6217a8115a0b5e191b4ed1de8": [
       577
     ],
@@ -5859,6 +5864,9 @@
     ],
     "0x5e349eca2dc61abcd9dd99ce94d04136151a09ee": [
       632
+    ],
+    "0x624a420aa9e1011cfd4dba5ffa5e1abfaa51bf8e": [
+      1424
     ],
     "0x625026d7742977811902eb3559481f9c2e6ed1c7": [
       323
