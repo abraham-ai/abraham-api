@@ -543,30 +543,75 @@ seeds.get("/creator/:address/check", async (c) => {
 
 /**
  * GET /seeds/round/current
- * Get all seeds from the current round
+ * Get all seeds from the current round with metadata and scores
  */
 seeds.get("/round/current", async (c) => {
   try {
     const currentRound = await contractService.getCurrentRound();
     const roundSeeds = await contractService.getCurrentRoundSeeds();
 
-    const seeds = roundSeeds.map((seed) => ({
-      id: Number(seed.id),
-      creator: seed.creator,
-      ipfsHash: seed.ipfsHash,
-      blessings: Number(seed.blessings),
-      createdAt: Number(seed.createdAt),
-      isWinner: seed.isWinner,
-      winnerInRound: Number(seed.winnerInRound),
-      submittedInRound: Number(seed.submittedInRound),
-    }));
+    // Fetch metadata and scores for each seed
+    const seedsWithMetadata = await Promise.all(
+      roundSeeds.map(async (seed) => {
+        const seedId = Number(seed.id);
+
+        // Fetch IPFS metadata
+        let metadata = null;
+        let metadataError = null;
+
+        if (seed.ipfsHash) {
+          try {
+            // Convert IPFS hash to HTTP gateway URL
+            const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
+              ? seed.ipfsHash.replace("ipfs://", "https://ipfs.io/ipfs/")
+              : seed.ipfsHash.startsWith("http")
+              ? seed.ipfsHash
+              : `https://ipfs.io/ipfs/${seed.ipfsHash}`;
+
+            const response = await fetch(ipfsUrl);
+
+            if (response.ok) {
+              metadata = await response.json();
+            } else {
+              metadataError = `HTTP ${response.status}`;
+            }
+          } catch (error) {
+            metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
+            console.error(`Error fetching IPFS metadata for seed ${seedId}:`, error);
+          }
+        }
+
+        // Fetch blessing score
+        let score = 0;
+        try {
+          const seedScore = await contractService.getSeedBlessingScore(seedId);
+          score = Number(seedScore);
+        } catch (error) {
+          console.error(`Error fetching blessing score for seed ${seedId}:`, error);
+        }
+
+        return {
+          id: seedId,
+          creator: seed.creator,
+          ipfsHash: seed.ipfsHash,
+          blessings: Number(seed.blessings),
+          score: score,
+          createdAt: Number(seed.createdAt),
+          isWinner: seed.isWinner,
+          winnerInRound: Number(seed.winnerInRound),
+          submittedInRound: Number(seed.submittedInRound),
+          metadata: metadata,
+          metadataError: metadataError,
+        };
+      })
+    );
 
     return c.json({
       success: true,
       data: {
         currentRound: Number(currentRound),
-        seeds,
-        count: seeds.length,
+        seeds: seedsWithMetadata,
+        count: seedsWithMetadata.length,
       },
     });
   } catch (error) {
@@ -584,7 +629,7 @@ seeds.get("/round/current", async (c) => {
 
 /**
  * GET /seeds/round/:roundNumber
- * Get all seeds from a specific round
+ * Get all seeds from a specific round with metadata and scores
  */
 seeds.get("/round/:roundNumber", async (c) => {
   try {
@@ -602,23 +647,68 @@ seeds.get("/round/:roundNumber", async (c) => {
 
     const roundSeeds = await contractService.getSeedsByRound(roundNumber);
 
-    const seeds = roundSeeds.map((seed) => ({
-      id: Number(seed.id),
-      creator: seed.creator,
-      ipfsHash: seed.ipfsHash,
-      blessings: Number(seed.blessings),
-      createdAt: Number(seed.createdAt),
-      isWinner: seed.isWinner,
-      winnerInRound: Number(seed.winnerInRound),
-      submittedInRound: Number(seed.submittedInRound),
-    }));
+    // Fetch metadata and scores for each seed
+    const seedsWithMetadata = await Promise.all(
+      roundSeeds.map(async (seed) => {
+        const seedId = Number(seed.id);
+
+        // Fetch IPFS metadata
+        let metadata = null;
+        let metadataError = null;
+
+        if (seed.ipfsHash) {
+          try {
+            // Convert IPFS hash to HTTP gateway URL
+            const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
+              ? seed.ipfsHash.replace("ipfs://", "https://ipfs.io/ipfs/")
+              : seed.ipfsHash.startsWith("http")
+              ? seed.ipfsHash
+              : `https://ipfs.io/ipfs/${seed.ipfsHash}`;
+
+            const response = await fetch(ipfsUrl);
+
+            if (response.ok) {
+              metadata = await response.json();
+            } else {
+              metadataError = `HTTP ${response.status}`;
+            }
+          } catch (error) {
+            metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
+            console.error(`Error fetching IPFS metadata for seed ${seedId}:`, error);
+          }
+        }
+
+        // Fetch blessing score
+        let score = 0;
+        try {
+          const seedScore = await contractService.getSeedBlessingScore(seedId);
+          score = Number(seedScore);
+        } catch (error) {
+          console.error(`Error fetching blessing score for seed ${seedId}:`, error);
+        }
+
+        return {
+          id: seedId,
+          creator: seed.creator,
+          ipfsHash: seed.ipfsHash,
+          blessings: Number(seed.blessings),
+          score: score,
+          createdAt: Number(seed.createdAt),
+          isWinner: seed.isWinner,
+          winnerInRound: Number(seed.winnerInRound),
+          submittedInRound: Number(seed.submittedInRound),
+          metadata: metadata,
+          metadataError: metadataError,
+        };
+      })
+    );
 
     return c.json({
       success: true,
       data: {
         round: roundNumber,
-        seeds,
-        count: seeds.length,
+        seeds: seedsWithMetadata,
+        count: seedsWithMetadata.length,
       },
     });
   } catch (error) {
