@@ -448,6 +448,27 @@ const selectWinnerHandler = async (c: any) => {
         });
       }
 
+      // Validate seed data before elevation
+      if (!seed.ipfsHash || seed.ipfsHash.trim() === "") {
+        console.error(`❌ Seed ${result.winningSeedId} has no IPFS hash - cannot elevate`);
+        return c.json({
+          success: false,
+          error: `Seed ${result.winningSeedId} has no IPFS hash - cannot elevate to Abraham creation`,
+          data: {
+            winningSeedId: result.winningSeedId,
+            round: winnerRound,
+            txHash: result.txHash,
+            blockExplorer,
+            seed: {
+              id: Number(seed.id),
+              creator: seed.creator,
+              ipfsHash: seed.ipfsHash,
+              blessings: Number(seed.blessings),
+            },
+          },
+        }, 400);
+      }
+
       // Elevate the seed to an Abraham creation
       const elevationResult = await abrahamService.elevateSeedToCreation(
         {
@@ -821,6 +842,17 @@ admin.post("/elevate-seed", requireAdminKey, async (c) => {
       );
     }
 
+    // Verify seed has IPFS hash
+    if (!seed.ipfsHash || seed.ipfsHash.trim() === "") {
+      return c.json(
+        {
+          success: false,
+          error: `Seed ${seedId} has no IPFS hash - cannot elevate to Abraham creation`,
+        },
+        400
+      );
+    }
+
     console.log(`✅ Seed details retrieved`);
     console.log(`   IPFS Hash: ${seed.ipfsHash}`);
     console.log(`   Creator: ${seed.creator}`);
@@ -887,6 +919,127 @@ admin.post("/elevate-seed", requireAdminKey, async (c) => {
       {
         success: false,
         error: "Failed to elevate seed",
+        details: errorMessage,
+      },
+      500
+    );
+  }
+});
+
+/**
+ * POST /admin/create-auction
+ * Create an auction for an already-minted Abraham creation
+ *
+ * This endpoint is useful when:
+ * - A token was minted but auction creation failed
+ * - You want to re-auction a token after a previous auction ended
+ *
+ * Query Parameters:
+ * - tokenId: The ID of the token to auction (required)
+ * - durationInDays: Auction duration in days (optional, default: 1)
+ * - minBidInEth: Minimum bid in ETH (optional, default: 0.01)
+ *
+ * Authentication: X-Admin-Key header required
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "tokenId": number,
+ *     "auctionId": number,
+ *     "txHash": string,
+ *     "explorer": string
+ *   }
+ * }
+ */
+admin.post("/create-auction", requireAdminKey, async (c) => {
+  try {
+    const tokenIdParam = c.req.query("tokenId");
+    const durationParam = c.req.query("durationInDays") || "1";
+    const minBidParam = c.req.query("minBidInEth") || "0.01";
+
+    if (!tokenIdParam) {
+      return c.json(
+        {
+          success: false,
+          error: "Missing tokenId query parameter",
+        },
+        400
+      );
+    }
+
+    const tokenId = parseInt(tokenIdParam);
+    const durationInDays = parseFloat(durationParam);
+    const minBidInEth = minBidParam;
+
+    if (isNaN(tokenId)) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid tokenId - must be a number",
+        },
+        400
+      );
+    }
+
+    console.log(`\n${"=".repeat(60)}`);
+    console.log(`🎯 Creating auction for Token ID ${tokenId}`);
+    console.log(`   Duration: ${durationInDays} day(s)`);
+    console.log(`   Min Bid: ${minBidInEth} ETH`);
+    console.log(`${"=".repeat(60)}\n`);
+
+    // Check if Abraham service is configured
+    if (!abrahamService.isConfigured()) {
+      return c.json(
+        {
+          success: false,
+          error: "Abraham service not configured",
+        },
+        503
+      );
+    }
+
+    // Create the auction
+    const result = await abrahamService.createDailyAuction(
+      tokenId,
+      durationInDays,
+      minBidInEth
+    );
+
+    if (!result.success) {
+      console.error(`❌ Auction creation failed: ${result.error}`);
+      return c.json(
+        {
+          success: false,
+          error: result.error,
+        },
+        500
+      );
+    }
+
+    console.log(`✅ Auction created successfully`);
+    console.log(`   Auction ID: ${result.auctionId}`);
+    console.log(`   Tx Hash: ${result.txHash}\n`);
+
+    return c.json({
+      success: true,
+      data: {
+        tokenId,
+        auctionId: result.auctionId,
+        txHash: result.txHash,
+        explorer: `https://sepolia.etherscan.io/tx/${result.txHash}`,
+        auctionExplorer: `https://sepolia.etherscan.io/address/${process.env.ABRAHAM_AUCTION_ADDRESS}#readContract`,
+        message: "Auction created successfully",
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error creating auction:", error);
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to create auction",
         details: errorMessage,
       },
       500

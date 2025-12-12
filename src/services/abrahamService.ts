@@ -13,6 +13,7 @@ import {
   type PublicClient,
   type WalletClient,
   parseEther,
+  decodeEventLog,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
@@ -171,6 +172,38 @@ class AbrahamService {
   }
 
   /**
+   * Read: Check if Abraham has already committed work today
+   */
+  async hasCommittedToday(): Promise<boolean> {
+    if (!this.covenantAddress || !COVENANT_ABI) {
+      throw new Error("AbrahamCovenant not configured");
+    }
+
+    return (await this.publicClient.readContract({
+      address: this.covenantAddress,
+      abi: COVENANT_ABI,
+      functionName: "hasCommittedToday",
+      args: [],
+    })) as boolean;
+  }
+
+  /**
+   * Read: Get current token supply
+   */
+  async getCurrentTokenSupply(): Promise<bigint> {
+    if (!this.covenantAddress || !COVENANT_ABI) {
+      throw new Error("AbrahamCovenant not configured");
+    }
+
+    return (await this.publicClient.readContract({
+      address: this.covenantAddress,
+      abi: COVENANT_ABI,
+      functionName: "totalSupply",
+      args: [],
+    })) as bigint;
+  }
+
+  /**
    * Write: Commit daily work and mint Abraham creation
    * This mints an NFT to the covenant contract with the provided IPFS hash
    */
@@ -220,17 +253,53 @@ class AbrahamService {
       }
 
       // Parse the NFTMinted event to get the token ID
+      // NFTMinted event signature: event NFTMinted(uint256 indexed tokenId, address indexed recipient)
       let tokenId: number | undefined;
-      for (const log of receipt.logs) {
-        try {
-          // NFTMinted event has tokenId as first indexed parameter
-          if (log.topics[0] && log.topics[1]) {
-            tokenId = Number(BigInt(log.topics[1]));
-            console.log(`   ✅ NFT minted with tokenId: ${tokenId}`);
-            break;
+
+      try {
+        // Find the NFTMinted event in the logs
+        for (const log of receipt.logs) {
+          try {
+            const decoded = decodeEventLog({
+              abi: COVENANT_ABI,
+              data: log.data,
+              topics: log.topics,
+            }) as { eventName: string; args: { tokenId: bigint; recipient: Address } };
+
+            // Check if this is the NFTMinted event
+            if (decoded.eventName === 'NFTMinted') {
+              tokenId = Number(decoded.args.tokenId);
+              console.log(`   ✅ NFT minted with tokenId: ${tokenId}`);
+              break;
+            }
+          } catch (decodeError) {
+            // This log doesn't match the ABI, continue to next log
+            continue;
           }
-        } catch (e) {
-          // Continue if this log doesn't match
+        }
+
+        if (tokenId === undefined) {
+          console.warn('   ⚠️  NFTMinted event not found in transaction logs');
+        }
+      } catch (parseError) {
+        console.warn('   ⚠️  Error parsing transaction logs:', parseError);
+      }
+
+      // Fallback: If parsing failed, get token ID from totalSupply
+      if (tokenId === undefined) {
+        console.log('   📌 Using fallback: retrieving token ID from totalSupply...');
+        try {
+          const supply = await this.getCurrentTokenSupply();
+          tokenId = Number(supply) - 1;
+          console.log(`   ✅ Fallback successful: token ID is ${tokenId}`);
+        } catch (fallbackError) {
+          console.error('   ❌ Fallback also failed:', fallbackError);
+          // Token was minted but we couldn't get the ID - this is a critical issue
+          return {
+            success: false,
+            error: "Token minted successfully but failed to retrieve token ID. Check transaction: " + hash,
+            txHash: hash,
+          };
         }
       }
 
@@ -390,29 +459,58 @@ class AbrahamService {
     auctionTxHash?: Hash;
     error?: string;
   }> {
-    console.log(`\n🌟 Elevating winning seed to Abraham creation`);
+    const startTime = new Date().toISOString();
+    console.log(`\n${"=".repeat(70)}`);
+    console.log(`🌟 ELEVATION STARTED - ${startTime}`);
+    console.log(`${"=".repeat(70)}`);
     console.log(`   Seed ID: ${winningSeed.id}`);
     console.log(`   Round: ${round}`);
     console.log(`   IPFS Hash: ${winningSeed.ipfsHash}`);
+    console.log(`   Creator: ${winningSeed.creator}`);
     console.log(`   Blessings: ${winningSeed.blessings}`);
     console.log("");
 
     // Step 1: Mint the Abraham creation
-    console.log("Step 1: Minting Abraham creation...");
+    console.log("📍 STEP 1/2: Minting Abraham creation on Sepolia...");
+    console.log(`   IPFS Hash being committed: "${winningSeed.ipfsHash}"`);
+
     const mintResult = await this.commitDailyWork(winningSeed.ipfsHash);
 
-    if (!mintResult.success || !mintResult.tokenId) {
+    if (!mintResult.success) {
+      console.error(`❌ MINTING FAILED`);
+      console.error(`   Error: ${mintResult.error}`);
+      console.error(`   Time: ${new Date().toISOString()}\n`);
       return {
         success: false,
         error: `Failed to mint Abraham creation: ${mintResult.error}`,
       };
     }
 
-    console.log(`✅ Abraham creation minted successfully (tokenId: ${mintResult.tokenId})`);
+    if (!mintResult.tokenId) {
+      console.error(`❌ TOKEN ID MISSING`);
+      console.error(`   Mint transaction succeeded but token ID is undefined`);
+      console.error(`   Tx Hash: ${mintResult.txHash}`);
+      console.error(`   This should not happen with the fallback logic`);
+      console.error(`   Time: ${new Date().toISOString()}\n`);
+      return {
+        success: false,
+        error: `Minting succeeded but token ID is missing. Tx: ${mintResult.txHash}`,
+        mintTxHash: mintResult.txHash,
+      };
+    }
+
+    console.log(`✅ MINTING SUCCESS`);
+    console.log(`   Token ID: ${mintResult.tokenId}`);
+    console.log(`   Tx Hash: ${mintResult.txHash}`);
+    console.log(`   Explorer: https://sepolia.etherscan.io/tx/${mintResult.txHash}`);
     console.log("");
 
     // Step 2: Create daily auction
-    console.log("Step 2: Creating daily auction...");
+    console.log("📍 STEP 2/2: Creating daily auction...");
+    console.log(`   Token ID: ${mintResult.tokenId}`);
+    console.log(`   Duration: 1 day`);
+    console.log(`   Min Bid: 0.01 ETH`);
+
     const auctionResult = await this.createDailyAuction(
       mintResult.tokenId,
       1, // 1 day duration
@@ -420,6 +518,12 @@ class AbrahamService {
     );
 
     if (!auctionResult.success || !auctionResult.auctionId) {
+      console.error(`❌ AUCTION CREATION FAILED`);
+      console.error(`   Error: ${auctionResult.error}`);
+      console.error(`   Token ID: ${mintResult.tokenId} (already minted)`);
+      console.error(`   Time: ${new Date().toISOString()}`);
+      console.error(`   NOTE: Token was minted successfully but auction failed`);
+      console.error(`   Recovery: Use POST /api/admin/create-auction?tokenId=${mintResult.tokenId}\n`);
       return {
         success: false,
         tokenId: mintResult.tokenId,
@@ -428,15 +532,23 @@ class AbrahamService {
       };
     }
 
-    console.log(`✅ Daily auction created successfully (auctionId: ${auctionResult.auctionId})`);
+    console.log(`✅ AUCTION CREATION SUCCESS`);
+    console.log(`   Auction ID: ${auctionResult.auctionId}`);
+    console.log(`   Tx Hash: ${auctionResult.txHash}`);
+    console.log(`   Explorer: https://sepolia.etherscan.io/tx/${auctionResult.txHash}`);
     console.log("");
 
-    console.log("🎉 Seed elevation complete!");
-    console.log(`   Token ID: ${mintResult.tokenId}`);
-    console.log(`   Auction ID: ${auctionResult.auctionId}`);
-    console.log(`   Mint Tx: https://sepolia.etherscan.io/tx/${mintResult.txHash}`);
-    console.log(`   Auction Tx: https://sepolia.etherscan.io/tx/${auctionResult.txHash}`);
-    console.log("");
+    const endTime = new Date().toISOString();
+    console.log(`${"=".repeat(70)}`);
+    console.log(`🎉 ELEVATION COMPLETE - ${endTime}`);
+    console.log(`${"=".repeat(70)}`);
+    console.log(`   ✅ Winner Selected: Seed ID ${winningSeed.id} (Round ${round})`);
+    console.log(`   ✅ Creation Minted: Token ID ${mintResult.tokenId}`);
+    console.log(`   ✅ Auction Created: Auction ID ${auctionResult.auctionId}`);
+    console.log(`   📦 Token Owner: Covenant Contract`);
+    console.log(`   🔗 View Token: https://sepolia.etherscan.io/token/${this.covenantAddress}?a=${mintResult.tokenId}`);
+    console.log(`   🎯 View Auction: https://sepolia.etherscan.io/address/${this.auctionAddress}#readContract`);
+    console.log(`${"=".repeat(70)}\n`);
 
     return {
       success: true,
