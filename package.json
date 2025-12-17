@@ -30,7 +30,10 @@
     "verify": "hardhat verify",
     "verify:contract": "tsx scripts/verifyContract.ts",
     "verify:contract:base-sepolia": "tsx scripts/verifyContract.ts -- --network baseSepolia",
-    "verify:contract:base": "tsx scripts/verifyContract.ts -- --network baseMainnet"
+    "verify:contract:base": "tsx scripts/verifyContract.ts -- --network baseMainnet",
+    "verify:seeds": "tsx scripts/verifySeedsContract.ts",
+    "verify:seeds:base-sepolia": "tsx scripts/verifySeedsContract.ts -- --network baseSepolia",
+    "verify:seeds:base": "tsx scripts/verifySeedsContract.ts -- --network baseMainnet"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.5",
@@ -43,7 +46,7 @@
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^4.0.3",
-    "@nomicfoundation/hardhat-verify": "^3.0.7",
+    "@nomicfoundation/hardhat-verify": "^3.0.8",
     "@openzeppelin/contracts": "^5.4.0",
     "@openzeppelin/merkle-tree": "^1.0.8",
     "@types/chai": "^5.2.3",

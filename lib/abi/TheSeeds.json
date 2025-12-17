@@ -5,6 +5,11 @@
         "internalType": "address",
         "name": "_admin",
         "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_initialCreator",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
@@ -33,6 +38,11 @@
   },
   {
     "inputs": [],
+    "name": "AlreadyRetracted",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "BlessingPeriodEnded",
     "type": "error"
   },
@@ -48,12 +58,22 @@
   },
   {
     "inputs": [],
+    "name": "DuplicateTokenIds",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidBlesser",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "InvalidBlessingsPerNFT",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidIPFSHash",
     "type": "error"
   },
   {
@@ -74,6 +94,11 @@
   {
     "inputs": [],
     "name": "InvalidVotingPeriod",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "MaxSeedsReached",
     "type": "error"
   },
   {
@@ -108,6 +133,11 @@
   },
   {
     "inputs": [],
+    "name": "RoundSeedLimitReached",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "SeedAlreadyWinner",
     "type": "error"
   },
@@ -120,6 +150,31 @@
     "inputs": [],
     "name": "VotingPeriodNotEnded",
     "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "seedId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "blesser",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "reason",
+        "type": "string"
+      }
+    ],
+    "name": "BlessingFailed",
+    "type": "event"
   },
   {
     "anonymous": false,
@@ -175,6 +230,25 @@
       }
     ],
     "name": "BlessingSubmitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "currentAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "scheduledAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "BlessingsPerNFTScheduled",
     "type": "event"
   },
   {
@@ -258,6 +332,25 @@
       }
     ],
     "name": "CreatorRemoved",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "enum TheSeeds.DeadlockStrategy",
+        "name": "previousStrategy",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum TheSeeds.DeadlockStrategy",
+        "name": "newStrategy",
+        "type": "uint8"
+      }
+    ],
+    "name": "DeadlockStrategyUpdated",
     "type": "event"
   },
   {
@@ -427,6 +520,82 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": false,
+        "internalType": "enum TheSeeds.RoundMode",
+        "name": "previousMode",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum TheSeeds.RoundMode",
+        "name": "newMode",
+        "type": "uint8"
+      }
+    ],
+    "name": "RoundModeUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "round",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "timestamp",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "reason",
+        "type": "string"
+      }
+    ],
+    "name": "RoundSkipped",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "resetScores",
+        "type": "bool"
+      }
+    ],
+    "name": "ScoreResetPolicyUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "round",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "seedsAffected",
+        "type": "uint256"
+      }
+    ],
+    "name": "ScoresReset",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": true,
         "internalType": "uint256",
         "name": "seedId",
@@ -440,6 +609,43 @@
       }
     ],
     "name": "SeedRetracted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "seedId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "blesser",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "previousScore",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newScore",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "decayFactor",
+        "type": "uint256"
+      }
+    ],
+    "name": "SeedScoreUpdated",
     "type": "event"
   },
   {
@@ -477,6 +683,44 @@
       }
     ],
     "name": "SeedSubmitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "enum TheSeeds.TieBreakingStrategy",
+        "name": "previousStrategy",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum TheSeeds.TieBreakingStrategy",
+        "name": "newStrategy",
+        "type": "uint8"
+      }
+    ],
+    "name": "TieBreakingStrategyUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "currentPeriod",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "scheduledPeriod",
+        "type": "uint256"
+      }
+    ],
+    "name": "VotingPeriodScheduled",
     "type": "event"
   },
   {
@@ -582,12 +826,64 @@
   },
   {
     "inputs": [],
+    "name": "MAX_SEEDS_PER_ROUND",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_TOTAL_SEEDS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "RELAYER_ROLE",
     "outputs": [
       {
         "internalType": "bytes32",
         "name": "",
         "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "SCORE_SCALE_FACTOR",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "VERSION",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
       }
     ],
     "stateMutability": "view",
@@ -653,6 +949,25 @@
         "internalType": "bool",
         "name": "isDelegated",
         "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "allSeedIds",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -832,6 +1147,38 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "deadlockStrategy",
+    "outputs": [
+      {
+        "internalType": "enum TheSeeds.DeadlockStrategy",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "eligibleSeedIds",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -863,6 +1210,24 @@
         "internalType": "uint256",
         "name": "leadingSeedId",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "score",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getCurrentLeaders",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "leadingSeedIds",
+        "type": "uint256[]"
       },
       {
         "internalType": "uint256",
@@ -910,6 +1275,11 @@
             "type": "bool"
           },
           {
+            "internalType": "bool",
+            "name": "isRetracted",
+            "type": "bool"
+          },
+          {
             "internalType": "uint256",
             "name": "winnerInRound",
             "type": "uint256"
@@ -923,6 +1293,69 @@
         "internalType": "struct TheSeeds.Seed[]",
         "name": "",
         "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getDeadlockStrategy",
+    "outputs": [
+      {
+        "internalType": "enum TheSeeds.DeadlockStrategy",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getEligibleSeeds",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getEligibleSeedsCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_offset",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_limit",
+        "type": "uint256"
+      }
+    ],
+    "name": "getEligibleSeedsPaginated",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
       }
     ],
     "stateMutability": "view",
@@ -972,6 +1405,32 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "getRoundMode",
+    "outputs": [
+      {
+        "internalType": "enum TheSeeds.RoundMode",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getSecondsUntilDailyReset",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -1011,6 +1470,11 @@
           {
             "internalType": "bool",
             "name": "isWinner",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "isRetracted",
             "type": "bool"
           },
           {
@@ -1082,6 +1546,67 @@
     "inputs": [
       {
         "internalType": "uint256",
+        "name": "_seedId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_offset",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_limit",
+        "type": "uint256"
+      }
+    ],
+    "name": "getSeedBlessingsPaginated",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "seedId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "blesser",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "actor",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "isDelegated",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct TheSeeds.Blessing[]",
+        "name": "blessings",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "uint256",
+        "name": "total",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
         "name": "_startId",
         "type": "uint256"
       },
@@ -1123,6 +1648,11 @@
           {
             "internalType": "bool",
             "name": "isWinner",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "isRetracted",
             "type": "bool"
           },
           {
@@ -1187,6 +1717,11 @@
             "type": "bool"
           },
           {
+            "internalType": "bool",
+            "name": "isRetracted",
+            "type": "bool"
+          },
+          {
             "internalType": "uint256",
             "name": "winnerInRound",
             "type": "uint256"
@@ -1200,6 +1735,19 @@
         "internalType": "struct TheSeeds.Seed[]",
         "name": "",
         "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getTieBreakingStrategy",
+    "outputs": [
+      {
+        "internalType": "enum TheSeeds.TieBreakingStrategy",
+        "name": "",
+        "type": "uint8"
       }
     ],
     "stateMutability": "view",
@@ -1221,6 +1769,19 @@
   {
     "inputs": [],
     "name": "getTotalBlessings",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getTotalSeedsCount",
     "outputs": [
       {
         "internalType": "uint256",
@@ -1272,6 +1833,67 @@
         "internalType": "struct TheSeeds.Blessing[]",
         "name": "",
         "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_offset",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_limit",
+        "type": "uint256"
+      }
+    ],
+    "name": "getUserBlessingsPaginated",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "seedId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "blesser",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "actor",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "timestamp",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "isDelegated",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct TheSeeds.Blessing[]",
+        "name": "blessings",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "uint256",
+        "name": "total",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -1412,9 +2034,54 @@
   },
   {
     "inputs": [],
+    "name": "nextBlessingsPerNFT",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "nextVotingPeriod",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "reason",
+        "type": "string"
+      }
+    ],
     "name": "pause",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "pauseReason",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -1475,6 +2142,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "resetScoresOnRoundEnd",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -1513,6 +2193,19 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "roundMode",
+    "outputs": [
+      {
+        "internalType": "enum TheSeeds.RoundMode",
+        "name": "",
+        "type": "uint8"
       }
     ],
     "stateMutability": "view",
@@ -1623,6 +2316,30 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "seedScoreByRound",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "name": "seeds",
@@ -1655,6 +2372,11 @@
       {
         "internalType": "bool",
         "name": "isWinner",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "isRetracted",
         "type": "bool"
       },
       {
@@ -1724,6 +2446,19 @@
   },
   {
     "inputs": [],
+    "name": "tieBreakingStrategy",
+    "outputs": [
+      {
+        "internalType": "enum TheSeeds.TieBreakingStrategy",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "totalBlessingsCount",
     "outputs": [
       {
@@ -1758,12 +2493,64 @@
   {
     "inputs": [
       {
+        "internalType": "enum TheSeeds.DeadlockStrategy",
+        "name": "_newStrategy",
+        "type": "uint8"
+      }
+    ],
+    "name": "updateDeadlockStrategy",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "bytes32",
         "name": "_newRoot",
         "type": "bytes32"
       }
     ],
     "name": "updateOwnershipRoot",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum TheSeeds.RoundMode",
+        "name": "_newRoundMode",
+        "type": "uint8"
+      }
+    ],
+    "name": "updateRoundMode",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bool",
+        "name": "_enabled",
+        "type": "bool"
+      }
+    ],
+    "name": "updateScoreResetPolicy",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "enum TheSeeds.TieBreakingStrategy",
+        "name": "_newStrategy",
+        "type": "uint8"
+      }
+    ],
+    "name": "updateTieBreakingStrategy",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1843,6 +2630,35 @@
       }
     ],
     "name": "userSeedBlessingCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "userSeedBlessingsByRound",
     "outputs": [
       {
         "internalType": "uint256",

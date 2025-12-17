@@ -1,9 +1,9 @@
 {
   "contractAddress": "0x9734c959A5FEC7BaD8b0b560AD94F9740B90Efd8",
   "contractName": "Abraham's First Works",
-  "totalSupply": 2034,
-  "timestamp": "2025-12-08T10:24:56.238Z",
-  "blockNumber": 23967473,
+  "totalSupply": 2039,
+  "timestamp": "2025-12-17T18:08:40.535Z",
+  "blockNumber": 24034024,
   "holders": [
     {
       "address": "0x826be0f079a18c7f318efbead5f90df70a7b2e29",
@@ -1080,62 +1080,6 @@
       ]
     },
     {
-      "address": "0x833ebb4bda11da33a7f1c907c8171e5995fe33c7",
-      "balance": 50,
-      "tokenIds": [
-        273,
-        395,
-        462,
-        463,
-        464,
-        465,
-        466,
-        467,
-        468,
-        469,
-        471,
-        472,
-        473,
-        474,
-        475,
-        476,
-        477,
-        478,
-        479,
-        480,
-        481,
-        482,
-        483,
-        484,
-        485,
-        487,
-        488,
-        489,
-        490,
-        491,
-        492,
-        493,
-        494,
-        495,
-        496,
-        497,
-        498,
-        500,
-        501,
-        502,
-        504,
-        506,
-        507,
-        510,
-        511,
-        512,
-        513,
-        514,
-        515,
-        516
-      ]
-    },
-    {
       "address": "0xb88f61e6fbda83fbfffabe364112137480398018",
       "balance": 50,
       "tokenIds": [
@@ -1432,6 +1376,33 @@
         1792,
         1920,
         2197
+      ]
+    },
+    {
+      "address": "0x833ebb4bda11da33a7f1c907c8171e5995fe33c7",
+      "balance": 21,
+      "tokenIds": [
+        273,
+        395,
+        463,
+        465,
+        467,
+        468,
+        478,
+        479,
+        481,
+        485,
+        489,
+        490,
+        491,
+        494,
+        496,
+        500,
+        501,
+        502,
+        511,
+        514,
+        516
       ]
     },
     {
@@ -2014,6 +1985,17 @@
       ]
     },
     {
+      "address": "0x624a420aa9e1011cfd4dba5ffa5e1abfaa51bf8e",
+      "balance": 5,
+      "tokenIds": [
+        495,
+        1019,
+        1424,
+        1774,
+        1921
+      ]
+    },
+    {
       "address": "0x64d32c1834c5e8faa071cdfd0aac4496c004a8fc",
       "balance": 5,
       "tokenIds": [
@@ -2152,6 +2134,16 @@
       ]
     },
     {
+      "address": "0x86269a4ee087384f76a49e28d390caa71c146a61",
+      "balance": 4,
+      "tokenIds": [
+        321,
+        1131,
+        1767,
+        2378
+      ]
+    },
+    {
       "address": "0x8acb66b909088e8392dd9a766c06e85531c063bf",
       "balance": 4,
       "tokenIds": [
@@ -2159,16 +2151,6 @@
         1126,
         1128,
         1129
-      ]
-    },
-    {
-      "address": "0x932a9749a8844354448c235971ccb8d0f4e2bff9",
-      "balance": 4,
-      "tokenIds": [
-        321,
-        1131,
-        1767,
-        2378
       ]
     },
     {
@@ -2189,16 +2171,6 @@
         361,
         559,
         583
-      ]
-    },
-    {
-      "address": "0xaa3c0faa24e67ebe9b73fe3efaf9d06f9ba57622",
-      "balance": 4,
-      "tokenIds": [
-        50,
-        1041,
-        1602,
-        1766
       ]
     },
     {
@@ -2366,6 +2338,15 @@
         276,
         367,
         1420
+      ]
+    },
+    {
+      "address": "0xaa3c0faa24e67ebe9b73fe3efaf9d06f9ba57622",
+      "balance": 3,
+      "tokenIds": [
+        50,
+        1041,
+        1766
       ]
     },
     {
@@ -2671,6 +2652,14 @@
       ]
     },
     {
+      "address": "0xbe957a475844c127ddd207b4ff1f63900fd13e57",
+      "balance": 2,
+      "tokenIds": [
+        394,
+        1187
+      ]
+    },
+    {
       "address": "0xbebbe491e0f9422f427e8ca45fdc3575aa258d18",
       "balance": 2,
       "tokenIds": [
@@ -2799,6 +2788,13 @@
       ]
     },
     {
+      "address": "0x03a50376fd8738ad88f485b981a0f741761567f7",
+      "balance": 1,
+      "tokenIds": [
+        488
+      ]
+    },
+    {
       "address": "0x03a7c1bc8ccfe0dc528fbdc2d2b36d647e46a086",
       "balance": 1,
       "tokenIds": [
@@ -2820,10 +2816,24 @@
       ]
     },
     {
+      "address": "0x11a1920943b484da17018fa8367a7a1de0b46ba7",
+      "balance": 1,
+      "tokenIds": [
+        473
+      ]
+    },
+    {
       "address": "0x11d91151f54d4edc390ba4fc650afdaef4b676ee",
       "balance": 1,
       "tokenIds": [
         1183
+      ]
+    },
+    {
+      "address": "0x15f43804e1b67e498c3815d057faecda5cbeddf2",
+      "balance": 1,
+      "tokenIds": [
+        1602
       ]
     },
     {
@@ -2883,10 +2893,38 @@
       ]
     },
     {
+      "address": "0x21b8178538b06bd51cbe677c0cc9cb5769c3e2be",
+      "balance": 1,
+      "tokenIds": [
+        512
+      ]
+    },
+    {
       "address": "0x22a6c748dc711aa485d6933652afd76eb7de9fc8",
       "balance": 1,
       "tokenIds": [
         561
+      ]
+    },
+    {
+      "address": "0x2315880b14decc0aef9f22f5e1ff862391618825",
+      "balance": 1,
+      "tokenIds": [
+        464
+      ]
+    },
+    {
+      "address": "0x295978ccec5fc969ee2a70603a9e13d428e2dd7d",
+      "balance": 1,
+      "tokenIds": [
+        475
+      ]
+    },
+    {
+      "address": "0x29e78106d62e79d32bc33f8c97f575d8a74fb535",
+      "balance": 1,
+      "tokenIds": [
+        482
       ]
     },
     {
@@ -3009,6 +3047,13 @@
       ]
     },
     {
+      "address": "0x3bf7d63c04ebf3b1d8332eec26a4862425c482c8",
+      "balance": 1,
+      "tokenIds": [
+        504
+      ]
+    },
+    {
       "address": "0x3cbd57da2f08b3268da07e5c9038c11861828637",
       "balance": 1,
       "tokenIds": [
@@ -3051,6 +3096,13 @@
       ]
     },
     {
+      "address": "0x460a6b6796ecb616dc7d370cdeaf7c23584dbf55",
+      "balance": 1,
+      "tokenIds": [
+        477
+      ]
+    },
+    {
       "address": "0x48a9f30c4b619aed265e145666abe572a1b27305",
       "balance": 1,
       "tokenIds": [
@@ -3062,6 +3114,13 @@
       "balance": 1,
       "tokenIds": [
         1932
+      ]
+    },
+    {
+      "address": "0x498f64e5f9b2e1885e0a25668d5d3552e68f591e",
+      "balance": 1,
+      "tokenIds": [
+        462
       ]
     },
     {
@@ -3142,17 +3201,17 @@
       ]
     },
     {
+      "address": "0x5d3767cbb9fcfc15f0614d3c117a50fbe12bc021",
+      "balance": 1,
+      "tokenIds": [
+        513
+      ]
+    },
+    {
       "address": "0x5e349eca2dc61abcd9dd99ce94d04136151a09ee",
       "balance": 1,
       "tokenIds": [
         632
-      ]
-    },
-    {
-      "address": "0x624a420aa9e1011cfd4dba5ffa5e1abfaa51bf8e",
-      "balance": 1,
-      "tokenIds": [
-        1424
       ]
     },
     {
@@ -3184,6 +3243,13 @@
       ]
     },
     {
+      "address": "0x6b0651f2ee86a051db73c173b7763711d9544f39",
+      "balance": 1,
+      "tokenIds": [
+        466
+      ]
+    },
+    {
       "address": "0x6ccd06c4cde1040ed86252258b04bc9f3924212a",
       "balance": 1,
       "tokenIds": [
@@ -3195,6 +3261,13 @@
       "balance": 1,
       "tokenIds": [
         2276
+      ]
+    },
+    {
+      "address": "0x74705b15df2c0c70d2fd01f5b9a1f4d3903414f3",
+      "balance": 1,
+      "tokenIds": [
+        493
       ]
     },
     {
@@ -3216,6 +3289,27 @@
       "balance": 1,
       "tokenIds": [
         2342
+      ]
+    },
+    {
+      "address": "0x778c3fb09218629baf40f7e27a99aac6ad203894",
+      "balance": 1,
+      "tokenIds": [
+        507
+      ]
+    },
+    {
+      "address": "0x7a3db350a5b15982cd3e6573fa141f2b26638271",
+      "balance": 1,
+      "tokenIds": [
+        483
+      ]
+    },
+    {
+      "address": "0x7c365124e7cbff4c490a2313f5a2f5b1b83da067",
+      "balance": 1,
+      "tokenIds": [
+        476
       ]
     },
     {
@@ -3244,6 +3338,20 @@
       "balance": 1,
       "tokenIds": [
         1029
+      ]
+    },
+    {
+      "address": "0x84b0da66b1cc47344c54fc3ba037a847593d3dab",
+      "balance": 1,
+      "tokenIds": [
+        469
+      ]
+    },
+    {
+      "address": "0x868036c0eb72fe4bfe2f9ba1b2119307249e61e7",
+      "balance": 1,
+      "tokenIds": [
+        471
       ]
     },
     {
@@ -3279,6 +3387,13 @@
       "balance": 1,
       "tokenIds": [
         1529
+      ]
+    },
+    {
+      "address": "0x9677bbf10c9d960c5e35125ead26796a3f4e7390",
+      "balance": 1,
+      "tokenIds": [
+        515
       ]
     },
     {
@@ -3352,6 +3467,13 @@
       ]
     },
     {
+      "address": "0xbafc20eb37124e3d1b41cfeb3b46b889f75e9706",
+      "balance": 1,
+      "tokenIds": [
+        487
+      ]
+    },
+    {
       "address": "0xbb85bff98f145af30ba935ae4ded97c7a5ce9bf2",
       "balance": 1,
       "tokenIds": [
@@ -3363,6 +3485,20 @@
       "balance": 1,
       "tokenIds": [
         1407
+      ]
+    },
+    {
+      "address": "0xbf17cbff108d32903b1b06d1b10b14ba64374c19",
+      "balance": 1,
+      "tokenIds": [
+        498
+      ]
+    },
+    {
+      "address": "0xc2b26eef64caf2529a689229d4849b44f16d205e",
+      "balance": 1,
+      "tokenIds": [
+        484
       ]
     },
     {
@@ -3387,6 +3523,13 @@
       ]
     },
     {
+      "address": "0xd01f2d254082c0a31388015d28f71f7d09c6236f",
+      "balance": 1,
+      "tokenIds": [
+        506
+      ]
+    },
+    {
       "address": "0xd20cb9aa18a2185120d7c63d93899646e5ecf025",
       "balance": 1,
       "tokenIds": [
@@ -3408,10 +3551,31 @@
       ]
     },
     {
+      "address": "0xd57fc3c7ff4ec8b1172e4220c17ea3f90e96fb3b",
+      "balance": 1,
+      "tokenIds": [
+        474
+      ]
+    },
+    {
       "address": "0xd66e40b0c30595bec72153b502ac1e0c4785991b",
       "balance": 1,
       "tokenIds": [
         2259
+      ]
+    },
+    {
+      "address": "0xd8eed2630c3ed60521bb919b1e05f48ae318ad1a",
+      "balance": 1,
+      "tokenIds": [
+        492
+      ]
+    },
+    {
+      "address": "0xd9939a9da0ae5a244e84e4811915820966c06ab4",
+      "balance": 1,
+      "tokenIds": [
+        472
       ]
     },
     {
@@ -3426,6 +3590,13 @@
       "balance": 1,
       "tokenIds": [
         139
+      ]
+    },
+    {
+      "address": "0xe455c5d98521b88cfc69f72310c45323ebde714f",
+      "balance": 1,
+      "tokenIds": [
+        497
       ]
     },
     {
@@ -3464,6 +3635,20 @@
       ]
     },
     {
+      "address": "0xf25718a75b99af9193bd36a4446fd13ba78860d2",
+      "balance": 1,
+      "tokenIds": [
+        480
+      ]
+    },
+    {
+      "address": "0xf52c0b6cc532c424fd9e171c6f331af56ad871c8",
+      "balance": 1,
+      "tokenIds": [
+        510
+      ]
+    },
+    {
       "address": "0xf5c68206a746424fe96b580bf7e4274c47d66324",
       "balance": 1,
       "tokenIds": [
@@ -3492,7 +3677,7 @@
       ]
     }
   ],
-  "totalHolders": 242,
+  "totalHolders": 272,
   "holderIndex": {
     "0x826be0f079a18c7f318efbead5f90df70a7b2e29": [
       344,
@@ -4532,58 +4717,6 @@
       2390,
       2426
     ],
-    "0x833ebb4bda11da33a7f1c907c8171e5995fe33c7": [
-      273,
-      395,
-      462,
-      463,
-      464,
-      465,
-      466,
-      467,
-      468,
-      469,
-      471,
-      472,
-      473,
-      474,
-      475,
-      476,
-      477,
-      478,
-      479,
-      480,
-      481,
-      482,
-      483,
-      484,
-      485,
-      487,
-      488,
-      489,
-      490,
-      491,
-      492,
-      493,
-      494,
-      495,
-      496,
-      497,
-      498,
-      500,
-      501,
-      502,
-      504,
-      506,
-      507,
-      510,
-      511,
-      512,
-      513,
-      514,
-      515,
-      516
-    ],
     "0xb88f61e6fbda83fbfffabe364112137480398018": [
       23,
       40,
@@ -4850,6 +4983,29 @@
       1792,
       1920,
       2197
+    ],
+    "0x833ebb4bda11da33a7f1c907c8171e5995fe33c7": [
+      273,
+      395,
+      463,
+      465,
+      467,
+      468,
+      478,
+      479,
+      481,
+      485,
+      489,
+      490,
+      491,
+      494,
+      496,
+      500,
+      501,
+      502,
+      511,
+      514,
+      516
     ],
     "0x85603a042455d2f36f3ec52c1c756344aa70c5ef": [
       192,
@@ -5286,6 +5442,13 @@
       1136,
       1345
     ],
+    "0x624a420aa9e1011cfd4dba5ffa5e1abfaa51bf8e": [
+      495,
+      1019,
+      1424,
+      1774,
+      1921
+    ],
     "0x64d32c1834c5e8faa071cdfd0aac4496c004a8fc": [
       1638,
       1639,
@@ -5372,17 +5535,17 @@
       2272,
       2287
     ],
+    "0x86269a4ee087384f76a49e28d390caa71c146a61": [
+      321,
+      1131,
+      1767,
+      2378
+    ],
     "0x8acb66b909088e8392dd9a766c06e85531c063bf": [
       1124,
       1126,
       1128,
       1129
-    ],
-    "0x932a9749a8844354448c235971ccb8d0f4e2bff9": [
-      321,
-      1131,
-      1767,
-      2378
     ],
     "0x93730ce5ac9de1db9f3fbb73bf522a690629ccec": [
       1496,
@@ -5395,12 +5558,6 @@
       361,
       559,
       583
-    ],
-    "0xaa3c0faa24e67ebe9b73fe3efaf9d06f9ba57622": [
-      50,
-      1041,
-      1602,
-      1766
     ],
     "0xac12701b76436009434fbb70e1f6e1e0d7600f02": [
       536,
@@ -5496,6 +5653,11 @@
       276,
       367,
       1420
+    ],
+    "0xaa3c0faa24e67ebe9b73fe3efaf9d06f9ba57622": [
+      50,
+      1041,
+      1766
     ],
     "0xb82fb14b2baa82fa5620effd8c3a0c01f4a9e070": [
       1939,
@@ -5651,6 +5813,10 @@
       1054,
       1850
     ],
+    "0xbe957a475844c127ddd207b4ff1f63900fd13e57": [
+      394,
+      1187
+    ],
     "0xbebbe491e0f9422f427e8ca45fdc3575aa258d18": [
       1757,
       1783
@@ -5715,6 +5881,9 @@
       267,
       2111
     ],
+    "0x03a50376fd8738ad88f485b981a0f741761567f7": [
+      488
+    ],
     "0x03a7c1bc8ccfe0dc528fbdc2d2b36d647e46a086": [
       168
     ],
@@ -5724,8 +5893,14 @@
     "0x0a1ccc5aab66b90c6a71671df5b673d3e4a34d2d": [
       1479
     ],
+    "0x11a1920943b484da17018fa8367a7a1de0b46ba7": [
+      473
+    ],
     "0x11d91151f54d4edc390ba4fc650afdaef4b676ee": [
       1183
+    ],
+    "0x15f43804e1b67e498c3815d057faecda5cbeddf2": [
+      1602
     ],
     "0x1b6488f4ddad414c22931aff1d20936f070c7c28": [
       1744
@@ -5751,8 +5926,20 @@
     "0x20d801dbee0505f9a77cff40f5fed6ff0f0ee9d6": [
       1857
     ],
+    "0x21b8178538b06bd51cbe677c0cc9cb5769c3e2be": [
+      512
+    ],
     "0x22a6c748dc711aa485d6933652afd76eb7de9fc8": [
       561
+    ],
+    "0x2315880b14decc0aef9f22f5e1ff862391618825": [
+      464
+    ],
+    "0x295978ccec5fc969ee2a70603a9e13d428e2dd7d": [
+      475
+    ],
+    "0x29e78106d62e79d32bc33f8c97f575d8a74fb535": [
+      482
     ],
     "0x2a7f926eede0a9bbe09d6315bef093c6238c53f9": [
       1701
@@ -5805,6 +5992,9 @@
     "0x3b6c6115aeafad8bf1b93bb3ba6d34d7972d31ba": [
       1222
     ],
+    "0x3bf7d63c04ebf3b1d8332eec26a4862425c482c8": [
+      504
+    ],
     "0x3cbd57da2f08b3268da07e5c9038c11861828637": [
       503
     ],
@@ -5823,11 +6013,17 @@
     "0x45e62484b976099231dc01eea68409d7c34529fb": [
       934
     ],
+    "0x460a6b6796ecb616dc7d370cdeaf7c23584dbf55": [
+      477
+    ],
     "0x48a9f30c4b619aed265e145666abe572a1b27305": [
       614
     ],
     "0x48f1b764b8cd851025b88fa28f92cb855b9079c0": [
       1932
+    ],
+    "0x498f64e5f9b2e1885e0a25668d5d3552e68f591e": [
+      462
     ],
     "0x4a39ae58b605102913ac19b7c071da75b55b2674": [
       553
@@ -5862,11 +6058,11 @@
     "0x5d0019902c11e03bf8abf42449490198b8f088b7": [
       846
     ],
+    "0x5d3767cbb9fcfc15f0614d3c117a50fbe12bc021": [
+      513
+    ],
     "0x5e349eca2dc61abcd9dd99ce94d04136151a09ee": [
       632
-    ],
-    "0x624a420aa9e1011cfd4dba5ffa5e1abfaa51bf8e": [
-      1424
     ],
     "0x625026d7742977811902eb3559481f9c2e6ed1c7": [
       323
@@ -5880,11 +6076,17 @@
     "0x65ba4f92d7dfa813ddbd849d9faf38a723dd9b12": [
       196
     ],
+    "0x6b0651f2ee86a051db73c173b7763711d9544f39": [
+      466
+    ],
     "0x6ccd06c4cde1040ed86252258b04bc9f3924212a": [
       787
     ],
     "0x714740264706dadef0c01f1ef6769e662227c7cc": [
       2276
+    ],
+    "0x74705b15df2c0c70d2fd01f5b9a1f4d3903414f3": [
+      493
     ],
     "0x74c0c2514c3590a1795775ebe6d31e8bcfad6d6b": [
       2399
@@ -5894,6 +6096,15 @@
     ],
     "0x7694deb922ed54e7b0c268cae1395228fc6c7354": [
       2342
+    ],
+    "0x778c3fb09218629baf40f7e27a99aac6ad203894": [
+      507
+    ],
+    "0x7a3db350a5b15982cd3e6573fa141f2b26638271": [
+      483
+    ],
+    "0x7c365124e7cbff4c490a2313f5a2f5b1b83da067": [
+      476
     ],
     "0x7d9f4cb1adc632e697d604304af4e1e92ecd181b": [
       407
@@ -5906,6 +6117,12 @@
     ],
     "0x848966e01c6c946d466b9316e6fe80295f0ae96c": [
       1029
+    ],
+    "0x84b0da66b1cc47344c54fc3ba037a847593d3dab": [
+      469
+    ],
+    "0x868036c0eb72fe4bfe2f9ba1b2119307249e61e7": [
+      471
     ],
     "0x8a1e3425aa53aaa5f1174bd08dbc99c7e9baa5c8": [
       412
@@ -5921,6 +6138,9 @@
     ],
     "0x9505755dba47e1d9d61e89db4cb322459979c42d": [
       1529
+    ],
+    "0x9677bbf10c9d960c5e35125ead26796a3f4e7390": [
+      515
     ],
     "0x98fa8cbc3f4c70ba65d6763c5ee82c2a3d2e481c": [
       1186
@@ -5952,11 +6172,20 @@
     "0xb7985d5c9daf6603ac8bad20dac4565c48ae65da": [
       1879
     ],
+    "0xbafc20eb37124e3d1b41cfeb3b46b889f75e9706": [
+      487
+    ],
     "0xbb85bff98f145af30ba935ae4ded97c7a5ce9bf2": [
       1277
     ],
     "0xbc9ea070bbec921eeac044bb914eaeabe9c79865": [
       1407
+    ],
+    "0xbf17cbff108d32903b1b06d1b10b14ba64374c19": [
+      498
+    ],
+    "0xc2b26eef64caf2529a689229d4849b44f16d205e": [
+      484
     ],
     "0xc6234427c69e3bd5fff0dd6945bd6d7a3471f542": [
       519
@@ -5967,6 +6196,9 @@
     "0xcab58602093f3117c83d22ab6125309f00d0b55c": [
       2136
     ],
+    "0xd01f2d254082c0a31388015d28f71f7d09c6236f": [
+      506
+    ],
     "0xd20cb9aa18a2185120d7c63d93899646e5ecf025": [
       1615
     ],
@@ -5976,14 +6208,26 @@
     "0xd2b6e7d60471c10f4c548088d1029413e077199c": [
       2223
     ],
+    "0xd57fc3c7ff4ec8b1172e4220c17ea3f90e96fb3b": [
+      474
+    ],
     "0xd66e40b0c30595bec72153b502ac1e0c4785991b": [
       2259
+    ],
+    "0xd8eed2630c3ed60521bb919b1e05f48ae318ad1a": [
+      492
+    ],
+    "0xd9939a9da0ae5a244e84e4811915820966c06ab4": [
+      472
     ],
     "0xdae6ca75bb2afd213e5887513d8b1789122eaaea": [
       308
     ],
     "0xdbaf6f4434a3b60b7461a0ae50c2083fe19d5cdb": [
       139
+    ],
+    "0xe455c5d98521b88cfc69f72310c45323ebde714f": [
+      497
     ],
     "0xe4c8efd2ed3051b22ea3eede1af266452b0e66e9": [
       187
@@ -5999,6 +6243,12 @@
     ],
     "0xf16bf1c992e8ff1011d87f7d48a55746f0966bca": [
       856
+    ],
+    "0xf25718a75b99af9193bd36a4446fd13ba78860d2": [
+      480
+    ],
+    "0xf52c0b6cc532c424fd9e171c6f331af56ad871c8": [
+      510
     ],
     "0xf5c68206a746424fe96b580bf7e4274c47d66324": [
       2324

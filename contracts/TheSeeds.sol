@@ -19,8 +19,45 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
  * Delegation:
  * - Users can delegate blessing rights to trusted parties (e.g., backend server, smart wallets)
  * - Backend relayer can submit blessings on behalf of verified users
+ *
+ * Round Modes:
+ * - ROUND_BASED: Select winners from current round only (traditional)
+ * - NON_ROUND_BASED: Select winners from entire pool of eligible seeds
+ *
+ * Tie-Breaking:
+ * - Configurable strategies for handling multiple seeds with same score
+ *
+ * Deadlock Handling:
+ * - Configurable strategies for handling cases with no eligible seeds
  */
 contract TheSeeds is AccessControl, ReentrancyGuard {
+
+    /*//////////////////////////////////////////////////////////////
+                                ENUMS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Round mode for winner selection
+    enum RoundMode {
+        ROUND_BASED,      // Select from current round only
+        NON_ROUND_BASED   // Select from all eligible seeds
+    }
+
+    /// @notice Strategy for breaking ties when multiple seeds have same score
+    enum TieBreakingStrategy {
+        EARLIEST_SUBMISSION,  // Select seed with earliest timestamp
+        LATEST_SUBMISSION,    // Select seed with latest timestamp
+        LOWEST_SEED_ID,       // Select seed with lowest ID
+        HIGHEST_SEED_ID,      // Select seed with highest ID
+        PSEUDO_RANDOM         // Use blockhash-based randomness
+    }
+
+    /// @notice Strategy for handling deadlock (no eligible seeds)
+    enum DeadlockStrategy {
+        REVERT,              // Revert transaction (current behavior)
+        SKIP_ROUND,          // Skip to next round without winner
+        RANDOM_FROM_ALL,     // Select random seed from all eligible (ignoring scores)
+        ALLOW_REWINS         // Allow previously won seeds to win again
+    }
 
     /// @notice Role for backend relayer that can submit blessings on behalf of users
     bytes32 public constant RELAYER_ROLE = keccak256("RELAYER_ROLE");
@@ -31,8 +68,23 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     /// @notice Role for authorized seed creators
     bytes32 public constant CREATOR_ROLE = keccak256("CREATOR_ROLE");
 
+    /// @notice Contract version for tracking upgrades
+    string public constant VERSION = "1.2.0";
+
+    /// @notice Maximum seeds that can be submitted per round (prevents gas bombs)
+    uint256 public constant MAX_SEEDS_PER_ROUND = 1000;
+
+    /// @notice Maximum total seeds ever submitted (prevents unbounded array growth)
+    uint256 public constant MAX_TOTAL_SEEDS = 100000;
+
+    /// @notice Scale factor for score precision (applied before sqrt)
+    uint256 public constant SCORE_SCALE_FACTOR = 1e6;
+
     /// @notice Duration of each voting period (default: 24 hours, configurable)
     uint256 public votingPeriod;
+
+    /// @notice Next voting period (deferred update, applies after current round ends)
+    uint256 public nextVotingPeriod;
 
     /// @notice Current Merkle root of FirstWorks NFT ownership (updated daily)
     bytes32 public currentOwnershipRoot;
@@ -43,7 +95,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     /// @notice Start time of the current voting period
     uint256 public currentVotingPeriodStart;
 
-    /// @notice Total number of Seeds submitted
+    /// @notice Total number of Seeds submitted (includes retracted seeds)
     uint256 public seedCount;
 
     /// @notice Current voting round number
@@ -52,15 +104,49 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     /// @notice Contract pause state
     bool public paused;
 
+    /// @notice Reason for pause (helps with transparency)
+    string public pauseReason;
+
     /// @notice Total blessings count across all seeds
     uint256 public totalBlessingsCount;
 
     /// @notice How many blessings each NFT grants per day (default: 1, configurable)
     uint256 public blessingsPerNFT;
 
+    /// @notice Next blessings per NFT value (deferred update)
+    uint256 public nextBlessingsPerNFT;
+
+    /// @notice Whether to reset scores at the end of each round
+    bool public resetScoresOnRoundEnd;
+
     /// @notice Track user's blessing count per day: user => day => count
     /// @dev Day is calculated as block.timestamp / 1 days
     mapping(address => mapping(uint256 => uint256)) public userDailyBlessings;
+
+    /// @notice Current round mode (ROUND_BASED or NON_ROUND_BASED)
+    RoundMode public roundMode;
+
+    /// @notice Current tie-breaking strategy
+    TieBreakingStrategy public tieBreakingStrategy;
+
+    /// @notice Current deadlock handling strategy
+    DeadlockStrategy public deadlockStrategy;
+
+    /// @notice Array of all seed IDs for non-round-based selection
+    /// @dev Used when roundMode is NON_ROUND_BASED to query all seeds efficiently
+    uint256[] public allSeedIds;
+
+    /// @notice Array of seed IDs that are still eligible to win (not winners, not retracted)
+    /// @dev Used in NON_ROUND_BASED mode for efficient winner selection (O(eligible) instead of O(all))
+    uint256[] public eligibleSeedIds;
+
+    /// @notice Mapping to track position in eligibleSeedIds array for O(1) removal
+    /// @dev Maps seedId => index in eligibleSeedIds array
+    mapping(uint256 => uint256) private eligibleSeedIndex;
+
+    /// @notice Track if seed is currently in eligible array
+    /// @dev Used to prevent duplicate adds and enable quick eligibility checks
+    mapping(uint256 => bool) private isInEligibleArray;
 
     struct Seed {
         uint256 id;
@@ -69,6 +155,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         uint256 blessings;      // Total blessings received (used for winner selection with sqrt + time decay)
         uint256 createdAt;
         bool isWinner;          // True when selected as winner
+        bool isRetracted;       // True when creator retracts the seed (separate from isWinner)
         uint256 winnerInRound;  // Round number when selected as winner
         uint256 submittedInRound; // Round number when seed was submitted (for round-based competition)
     }
@@ -101,6 +188,14 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     /// @notice Track sqrt-adjusted blessing score per seed (sum of sqrt of each user's blessings)
     /// @dev Score is updated incrementally as blessings come in, not calculated at winner selection
     mapping(uint256 => uint256) public seedBlessingScore;
+
+    /// @notice Per-round score tracking for score reset functionality
+    /// @dev Maps round => seedId => score. Used when resetScoresOnRoundEnd = true
+    mapping(uint256 => mapping(uint256 => uint256)) public seedScoreByRound;
+
+    /// @notice Per-round blessing count tracking for score reset functionality
+    /// @dev Maps round => user => seedId => count. Used when resetScoresOnRoundEnd = true
+    mapping(uint256 => mapping(address => mapping(uint256 => uint256))) public userSeedBlessingsByRound;
 
     /// @notice Array of all blessings for tracking and querying
     Blessing[] public allBlessings;
@@ -172,6 +267,36 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
 
     event BlessingsPerNFTUpdated(uint256 previousAmount, uint256 newAmount);
 
+    event RoundModeUpdated(RoundMode previousMode, RoundMode newMode);
+
+    event TieBreakingStrategyUpdated(TieBreakingStrategy previousStrategy, TieBreakingStrategy newStrategy);
+
+    event DeadlockStrategyUpdated(DeadlockStrategy previousStrategy, DeadlockStrategy newStrategy);
+
+    event RoundSkipped(uint256 indexed round, uint256 timestamp, string reason);
+
+    event SeedScoreUpdated(
+        uint256 indexed seedId,
+        address indexed blesser,
+        uint256 previousScore,
+        uint256 newScore,
+        uint256 decayFactor
+    );
+
+    event BlessingFailed(
+        uint256 indexed seedId,
+        address indexed blesser,
+        string reason
+    );
+
+    event VotingPeriodScheduled(uint256 currentPeriod, uint256 scheduledPeriod);
+
+    event BlessingsPerNFTScheduled(uint256 currentAmount, uint256 scheduledAmount);
+
+    event ScoreResetPolicyUpdated(bool resetScores);
+
+    event ScoresReset(uint256 indexed round, uint256 seedsAffected);
+
     /*//////////////////////////////////////////////////////////////
                                 ERRORS
     //////////////////////////////////////////////////////////////*/
@@ -193,21 +318,40 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     error MustProvideNFTProof();
     error InvalidVotingPeriod();
     error InvalidBlessingsPerNFT();
+    error MaxSeedsReached();
+    error RoundSeedLimitReached();
+    error AlreadyRetracted();
+    error InvalidIPFSHash();
+    error DuplicateTokenIds();
 
     /*//////////////////////////////////////////////////////////////
                               CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
 
-    constructor(address _admin) {
+    constructor(address _admin, address _initialCreator) {
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
         _grantRole(ADMIN_ROLE, _admin);
+
+        // Grant creator role to initial creator (can be zero address if not needed)
+        if (_initialCreator != address(0)) {
+            _grantRole(CREATOR_ROLE, _initialCreator);
+            emit CreatorAdded(_initialCreator, _admin);
+        }
 
         // Initialize with default values
         votingPeriod = 1 days;
         blessingsPerNFT = 1;
+        nextVotingPeriod = 0; // No deferred update
+        nextBlessingsPerNFT = 0; // No deferred update
+        resetScoresOnRoundEnd = false; // Don't reset scores by default
 
         currentVotingPeriodStart = block.timestamp;
         currentRound = 1;
+
+        // Initialize with backward-compatible defaults
+        roundMode = RoundMode.ROUND_BASED;              // Traditional round-based selection
+        tieBreakingStrategy = TieBreakingStrategy.LOWEST_SEED_ID;  // Deterministic tie-breaking
+        deadlockStrategy = DeadlockStrategy.REVERT;     // Revert on no eligible seeds
 
         emit BlessingPeriodStarted(1, block.timestamp);
     }
@@ -234,8 +378,17 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     function submitSeed(
         string memory _ipfsHash
     ) external whenNotPaused onlyRole(CREATOR_ROLE) returns (uint256) {
-        if (bytes(_ipfsHash).length == 0) {
-            revert InvalidSeedData();
+        // Validate IPFS hash
+        _validateIPFSHash(_ipfsHash);
+
+        // Prevent unbounded growth
+        if (seedCount >= MAX_TOTAL_SEEDS) {
+            revert MaxSeedsReached();
+        }
+
+        // Prevent per-round gas bombs
+        if (roundSeedIds[currentRound].length >= MAX_SEEDS_PER_ROUND) {
+            revert RoundSeedLimitReached();
         }
 
         uint256 seedId = seedCount;
@@ -248,6 +401,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
             blessings: 0,
             createdAt: block.timestamp,
             isWinner: false,
+            isRetracted: false,
             winnerInRound: 0,
             submittedInRound: currentRound
         });
@@ -255,13 +409,22 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         // Add seed to current round's seed list for efficient lookup
         roundSeedIds[currentRound].push(seedId);
 
+        // Add seed to global list for non-round-based selection
+        allSeedIds.push(seedId);
+
+        // Add seed to eligible seeds array for efficient winner selection
+        eligibleSeedIds.push(seedId);
+        eligibleSeedIndex[seedId] = eligibleSeedIds.length - 1;
+        isInEligibleArray[seedId] = true;
+
         emit SeedSubmitted(seedId, msg.sender, _ipfsHash, "", block.timestamp);
 
         return seedId;
     }
 
     /**
-     * @notice Retract a submitted Seed (only by creator, before minting)
+     * @notice Retract a submitted Seed (only by creator, before becoming winner)
+     * @dev Retracted seeds cannot receive blessings or be selected as winners
      * @param _seedId ID of the Seed to retract
      */
     function retractSeed(uint256 _seedId) external {
@@ -270,9 +433,13 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         if (seed.createdAt == 0) revert SeedNotFound();
         if (seed.creator != msg.sender) revert NotSeedCreator();
         if (seed.isWinner) revert CannotRetractWinningSeed();
+        if (seed.isRetracted) revert AlreadyRetracted();
 
-        // Mark as winner to prevent further blessings and voting
-        seed.isWinner = true;
+        // Mark as retracted to prevent further blessings and voting
+        seed.isRetracted = true;
+
+        // Remove from eligible seeds array
+        _removeFromEligibleSeeds(_seedId);
 
         emit SeedRetracted(_seedId, msg.sender);
     }
@@ -382,21 +549,27 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         }
 
         for (uint256 i = 0; i < _seedIds.length; i++) {
-            if (_blessers[i] == address(0)) revert InvalidBlesser();
+            if (_blessers[i] == address(0)) {
+                emit BlessingFailed(_seedIds[i], _blessers[i], "Invalid blesser address");
+                continue;
+            }
 
             // Verify NFT ownership
             if (!_verifyOwnership(_blessers[i], _tokenIdsArray[i], _merkleProofs[i])) {
-                continue; // Skip invalid proofs
+                emit BlessingFailed(_seedIds[i], _blessers[i], "Invalid Merkle proof");
+                continue;
             }
 
             if (_tokenIdsArray[i].length == 0) {
-                continue; // Skip if no NFTs
+                emit BlessingFailed(_seedIds[i], _blessers[i], "No NFTs provided");
+                continue;
             }
 
             // Check daily blessing limit (skip if limit reached)
             uint256 currentDay = block.timestamp / 1 days;
             uint256 maxBlessings = _tokenIdsArray[i].length * blessingsPerNFT;
             if (userDailyBlessings[_blessers[i]][currentDay] >= maxBlessings) {
+                emit BlessingFailed(_seedIds[i], _blessers[i], "Daily blessing limit reached");
                 continue;
             }
 
@@ -440,35 +613,26 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         // Validate seed
         if (seed.createdAt == 0) revert SeedNotFound();
         if (seed.isWinner) revert SeedAlreadyWinner();
+        if (seed.isRetracted) revert SeedAlreadyWinner(); // Treat retracted same as winner for blessings
 
         // Prevent blessings after the voting period has ended
         if (block.timestamp >= currentVotingPeriodStart + votingPeriod) {
             revert BlessingPeriodEnded();
         }
 
-        // Update blessing counts
+        // Update all-time blessing counts
         uint256 previousCount = userSeedBlessingCount[_blesser][_seedId];
-        uint256 newCount = previousCount + 1;
-        userSeedBlessingCount[_blesser][_seedId] = newCount;
+        userSeedBlessingCount[_blesser][_seedId] = previousCount + 1;
         seed.blessings++;
 
-        // Calculate time-based decay factor (higher weight for earlier blessings)
-        // Prevents last-minute blessing dumps from swinging the winner
-        uint256 timeRemaining = (currentVotingPeriodStart + votingPeriod) - block.timestamp;
-        uint256 blessingDecayFactor = _calculateBlessingTimeDecay(timeRemaining);
+        // Update per-round blessing counts (for score reset feature)
+        uint256 previousCountRound = userSeedBlessingsByRound[currentRound][_blesser][_seedId];
+        userSeedBlessingsByRound[currentRound][_blesser][_seedId] = previousCountRound + 1;
 
-        // Update sqrt-adjusted score: remove old contribution, add new contribution with decay
-        // Score = sum of (sqrt(blessings) × 1000) × decay_factor for each user
-        // Note: We scale sqrt by 1000 to prevent integer truncation (single blessing = score of 10 at min decay)
-        uint256 previousScore = previousCount > 0 ? sqrt(previousCount) * 1000 : 0;
-        uint256 newScore = sqrt(newCount) * 1000;
-
-        // Apply decay to the score delta (not the total, since old blessings had their own decay)
-        uint256 scoreDelta = ((newScore - previousScore) * blessingDecayFactor) / 1000;
-        seedBlessingScore[_seedId] = seedBlessingScore[_seedId] + scoreDelta;
+        // Calculate and apply score updates (both all-time and per-round)
+        _updateBlessingScores(_seedId, _blesser, previousCount, previousCountRound);
 
         // Store blessing record
-        uint256 blessingIndex = allBlessings.length;
         allBlessings.push(Blessing({
             seedId: _seedId,
             blesser: _blesser,
@@ -478,11 +642,76 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         }));
 
         // Index by seed and user
-        seedBlessings[_seedId].push(blessingIndex);
-        userBlessings[_blesser].push(blessingIndex);
+        seedBlessings[_seedId].push(allBlessings.length - 1);
+        userBlessings[_blesser].push(allBlessings.length - 1);
         totalBlessingsCount++;
 
         emit BlessingSubmitted(_seedId, _blesser, _actor, _isDelegated, block.timestamp);
+    }
+
+    /**
+     * @dev Update blessing scores for both all-time and per-round tracking
+     * @param _seedId Seed being blessed
+     * @param _blesser User giving the blessing
+     * @param _previousCount Previous all-time blessing count
+     * @param _previousCountRound Previous per-round blessing count
+     */
+    function _updateBlessingScores(
+        uint256 _seedId,
+        address _blesser,
+        uint256 _previousCount,
+        uint256 _previousCountRound
+    ) internal {
+        // Calculate decay factor (same for both scores)
+        uint256 timeRemaining = (currentVotingPeriodStart + votingPeriod) - block.timestamp;
+        uint256 decayFactor = _calculateBlessingTimeDecay(timeRemaining);
+
+        // Update all-time score
+        uint256 oldScore = _updateAllTimeScore(_seedId, _previousCount, decayFactor);
+
+        // Update per-round score
+        _updateRoundScore(_seedId, _previousCountRound, decayFactor);
+
+        emit SeedScoreUpdated(_seedId, _blesser, oldScore, seedBlessingScore[_seedId], decayFactor);
+    }
+
+    /**
+     * @dev Update all-time blessing score for a seed
+     * @param _seedId Seed being blessed
+     * @param _previousCount Previous blessing count
+     * @param _decayFactor Time decay factor
+     * @return oldScore The score before update
+     */
+    function _updateAllTimeScore(
+        uint256 _seedId,
+        uint256 _previousCount,
+        uint256 _decayFactor
+    ) internal returns (uint256 oldScore) {
+        uint256 previousScore = _previousCount > 0 ? sqrt(_previousCount * SCORE_SCALE_FACTOR) : 0;
+        uint256 newScore = sqrt((_previousCount + 1) * SCORE_SCALE_FACTOR);
+        uint256 scoreDelta = ((newScore - previousScore) * _decayFactor) / 1000;
+
+        oldScore = seedBlessingScore[_seedId];
+        seedBlessingScore[_seedId] = oldScore + scoreDelta;
+    }
+
+    /**
+     * @dev Update per-round blessing score for a seed
+     * @param _seedId Seed being blessed
+     * @param _previousCountRound Previous round blessing count
+     * @param _decayFactor Time decay factor
+     */
+    function _updateRoundScore(
+        uint256 _seedId,
+        uint256 _previousCountRound,
+        uint256 _decayFactor
+    ) internal {
+        uint256 previousScoreRound = _previousCountRound > 0 ? sqrt(_previousCountRound * SCORE_SCALE_FACTOR) : 0;
+        uint256 newScoreRound = sqrt((_previousCountRound + 1) * SCORE_SCALE_FACTOR);
+        uint256 scoreDeltaRound = ((newScoreRound - previousScoreRound) * _decayFactor) / 1000;
+
+        uint256 oldScoreRound = seedScoreByRound[currentRound][_seedId];
+        seedScoreByRound[currentRound][_seedId] = oldScoreRound + scoreDeltaRound;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -492,6 +721,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     /**
      * @notice Select the winning Seed for the current period based on blessings
      * @dev Winner determined by: sqrt(sum of each user's blessings) * time_decay
+     * @dev Supports multiple round modes and configurable tie-breaking/deadlock handling
      * @dev Can be called by anyone after blessing period ends
      * @return winningSeedId The ID of the winning Seed
      */
@@ -500,43 +730,33 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
             revert VotingPeriodNotEnded();
         }
 
-        // Get seeds from current round (gas-efficient: only loops through current round's seeds)
-        uint256[] memory currentRoundSeedIds = roundSeedIds[currentRound];
+        // Get candidate seeds based on round mode
+        uint256[] memory candidateSeedIds = _getCandidateSeeds();
 
-        // Check if we have any seeds in this round
-        if (currentRoundSeedIds.length == 0) revert NoValidWinner();
+        // Find all seeds with maximum score
+        (uint256[] memory topSeedIds, uint256 maxScore) = _findTopSeeds(candidateSeedIds);
 
-        // Find seed with highest score from current round only
-        // (blessing time decay already applied during blessing submission)
-        uint256 maxScore = 0;
-        uint256 winningSeedId = 0;
-        bool foundCandidate = false;
-
-        for (uint256 i = 0; i < currentRoundSeedIds.length; i++) {
-            uint256 seedId = currentRoundSeedIds[i];
-
-            // Only consider seeds that haven't won yet
-            if (!seeds[seedId].isWinner) {
-                foundCandidate = true;
-                uint256 score = seedBlessingScore[seedId];
-
-                if (score > maxScore) {
-                    maxScore = score;
-                    winningSeedId = seedId;
-                }
-            }
+        // Handle no eligible seeds case (deadlock)
+        if (topSeedIds.length == 0) {
+            return _handleDeadlock();
         }
 
-        // Check if we found any eligible seeds
-        if (!foundCandidate) revert NoValidWinner();
-
-        if (maxScore == 0) revert NoValidWinner();
+        // Apply tie-breaking if multiple seeds have same score
+        uint256 winningSeedId;
+        if (topSeedIds.length == 1) {
+            winningSeedId = topSeedIds[0];
+        } else {
+            winningSeedId = _applyTieBreaking(topSeedIds);
+        }
 
         // Mark as winner and record round
         Seed storage winningSeed = seeds[winningSeedId];
         winningSeed.isWinner = true;
         winningSeed.winnerInRound = currentRound;
         roundWinners[currentRound] = winningSeedId;
+
+        // Remove winner from eligible seeds array
+        _removeFromEligibleSeeds(winningSeedId);
 
         // Generate proof for L1 verification
         bytes32 seedProof = keccak256(
@@ -548,6 +768,12 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
                 block.timestamp
             )
         );
+
+        // Apply deferred configuration updates (before starting new round)
+        _applyDeferredConfigUpdates();
+
+        // NOTE: Score reset is automatic via per-round tracking
+        // When currentRound increments, seedScoreByRound[newRound][seedId] starts at 0
 
         // Start new blessing period
         currentRound++;
@@ -564,6 +790,288 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         emit BlessingPeriodStarted(currentRound, block.timestamp);
 
         return winningSeedId;
+    }
+
+    /**
+     * @dev Get candidate seeds based on current round mode
+     * @return Array of seed IDs to consider for winner selection
+     */
+    function _getCandidateSeeds() internal view returns (uint256[] memory) {
+        if (roundMode == RoundMode.ROUND_BASED) {
+            // Traditional: only seeds from current round
+            return roundSeedIds[currentRound];
+        } else {
+            // Non-round-based: only eligible seeds (not winners, not retracted)
+            // OPTIMIZATION: Uses eligibleSeedIds instead of allSeedIds for massive gas savings
+            // Reduces iterations from O(100k) to O(eligible) typically <1k
+            return eligibleSeedIds;
+        }
+    }
+
+    /**
+     * @dev Find all seeds with the maximum score
+     * @param candidateSeedIds Array of seed IDs to evaluate
+     * @return topSeedIds Array of seed IDs with max score
+     * @return maxScore The maximum score found
+     */
+    function _findTopSeeds(
+        uint256[] memory candidateSeedIds
+    ) internal view returns (uint256[] memory topSeedIds, uint256 maxScore) {
+        uint256 maxScore_ = 0;
+        uint256 topCount = 0;
+
+        // Determine which score to use based on reset policy
+        // If reset is enabled, use per-round scores; otherwise use all-time scores
+        bool useRoundScores = resetScoresOnRoundEnd;
+
+        // First pass: find max score and count how many seeds have it
+        for (uint256 i = 0; i < candidateSeedIds.length; i++) {
+            uint256 seedId = candidateSeedIds[i];
+
+            // Filter out retracted seeds (always excluded)
+            if (seeds[seedId].isRetracted) {
+                continue;
+            }
+
+            // Only consider seeds that haven't won yet (unless ALLOW_REWINS)
+            if (deadlockStrategy != DeadlockStrategy.ALLOW_REWINS && seeds[seedId].isWinner) {
+                continue;
+            }
+
+            // Get score from appropriate source
+            uint256 score = useRoundScores
+                ? seedScoreByRound[currentRound][seedId]
+                : seedBlessingScore[seedId];
+
+            if (score > maxScore_) {
+                maxScore_ = score;
+                topCount = 1;
+            } else if (score == maxScore_ && score > 0) {
+                topCount++;
+            }
+        }
+
+        // No eligible seeds found
+        if (topCount == 0) {
+            return (new uint256[](0), 0);
+        }
+
+        // Second pass: collect all seeds with max score
+        uint256[] memory topSeeds = new uint256[](topCount);
+        uint256 index = 0;
+
+        for (uint256 i = 0; i < candidateSeedIds.length; i++) {
+            uint256 seedId = candidateSeedIds[i];
+
+            // Apply same filters as first pass
+            if (seeds[seedId].isRetracted) {
+                continue;
+            }
+
+            if (deadlockStrategy != DeadlockStrategy.ALLOW_REWINS && seeds[seedId].isWinner) {
+                continue;
+            }
+
+            // Get score from appropriate source
+            uint256 score = useRoundScores
+                ? seedScoreByRound[currentRound][seedId]
+                : seedBlessingScore[seedId];
+
+            if (score == maxScore_) {
+                topSeeds[index] = seedId;
+                index++;
+            }
+        }
+
+        return (topSeeds, maxScore_);
+    }
+
+    /**
+     * @dev Apply tie-breaking strategy to select winner from multiple tied seeds
+     * @param tiedSeedIds Array of seed IDs with same score
+     * @return winningSeedId The selected winner
+     */
+    function _applyTieBreaking(uint256[] memory tiedSeedIds) internal view returns (uint256) {
+        if (tiedSeedIds.length == 0) revert NoValidWinner();
+        if (tiedSeedIds.length == 1) return tiedSeedIds[0];
+
+        if (tieBreakingStrategy == TieBreakingStrategy.LOWEST_SEED_ID) {
+            // Find lowest seed ID
+            uint256 lowestId = tiedSeedIds[0];
+            for (uint256 i = 1; i < tiedSeedIds.length; i++) {
+                if (tiedSeedIds[i] < lowestId) {
+                    lowestId = tiedSeedIds[i];
+                }
+            }
+            return lowestId;
+
+        } else if (tieBreakingStrategy == TieBreakingStrategy.HIGHEST_SEED_ID) {
+            // Find highest seed ID
+            uint256 highestId = tiedSeedIds[0];
+            for (uint256 i = 1; i < tiedSeedIds.length; i++) {
+                if (tiedSeedIds[i] > highestId) {
+                    highestId = tiedSeedIds[i];
+                }
+            }
+            return highestId;
+
+        } else if (tieBreakingStrategy == TieBreakingStrategy.EARLIEST_SUBMISSION) {
+            // Find earliest timestamp
+            uint256 selectedId = tiedSeedIds[0];
+            uint256 earliestTime = seeds[tiedSeedIds[0]].createdAt;
+
+            for (uint256 i = 1; i < tiedSeedIds.length; i++) {
+                uint256 seedTime = seeds[tiedSeedIds[i]].createdAt;
+                if (seedTime < earliestTime) {
+                    earliestTime = seedTime;
+                    selectedId = tiedSeedIds[i];
+                }
+            }
+            return selectedId;
+
+        } else if (tieBreakingStrategy == TieBreakingStrategy.LATEST_SUBMISSION) {
+            // Find latest timestamp
+            uint256 selectedId = tiedSeedIds[0];
+            uint256 latestTime = seeds[tiedSeedIds[0]].createdAt;
+
+            for (uint256 i = 1; i < tiedSeedIds.length; i++) {
+                uint256 seedTime = seeds[tiedSeedIds[i]].createdAt;
+                if (seedTime > latestTime) {
+                    latestTime = seedTime;
+                    selectedId = tiedSeedIds[i];
+                }
+            }
+            return selectedId;
+
+        } else if (tieBreakingStrategy == TieBreakingStrategy.PSEUDO_RANDOM) {
+            // Pseudo-random selection using block data
+            // WARNING: Miners can influence this, use only when stakes are low
+            uint256 randomIndex = uint256(
+                keccak256(abi.encodePacked(
+                    block.timestamp,
+                    block.prevrandao,
+                    blockhash(block.number - 1),
+                    tiedSeedIds.length
+                ))
+            ) % tiedSeedIds.length;
+
+            return tiedSeedIds[randomIndex];
+        }
+
+        // Fallback to lowest ID
+        return tiedSeedIds[0];
+    }
+
+    /**
+     * @dev Handle deadlock scenario when no eligible seeds are available
+     * @return winningSeedId The selected winner (0 if round skipped)
+     */
+    function _handleDeadlock() internal returns (uint256) {
+        if (deadlockStrategy == DeadlockStrategy.REVERT) {
+            // Traditional behavior: revert transaction
+            revert NoValidWinner();
+
+        } else if (deadlockStrategy == DeadlockStrategy.SKIP_ROUND) {
+            // Skip this round without selecting a winner
+            uint256 skippedRound = currentRound;
+
+            // Apply deferred configuration updates before starting new round
+            _applyDeferredConfigUpdates();
+
+            // Start new round
+            currentRound++;
+            currentVotingPeriodStart = block.timestamp;
+
+            emit RoundSkipped(skippedRound, block.timestamp, "No eligible seeds");
+            emit BlessingPeriodStarted(currentRound, block.timestamp);
+
+            return 0; // No winner
+
+        } else if (deadlockStrategy == DeadlockStrategy.RANDOM_FROM_ALL) {
+            // Select a random seed from all eligible seeds, ignoring scores
+            uint256[] memory candidateSeedIds = _getCandidateSeeds();
+
+            // Collect all eligible seeds (not winners and not retracted)
+            uint256 eligibleCount = 0;
+            for (uint256 i = 0; i < candidateSeedIds.length; i++) {
+                if (!seeds[candidateSeedIds[i]].isWinner && !seeds[candidateSeedIds[i]].isRetracted) {
+                    eligibleCount++;
+                }
+            }
+
+            if (eligibleCount == 0) {
+                // Still no eligible seeds, revert
+                revert NoValidWinner();
+            }
+
+            uint256[] memory eligibleSeeds = new uint256[](eligibleCount);
+            uint256 index = 0;
+            for (uint256 i = 0; i < candidateSeedIds.length; i++) {
+                if (!seeds[candidateSeedIds[i]].isWinner && !seeds[candidateSeedIds[i]].isRetracted) {
+                    eligibleSeeds[index] = candidateSeedIds[i];
+                    index++;
+                }
+            }
+
+            // Select random seed
+            uint256 randomIndex = uint256(
+                keccak256(abi.encodePacked(
+                    block.timestamp,
+                    block.prevrandao,
+                    blockhash(block.number - 1),
+                    eligibleCount
+                ))
+            ) % eligibleCount;
+
+            uint256 winningSeedId = eligibleSeeds[randomIndex];
+
+            // Mark as winner
+            Seed storage winningSeed = seeds[winningSeedId];
+            winningSeed.isWinner = true;
+            winningSeed.winnerInRound = currentRound;
+            roundWinners[currentRound] = winningSeedId;
+
+            // Remove winner from eligible seeds array
+            _removeFromEligibleSeeds(winningSeedId);
+
+            // Generate proof
+            bytes32 seedProof = keccak256(
+                abi.encodePacked(
+                    winningSeedId,
+                    winningSeed.ipfsHash,
+                    winningSeed.blessings,
+                    currentRound,
+                    block.timestamp
+                )
+            );
+
+            // Apply deferred configuration updates before starting new round
+            _applyDeferredConfigUpdates();
+
+            // Start new round
+            currentRound++;
+            currentVotingPeriodStart = block.timestamp;
+
+            emit WinnerSelected(
+                currentRound - 1,
+                winningSeedId,
+                winningSeed.ipfsHash,
+                winningSeed.blessings,
+                0, // No score in random selection
+                seedProof
+            );
+            emit BlessingPeriodStarted(currentRound, block.timestamp);
+
+            return winningSeedId;
+
+        } else if (deadlockStrategy == DeadlockStrategy.ALLOW_REWINS) {
+            // This is handled in _findTopSeeds by including previous winners
+            // If we still get here, it means truly no seeds exist
+            revert NoValidWinner();
+        }
+
+        // Fallback: revert
+        revert NoValidWinner();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -621,10 +1129,12 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     }
 
     /**
-     * @notice Pause the contract
+     * @notice Pause the contract with a reason
+     * @param reason Explanation for the pause
      */
-    function pause() external onlyRole(ADMIN_ROLE) {
+    function pause(string calldata reason) external onlyRole(ADMIN_ROLE) {
         paused = true;
+        pauseReason = reason;
         emit ContractPaused(msg.sender);
     }
 
@@ -633,13 +1143,14 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
      */
     function unpause() external onlyRole(ADMIN_ROLE) {
         paused = false;
+        pauseReason = "";
         emit ContractUnpaused(msg.sender);
     }
 
     /**
-     * @notice Update the voting period duration
+     * @notice Schedule a voting period update (takes effect after current round ends)
      * @dev Can only be called by admin
-     * @dev Does not affect current round, only future rounds
+     * @dev Deferred update prevents mid-round configuration changes
      * @dev Must be at least 1 hour and at most 7 days
      * @param _newVotingPeriod New voting period duration in seconds
      */
@@ -648,16 +1159,14 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
             revert InvalidVotingPeriod();
         }
 
-        uint256 previousPeriod = votingPeriod;
-        votingPeriod = _newVotingPeriod;
-
-        emit VotingPeriodUpdated(previousPeriod, _newVotingPeriod);
+        nextVotingPeriod = _newVotingPeriod;
+        emit VotingPeriodScheduled(votingPeriod, _newVotingPeriod);
     }
 
     /**
-     * @notice Update the number of blessings each NFT grants per day
+     * @notice Schedule a blessings per NFT update (takes effect after current round ends)
      * @dev Can only be called by admin
-     * @dev Takes effect immediately for all users
+     * @dev Deferred update prevents mid-round configuration changes
      * @dev Must be at least 1 and at most 100
      * @param _newBlessingsPerNFT New blessings per NFT amount
      */
@@ -666,10 +1175,59 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
             revert InvalidBlessingsPerNFT();
         }
 
-        uint256 previousAmount = blessingsPerNFT;
-        blessingsPerNFT = _newBlessingsPerNFT;
+        nextBlessingsPerNFT = _newBlessingsPerNFT;
+        emit BlessingsPerNFTScheduled(blessingsPerNFT, _newBlessingsPerNFT);
+    }
 
-        emit BlessingsPerNFTUpdated(previousAmount, _newBlessingsPerNFT);
+    /**
+     * @notice Update the score reset policy
+     * @dev Can only be called by admin
+     * @dev Takes effect on next winner selection
+     * @param _enabled True to reset scores at end of each round, false to keep accumulating
+     */
+    function updateScoreResetPolicy(bool _enabled) external onlyRole(ADMIN_ROLE) {
+        resetScoresOnRoundEnd = _enabled;
+        emit ScoreResetPolicyUpdated(_enabled);
+    }
+
+    /**
+     * @notice Update the round mode (ROUND_BASED or NON_ROUND_BASED)
+     * @dev Can only be called by admin
+     * @dev Takes effect on next winner selection
+     * @param _newRoundMode New round mode
+     */
+    function updateRoundMode(RoundMode _newRoundMode) external onlyRole(ADMIN_ROLE) {
+        RoundMode previousMode = roundMode;
+        roundMode = _newRoundMode;
+
+        emit RoundModeUpdated(previousMode, _newRoundMode);
+    }
+
+    /**
+     * @notice Update the tie-breaking strategy
+     * @dev Can only be called by admin
+     * @dev Takes effect on next winner selection
+     * @param _newStrategy New tie-breaking strategy
+     */
+    function updateTieBreakingStrategy(TieBreakingStrategy _newStrategy) external onlyRole(ADMIN_ROLE) {
+        TieBreakingStrategy previousStrategy = tieBreakingStrategy;
+        tieBreakingStrategy = _newStrategy;
+
+        emit TieBreakingStrategyUpdated(previousStrategy, _newStrategy);
+    }
+
+    /**
+     * @notice Update the deadlock handling strategy
+     * @dev Can only be called by admin
+     * @dev Takes effect on next winner selection
+     * @dev WARNING: ALLOW_REWINS allows seeds to win multiple times
+     * @param _newStrategy New deadlock strategy
+     */
+    function updateDeadlockStrategy(DeadlockStrategy _newStrategy) external onlyRole(ADMIN_ROLE) {
+        DeadlockStrategy previousStrategy = deadlockStrategy;
+        deadlockStrategy = _newStrategy;
+
+        emit DeadlockStrategyUpdated(previousStrategy, _newStrategy);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -687,32 +1245,66 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     }
 
     /**
-     * @notice Get current leader from current round based on blessing score
-     * @return leadingSeedId ID of the Seed with highest score
+     * @notice Get current leader from eligible seeds based on blessing score
+     * @dev If multiple seeds are tied, returns the one that would win based on tie-breaking strategy
+     * @return leadingSeedId ID of the Seed with highest score (after tie-breaking)
      * @return score Score (sqrt-adjusted blessings with time decay already applied)
      */
     function getCurrentLeader() external view returns (uint256 leadingSeedId, uint256 score) {
+        uint256[] memory candidateSeeds = roundMode == RoundMode.ROUND_BASED
+            ? roundSeedIds[currentRound]
+            : allSeedIds;
+
         uint256 maxScore = 0;
-        uint256 leaderId = 0;
+        uint256 leaderCount = 0;
 
-        // Get seeds from current round (gas-efficient: only loops through current round's seeds)
-        uint256[] memory currentRoundSeedIds = roundSeedIds[currentRound];
+        // First pass: find max score and count leaders
+        for (uint256 i = 0; i < candidateSeeds.length; i++) {
+            uint256 seedId = candidateSeeds[i];
 
-        for (uint256 i = 0; i < currentRoundSeedIds.length; i++) {
-            uint256 seedId = currentRoundSeedIds[i];
-
-            // Only consider seeds that haven't won
-            if (!seeds[seedId].isWinner) {
+            // Filter retracted and winning seeds
+            if (!seeds[seedId].isWinner && !seeds[seedId].isRetracted) {
                 uint256 seedScore = seedBlessingScore[seedId];
 
                 if (seedScore > maxScore) {
                     maxScore = seedScore;
-                    leaderId = seedId;
+                    leaderCount = 1;
+                } else if (seedScore == maxScore && seedScore > 0) {
+                    leaderCount++;
                 }
             }
         }
 
-        return (leaderId, maxScore);
+        if (leaderCount == 0) {
+            return (0, 0);
+        }
+
+        // If only one leader, return it
+        if (leaderCount == 1) {
+            for (uint256 i = 0; i < candidateSeeds.length; i++) {
+                uint256 seedId = candidateSeeds[i];
+                if (!seeds[seedId].isWinner && !seeds[seedId].isRetracted && seedBlessingScore[seedId] == maxScore) {
+                    return (seedId, maxScore);
+                }
+            }
+        }
+
+        // Multiple leaders - collect them and apply tie-breaking
+        uint256[] memory leaders = new uint256[](leaderCount);
+        uint256 index = 0;
+
+        for (uint256 i = 0; i < candidateSeeds.length; i++) {
+            uint256 seedId = candidateSeeds[i];
+
+            if (!seeds[seedId].isWinner && !seeds[seedId].isRetracted && seedBlessingScore[seedId] == maxScore) {
+                leaders[index] = seedId;
+                index++;
+            }
+        }
+
+        // Apply tie-breaking to determine single leader
+        uint256 winnerId = _applyTieBreaking(leaders);
+        return (winnerId, maxScore);
     }
 
     /**
@@ -780,6 +1372,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
      * @notice Get all blessings for a specific seed
      * @param _seedId ID of the seed
      * @return Array of Blessing structs
+     * @dev WARNING: May run out of gas for seeds with many blessings. Use getSeedBlessingsPaginated instead.
      */
     function getSeedBlessings(uint256 _seedId) external view returns (Blessing[] memory) {
         uint256[] memory indices = seedBlessings[_seedId];
@@ -793,9 +1386,46 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     }
 
     /**
+     * @notice Get blessings for a specific seed with pagination
+     * @param _seedId ID of the seed
+     * @param _offset Starting index
+     * @param _limit Maximum number of results to return
+     * @return blessings Array of Blessing structs
+     * @return total Total number of blessings for this seed
+     */
+    function getSeedBlessingsPaginated(
+        uint256 _seedId,
+        uint256 _offset,
+        uint256 _limit
+    ) external view returns (Blessing[] memory blessings, uint256 total) {
+        uint256[] memory indices = seedBlessings[_seedId];
+        total = indices.length;
+
+        // Handle edge cases
+        if (_offset >= total) {
+            return (new Blessing[](0), total);
+        }
+
+        uint256 end = _offset + _limit;
+        if (end > total) {
+            end = total;
+        }
+
+        uint256 count = end - _offset;
+        Blessing[] memory result = new Blessing[](count);
+
+        for (uint256 i = 0; i < count; i++) {
+            result[i] = allBlessings[indices[_offset + i]];
+        }
+
+        return (result, total);
+    }
+
+    /**
      * @notice Get all blessings given by a specific user
      * @param _user Address of the user
      * @return Array of Blessing structs
+     * @dev WARNING: May run out of gas for users with many blessings. Use getUserBlessingsPaginated instead.
      */
     function getUserBlessings(address _user) external view returns (Blessing[] memory) {
         uint256[] memory indices = userBlessings[_user];
@@ -806,6 +1436,42 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         }
 
         return result;
+    }
+
+    /**
+     * @notice Get blessings given by a specific user with pagination
+     * @param _user Address of the user
+     * @param _offset Starting index
+     * @param _limit Maximum number of results to return
+     * @return blessings Array of Blessing structs
+     * @return total Total number of blessings by this user
+     */
+    function getUserBlessingsPaginated(
+        address _user,
+        uint256 _offset,
+        uint256 _limit
+    ) external view returns (Blessing[] memory blessings, uint256 total) {
+        uint256[] memory indices = userBlessings[_user];
+        total = indices.length;
+
+        // Handle edge cases
+        if (_offset >= total) {
+            return (new Blessing[](0), total);
+        }
+
+        uint256 end = _offset + _limit;
+        if (end > total) {
+            end = total;
+        }
+
+        uint256 count = end - _offset;
+        Blessing[] memory result = new Blessing[](count);
+
+        for (uint256 i = 0; i < count; i++) {
+            result[i] = allBlessings[indices[_offset + i]];
+        }
+
+        return (result, total);
     }
 
     /**
@@ -887,15 +1553,187 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
     }
 
     /*//////////////////////////////////////////////////////////////
+                          VIEW FUNCTIONS - CONFIGURATION
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @notice Get current round mode configuration
+     * @return Current round mode (ROUND_BASED or NON_ROUND_BASED)
+     */
+    function getRoundMode() external view returns (RoundMode) {
+        return roundMode;
+    }
+
+    /**
+     * @notice Get current tie-breaking strategy
+     * @return Current tie-breaking strategy
+     */
+    function getTieBreakingStrategy() external view returns (TieBreakingStrategy) {
+        return tieBreakingStrategy;
+    }
+
+    /**
+     * @notice Get current deadlock handling strategy
+     * @return Current deadlock strategy
+     */
+    function getDeadlockStrategy() external view returns (DeadlockStrategy) {
+        return deadlockStrategy;
+    }
+
+    /**
+     * @notice Get total number of seeds ever submitted
+     * @return Total seed count
+     */
+    function getTotalSeedsCount() external view returns (uint256) {
+        return allSeedIds.length;
+    }
+
+    /**
+     * @notice Get total number of eligible seeds (not winners, not retracted)
+     * @return Count of eligible seeds
+     */
+    function getEligibleSeedsCount() external view returns (uint256) {
+        return eligibleSeedIds.length;
+    }
+
+    /**
+     * @notice Get eligible seeds with pagination
+     * @param _offset Starting index
+     * @param _limit Maximum number of results to return
+     * @return Arrayof eligible seed IDs
+     */
+    function getEligibleSeedsPaginated(
+        uint256 _offset,
+        uint256 _limit
+    ) external view returns (uint256[] memory) {
+        uint256 total = eligibleSeedIds.length;
+
+        // Handle edge cases
+        if (_offset >= total) {
+            return new uint256[](0);
+        }
+
+        uint256 end = _offset + _limit;
+        if (end > total) {
+            end = total;
+        }
+
+        uint256 count = end - _offset;
+        uint256[] memory result = new uint256[](count);
+
+        for (uint256 i = 0; i < count; i++) {
+            result[i] = eligibleSeedIds[_offset + i];
+        }
+
+        return result;
+    }
+
+    /**
+     * @notice Get seconds remaining until daily blessing limit resets
+     * @return Seconds until next UTC midnight (when daily limits reset)
+     */
+    function getSecondsUntilDailyReset() external view returns (uint256) {
+        uint256 currentDay = block.timestamp / 1 days;
+        uint256 nextDayStart = (currentDay + 1) * 1 days;
+        return nextDayStart - block.timestamp;
+    }
+
+    /**
+     * @notice Get all eligible seeds (not yet winners) for current selection mode
+     * @dev Returns seeds based on current round mode
+     * @return Array of eligible seed IDs
+     */
+    function getEligibleSeeds() external view returns (uint256[] memory) {
+        uint256[] memory candidateSeeds = roundMode == RoundMode.ROUND_BASED
+            ? roundSeedIds[currentRound]
+            : allSeedIds;
+
+        // Count eligible seeds (not winners and not retracted)
+        uint256 eligibleCount = 0;
+        for (uint256 i = 0; i < candidateSeeds.length; i++) {
+            if (!seeds[candidateSeeds[i]].isWinner && !seeds[candidateSeeds[i]].isRetracted) {
+                eligibleCount++;
+            }
+        }
+
+        // Collect eligible seeds
+        uint256[] memory eligibleSeeds = new uint256[](eligibleCount);
+        uint256 index = 0;
+        for (uint256 i = 0; i < candidateSeeds.length; i++) {
+            if (!seeds[candidateSeeds[i]].isWinner && !seeds[candidateSeeds[i]].isRetracted) {
+                eligibleSeeds[index] = candidateSeeds[i];
+                index++;
+            }
+        }
+
+        return eligibleSeeds;
+    }
+
+    /**
+     * @notice Get current leader(s) with top score from eligible seeds
+     * @dev Returns all seeds tied for first place
+     * @return leadingSeedIds Array of seed IDs with highest score
+     * @return score The highest score
+     */
+    function getCurrentLeaders() external view returns (uint256[] memory leadingSeedIds, uint256 score) {
+        uint256[] memory candidateSeeds = roundMode == RoundMode.ROUND_BASED
+            ? roundSeedIds[currentRound]
+            : allSeedIds;
+
+        uint256 maxScore = 0;
+        uint256 leaderCount = 0;
+
+        // First pass: find max score and count leaders
+        for (uint256 i = 0; i < candidateSeeds.length; i++) {
+            uint256 seedId = candidateSeeds[i];
+
+            // Filter retracted and winning seeds
+            if (!seeds[seedId].isWinner && !seeds[seedId].isRetracted) {
+                uint256 seedScore = seedBlessingScore[seedId];
+
+                if (seedScore > maxScore) {
+                    maxScore = seedScore;
+                    leaderCount = 1;
+                } else if (seedScore == maxScore && seedScore > 0) {
+                    leaderCount++;
+                }
+            }
+        }
+
+        if (leaderCount == 0) {
+            return (new uint256[](0), 0);
+        }
+
+        // Second pass: collect all leaders
+        uint256[] memory leaders = new uint256[](leaderCount);
+        uint256 index = 0;
+
+        for (uint256 i = 0; i < candidateSeeds.length; i++) {
+            uint256 seedId = candidateSeeds[i];
+
+            if (!seeds[seedId].isWinner && !seeds[seedId].isRetracted) {
+                uint256 seedScore = seedBlessingScore[seedId];
+
+                if (seedScore == maxScore) {
+                    leaders[index] = seedId;
+                    index++;
+                }
+            }
+        }
+
+        return (leaders, maxScore);
+    }
+
+    /*//////////////////////////////////////////////////////////////
                           INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     /**
-     * @dev Verify NFT ownership via Merkle proof
+     * @dev Verify NFT ownership via Merkle proof with duplicate token ID check
      * @param _voter Address claiming ownership
      * @param _tokenIds Token IDs being claimed
      * @param _merkleProof Merkle proof
-     * @return True if proof is valid
+     * @return True if proof is valid and no duplicate token IDs
      */
     function _verifyOwnership(
         address _voter,
@@ -903,6 +1741,15 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         bytes32[] memory _merkleProof
     ) internal view returns (bool) {
         if (currentOwnershipRoot == bytes32(0)) return false;
+
+        // CRITICAL FIX: Check for duplicate token IDs to prevent vote multiplication
+        for (uint256 i = 0; i < _tokenIds.length; i++) {
+            for (uint256 j = i + 1; j < _tokenIds.length; j++) {
+                if (_tokenIds[i] == _tokenIds[j]) {
+                    return false; // Duplicate detected, reject
+                }
+            }
+        }
 
         bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(_voter, _tokenIds))));
         return MerkleProof.verify(_merkleProof, currentOwnershipRoot, leaf);
@@ -964,4 +1811,78 @@ contract TheSeeds is AccessControl, ReentrancyGuard {
         // Ensure minimum weight of 1%
         return decayFactor < 10 ? 10 : decayFactor;
     }
+
+    /**
+     * @dev Validate IPFS hash format
+     * @param _ipfsHash IPFS hash to validate
+     */
+    function _validateIPFSHash(string memory _ipfsHash) internal pure {
+        bytes memory b = bytes(_ipfsHash);
+
+        if (b.length == 0) {
+            revert InvalidIPFSHash();
+        }
+
+        // IPFS CIDv0: 46 chars, starts with 'Qm'
+        // IPFS CIDv1: 59 chars, starts with 'b'
+        // Allow flexibility for other valid IPFS formats
+        if (b.length == 46) {
+            if (b[0] != 'Q' || b[1] != 'm') {
+                revert InvalidIPFSHash();
+            }
+        } else if (b.length == 59) {
+            if (b[0] != 'b') {
+                revert InvalidIPFSHash();
+            }
+        } else if (b.length < 10 || b.length > 100) {
+            // Allow some flexibility but reject obviously invalid hashes
+            revert InvalidIPFSHash();
+        }
+    }
+
+    /**
+     * @dev Remove a seed from the eligible seeds array (O(1) swap-and-pop)
+     * @param _seedId The seed ID to remove from eligible array
+     */
+    function _removeFromEligibleSeeds(uint256 _seedId) internal {
+        // Check if seed is actually in the eligible array
+        if (!isInEligibleArray[_seedId]) return;
+
+        uint256 index = eligibleSeedIndex[_seedId];
+        uint256 lastIndex = eligibleSeedIds.length - 1;
+
+        // If not the last element, swap with last element
+        if (index != lastIndex) {
+            uint256 lastSeedId = eligibleSeedIds[lastIndex];
+            eligibleSeedIds[index] = lastSeedId;
+            eligibleSeedIndex[lastSeedId] = index;
+        }
+
+        // Remove last element
+        eligibleSeedIds.pop();
+        delete eligibleSeedIndex[_seedId];
+        isInEligibleArray[_seedId] = false;
+    }
+
+    /**
+     * @dev Apply deferred configuration updates at round end
+     */
+    function _applyDeferredConfigUpdates() internal {
+        // Apply voting period update if scheduled
+        if (nextVotingPeriod > 0) {
+            uint256 previous = votingPeriod;
+            votingPeriod = nextVotingPeriod;
+            nextVotingPeriod = 0;
+            emit VotingPeriodUpdated(previous, votingPeriod);
+        }
+
+        // Apply blessings per NFT update if scheduled
+        if (nextBlessingsPerNFT > 0) {
+            uint256 previous = blessingsPerNFT;
+            blessingsPerNFT = nextBlessingsPerNFT;
+            nextBlessingsPerNFT = 0;
+            emit BlessingsPerNFTUpdated(previous, blessingsPerNFT);
+        }
+    }
+
 }

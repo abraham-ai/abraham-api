@@ -42,7 +42,8 @@ async function main() {
   // Get network from command line or deployment result
   const networkArg = process.argv.find((arg) => arg.startsWith("--network"));
   let networkName = networkArg
-    ? networkArg.split("=")[1] || process.argv[process.argv.indexOf(networkArg) + 1]
+    ? networkArg.split("=")[1] ||
+      process.argv[process.argv.indexOf(networkArg) + 1]
     : null;
 
   // Read deployment result
@@ -66,7 +67,9 @@ async function main() {
 
   // Check API key
   if (!process.env.BASESCAN_API_KEY) {
-    console.error("\n❌ Error: BASESCAN_API_KEY not found in environment variables");
+    console.error(
+      "\n❌ Error: BASESCAN_API_KEY not found in environment variables"
+    );
     console.log("\nTo verify your contract, you need a Basescan API key:");
     console.log("1. Go to https://basescan.org/myapikey (for mainnet)");
     console.log("   or https://sepolia.basescan.org/myapikey (for testnet)");
@@ -83,9 +86,10 @@ async function main() {
   console.log("");
 
   // Determine the correct network identifier for Hardhat
-  const hardhatNetwork = networkName === "base" || networkName === "baseMainnet"
-    ? "baseMainnet"
-    : "baseSepolia";
+  const hardhatNetwork =
+    networkName === "base" || networkName === "baseMainnet"
+      ? "baseMainnet"
+      : "baseSepolia";
 
   // Build verification command
   const verifyCommand = [
@@ -112,8 +116,9 @@ async function main() {
 
     console.log("\n✅ Verification completed!");
     console.log(`\nView contract on explorer:`);
-    console.log(`${deploymentResult.explorer}/address/${deploymentResult.contractAddress}#code`);
-
+    console.log(
+      `${deploymentResult.explorer}/address/${deploymentResult.contractAddress}#code`
+    );
   } catch (error: any) {
     // Check if already verified
     if (
@@ -122,7 +127,9 @@ async function main() {
     ) {
       console.log("\n✅ Contract is already verified!");
       console.log(`\nView contract on explorer:`);
-      console.log(`${deploymentResult.explorer}/address/${deploymentResult.contractAddress}#code`);
+      console.log(
+        `${deploymentResult.explorer}/address/${deploymentResult.contractAddress}#code`
+      );
     } else {
       console.error("\n❌ Verification failed:");
       console.error(error.message);

@@ -446,6 +446,15 @@ seeds.get("/:seedId", async (c) => {
       }
     }
 
+    // Fetch blessing score
+    let score = "0";
+    try {
+      const seedScore = await contractService.getSeedBlessingScore(seedId);
+      score = seedScore.toString();
+    } catch (error) {
+      console.error(`Error fetching blessing score for seed ${seedId}:`, error);
+    }
+
     return c.json({
       success: true,
       data: {
@@ -453,6 +462,7 @@ seeds.get("/:seedId", async (c) => {
         creator: seed.creator,
         ipfsHash: seed.ipfsHash,
         blessings: Number(seed.blessings),
+        score: score,
         createdAt: Number(seed.createdAt),
         isWinner: seed.isWinner,
         winnerInRound: Number(seed.winnerInRound),
@@ -467,6 +477,60 @@ seeds.get("/:seedId", async (c) => {
       {
         success: false,
         error: "Failed to fetch seed",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /seeds/:seedId/score
+ * Get the blessing score for a specific seed
+ *
+ * The blessing score is calculated using sqrt of per-user blessings with time decay.
+ * This prevents gaming the system by having one user spam blessings.
+ */
+seeds.get("/:seedId/score", async (c) => {
+  try {
+    const seedId = parseInt(c.req.param("seedId"));
+
+    if (isNaN(seedId) || seedId < 0) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid seedId",
+        },
+        400
+      );
+    }
+
+    const score = await contractService.getSeedBlessingScore(seedId);
+
+    // Get seed details for additional context
+    let seed = null;
+    try {
+      seed = await contractService.getSeed(seedId);
+    } catch (error) {
+      console.warn(`Could not fetch seed details for ${seedId}:`, error);
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        seedId,
+        score: score.toString(),
+        rawBlessings: seed ? Number(seed.blessings) : null,
+        isWinner: seed ? seed.isWinner : null,
+        note: "Score is calculated using sqrt of per-user blessings with time decay",
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching seed blessing score:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch seed blessing score",
         details: error instanceof Error ? error.message : String(error),
       },
       500
@@ -494,6 +558,87 @@ seeds.get("/count", async (c) => {
       {
         success: false,
         error: "Failed to fetch seed count",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /seeds/stats
+ * Get voting period status, current leader, and time remaining
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "currentRound": number,
+ *     "timeUntilPeriodEnd": number,  // seconds
+ *     "periodEnded": boolean,
+ *     "currentLeader": {
+ *       "seedId": number,
+ *       "score": string,
+ *       "seed": {...}
+ *     },
+ *     "seedsInRound": number
+ *   }
+ * }
+ */
+seeds.get("/stats", async (c) => {
+  try {
+    // Get current round
+    const currentRound = await contractService.getCurrentRound();
+
+    // Get time until period end
+    const timeRemaining = await contractService.getTimeUntilPeriodEnd();
+
+    // Get current leader
+    const leader = await contractService.getCurrentLeader();
+
+    // Get seeds in current round
+    const roundSeeds = await contractService.getCurrentRoundSeeds();
+
+    // Fetch leader seed details if there is a leader
+    let leaderSeed = null;
+    if (leader.leadingSeedId > 0n) {
+      try {
+        const seed = await contractService.getSeed(Number(leader.leadingSeedId));
+        leaderSeed = {
+          id: Number(seed.id),
+          creator: seed.creator,
+          ipfsHash: seed.ipfsHash,
+          blessings: Number(seed.blessings),
+          createdAt: Number(seed.createdAt),
+          isWinner: seed.isWinner,
+          winnerInRound: Number(seed.winnerInRound),
+          submittedInRound: Number(seed.submittedInRound),
+        };
+      } catch (error) {
+        console.error(`Error fetching leader seed details:`, error);
+      }
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        currentRound: Number(currentRound),
+        timeUntilPeriodEnd: Number(timeRemaining),
+        periodEnded: timeRemaining === 0n,
+        currentLeader: {
+          seedId: Number(leader.leadingSeedId),
+          score: leader.score.toString(),
+          seed: leaderSeed,
+        },
+        seedsInRound: roundSeeds.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching voting stats:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch voting stats",
         details: error instanceof Error ? error.message : String(error),
       },
       500
