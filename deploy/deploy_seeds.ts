@@ -68,7 +68,7 @@ async function main() {
   const hash = await client.deployContract({
     abi: TheSeeds.abi as any,
     bytecode: TheSeeds.bytecode as `0x${string}`,
-    args: [account.address],
+    args: [account.address, account.address], // admin address, initial creator address
   });
 
   console.log("Transaction hash:", hash);

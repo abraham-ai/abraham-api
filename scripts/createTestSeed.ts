@@ -29,8 +29,8 @@ const theSeedsAbi = parseAbi([
 // CREATOR_ROLE hash
 const CREATOR_ROLE = "0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7";
 
-// Test IPFS hash
-const TEST_IPFS_HASH = "ipfs://QmTiAN3G6xvgnE6hEgUMbs8T2zCZzuwEm1zPvvn4iQgKNa";
+// Test IPFS hash - can be overridden via command line argument
+const TEST_IPFS_HASH = process.argv[2] || "ipfs://QmTiAN3G6xvgnE6hEgUMbs8T2zCZzuwEm1zPvvn4iQgKNa";
 
 // Network configuration
 const networks = {
