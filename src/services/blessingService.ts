@@ -454,7 +454,7 @@ class BlessingService {
       transaction,
       seedInfo: {
         id: Number(seed.id),
-        title: seed.title,
+        ipfsHash: seed.ipfsHash,
         creator: seed.creator,
         currentBlessings: Number(seed.blessings),
       },

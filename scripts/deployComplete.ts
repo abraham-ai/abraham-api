@@ -1,6 +1,13 @@
 import { execSync } from "child_process";
 import { readFileSync, writeFileSync, existsSync } from "fs";
-import { createPublicClient, createWalletClient, http, parseAbi, Address, Hex } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  parseAbi,
+  Address,
+  Hex,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base, baseSepolia } from "viem/chains";
 import * as dotenv from "dotenv";
@@ -15,20 +22,31 @@ dotenv.config();
  * 1. Generate FirstWorks snapshot
  * 2. Generate Merkle tree
  * 3. Compile contracts
- * 4. Deploy TheSeeds contract
+ * 4. Deploy TheSeeds contract (with admin and initial creator)
  * 5. Update .env.local with contract address
  * 6. Update ABI files (lib/abi/theSeeds.ts and lib/abi/TheSeeds.json)
  * 7. Update Merkle root on contract
- * 8. Grant CREATOR_ROLE to relayer
+ * 8. Grant CREATOR_ROLE to relayer (if not already granted)
  * 9. Create test seed
  *
+ * TheSeeds Contract Features:
+ * - ERC721 NFT minting for winning seeds
+ * - Multiple round modes (ROUND_BASED, NON_ROUND_BASED)
+ * - Configurable tie-breaking strategies
+ * - Deadlock prevention mechanisms
+ * - Per-round score tracking with optional reset
+ * - Blessing delegation and relayer support
+ * - Time-decayed blessing scores
+ *
  * Key Implementation Details:
+ * - Deploys with both admin and initial creator addresses
  * - Uses full compiled ABI (not parseAbi) for proper error decoding
  * - Reads role hashes from contract instead of hardcoding
  * - Includes state propagation delays (2s after state changes)
  * - Gets seed ID from contract return value via simulation
  * - Waits for contract to be ready after deployment
  * - Handles both array and object return formats from viem
+ * - Validates IPFS hash format (46 char CIDv0 or 59 char CIDv1)
  *
  * Usage:
  *   NETWORK=baseSepolia tsx scripts/deployComplete.ts
@@ -41,8 +59,8 @@ dotenv.config();
  * See docs/DEPLOYMENT.md for detailed documentation.
  */
 
-// Test IPFS hash for initial seed
-const TEST_IPFS_HASH = "ipfs://QmTiAN3G6xvgnE6hEgUMbs8T2zCZzuwEm1zPvvn4iQgKNa";
+// Test IPFS hash for initial seed (without ipfs:// prefix - contract validates raw CID)
+const TEST_IPFS_HASH = "QmTiAN3G6xvgnE6hEgUMbs8T2zCZzuwEm1zPvvn4iQgKNa";
 
 // Role hashes - these will be read from the contract
 let CREATOR_ROLE: Hex;
@@ -139,7 +157,9 @@ function updateEnvFile(contractAddress: string): void {
   }
 
   writeFileSync(envPath, envContent);
-  console.log(`✅ Updated .env.local with contract address: ${contractAddress}`);
+  console.log(
+    `✅ Updated .env.local with contract address: ${contractAddress}`
+  );
 }
 
 function updateAbiTypescriptFile(contractAddress: string): void {
@@ -174,14 +194,21 @@ export const SEEDS_CONTRACT_ADDRESS = "${contractAddress}" as const;
 async function main() {
   console.log("╔════════════════════════════════════════════════════════════╗");
   console.log("║     TheSeeds Complete Deployment Automation Script        ║");
-  console.log("╚════════════════════════════════════════════════════════════╝\n");
+  console.log(
+    "╚════════════════════════════════════════════════════════════╝\n"
+  );
 
   // Get network from environment
-  const networkName = (process.env.NETWORK || "baseSepolia") as keyof typeof networks;
+  const networkName = (process.env.NETWORK ||
+    "baseSepolia") as keyof typeof networks;
   const networkConfig = networks[networkName];
 
   if (!networkConfig) {
-    throw new Error(`Invalid network: ${networkName}. Valid options: ${Object.keys(networks).join(", ")}`);
+    throw new Error(
+      `Invalid network: ${networkName}. Valid options: ${Object.keys(
+        networks
+      ).join(", ")}`
+    );
   }
 
   console.log(`🌐 Network: ${networkConfig.name}`);
@@ -195,7 +222,9 @@ async function main() {
   }
 
   if (!process.env.RELAYER_PRIVATE_KEY) {
-    console.warn("⚠️  RELAYER_PRIVATE_KEY not set - using PRIVATE_KEY as relayer");
+    console.warn(
+      "⚠️  RELAYER_PRIVATE_KEY not set - using PRIVATE_KEY as relayer"
+    );
   }
 
   if (!process.env.ALCHEMY_API_KEY) {
@@ -223,7 +252,9 @@ async function main() {
   executeCommand("npm run merkle:generate", "Generating Merkle tree");
 
   // Load Merkle root
-  const merkleData = JSON.parse(readFileSync("./lib/snapshots/firstWorks_merkle.json", "utf-8"));
+  const merkleData = JSON.parse(
+    readFileSync("./lib/snapshots/firstWorks_merkle.json", "utf-8")
+  );
   result.merkleRoot = merkleData.root;
   console.log(`\n📋 Merkle Root: ${result.merkleRoot}`);
 
@@ -235,7 +266,9 @@ async function main() {
   // Verify ABI files were created
   const abiJsonPath = "./lib/abi/TheSeeds.json";
   if (!existsSync(abiJsonPath)) {
-    throw new Error(`ABI file not found at ${abiJsonPath}. Compilation may have failed.`);
+    throw new Error(
+      `ABI file not found at ${abiJsonPath}. Compilation may have failed.`
+    );
   }
   console.log(`✅ ABI file verified at ${abiJsonPath}`);
 
@@ -244,9 +277,11 @@ async function main() {
   // ============================================================
   console.log("\n📝 Deploying TheSeeds contract...");
 
-  const privateKey = (process.env.PRIVATE_KEY.startsWith("0x")
-    ? process.env.PRIVATE_KEY
-    : `0x${process.env.PRIVATE_KEY}`) as Hex;
+  const privateKey = (
+    process.env.PRIVATE_KEY.startsWith("0x")
+      ? process.env.PRIVATE_KEY
+      : `0x${process.env.PRIVATE_KEY}`
+  ) as Hex;
 
   const account = privateKeyToAccount(privateKey);
 
@@ -276,7 +311,9 @@ async function main() {
   console.log(`Transaction hash: ${deployHash}`);
   console.log("Waiting for confirmation...");
 
-  const deployReceipt = await publicClient.waitForTransactionReceipt({ hash: deployHash });
+  const deployReceipt = await publicClient.waitForTransactionReceipt({
+    hash: deployHash,
+  });
   const contractAddress = deployReceipt.contractAddress;
 
   if (!contractAddress) {
@@ -288,7 +325,16 @@ async function main() {
 
   console.log(`✅ Contract deployed at: ${contractAddress}`);
   console.log(`   Block: ${deployReceipt.blockNumber}`);
-  console.log(`   Explorer: ${networkConfig.explorer}/address/${contractAddress}`);
+  console.log(
+    `   Explorer: ${networkConfig.explorer}/address/${contractAddress}`
+  );
+  console.log(`\n📋 Initial Contract Configuration:`);
+  console.log(`   Voting Period: 1 day (86400 seconds)`);
+  console.log(`   Blessings Per NFT: 1`);
+  console.log(`   Round Mode: ROUND_BASED`);
+  console.log(`   Tie Breaking: LOWEST_SEED_ID`);
+  console.log(`   Deadlock Strategy: REVERT`);
+  console.log(`   Score Reset: false (accumulating)`);
 
   // Wait for contract to be ready for reads
   const tempAbi = parseAbi(["function paused() view returns (bool)"]);
@@ -297,11 +343,11 @@ async function main() {
   // Read CREATOR_ROLE hash from contract
   console.log("\n📝 Reading role hashes from contract...");
   const roleAbi = parseAbi(["function CREATOR_ROLE() view returns (bytes32)"]);
-  CREATOR_ROLE = await publicClient.readContract({
+  CREATOR_ROLE = (await publicClient.readContract({
     address: contractAddress as Address,
     abi: roleAbi,
     functionName: "CREATOR_ROLE",
-  }) as Hex;
+  })) as Hex;
   console.log(`   CREATOR_ROLE: ${CREATOR_ROLE}`);
 
   // ============================================================
@@ -350,7 +396,8 @@ async function main() {
   // ============================================================
   console.log("\n📝 Granting CREATOR_ROLE to relayer...");
 
-  const relayerKey = (process.env.RELAYER_PRIVATE_KEY || process.env.PRIVATE_KEY) as string;
+  const relayerKey = (process.env.RELAYER_PRIVATE_KEY ||
+    process.env.PRIVATE_KEY) as string;
   const relayerAccount = privateKeyToAccount(
     (relayerKey.startsWith("0x") ? relayerKey : `0x${relayerKey}`) as Hex
   );
@@ -451,7 +498,9 @@ async function main() {
     if (error.message.includes("0xe2517d3f")) {
       console.error("\nThis error is likely an AccessControl issue.");
       console.error("Possible causes:");
-      console.error("1. Relayer doesn't have CREATOR_ROLE (should have been granted above)");
+      console.error(
+        "1. Relayer doesn't have CREATOR_ROLE (should have been granted above)"
+      );
       console.error("2. Contract is paused");
       console.error("3. ABI mismatch");
     }
@@ -478,14 +527,15 @@ async function main() {
 
     // Handle both object and array return formats from viem
     // viem may return structs as arrays or objects depending on version/config
+    // Seed struct: [id, creator, ipfsHash, blessings, createdAt, isWinner, isRetracted, winnerInRound, submittedInRound]
     const s = seed as any;
 
-    if (Array.isArray(seed) && seed.length >= 8) {
-      // Array format: [id, creator, ipfsHash, votes, blessings, createdAt, minted, mintedInRound]
+    if (Array.isArray(seed) && seed.length >= 9) {
+      // Array format
       id = seed[0] as bigint;
       creator = seed[1] as Address;
       ipfsHash = seed[2] as string;
-      createdAt = seed[5] as bigint;
+      createdAt = seed[4] as bigint;
     } else {
       // Object format with named properties
       id = s.id;
@@ -496,8 +546,12 @@ async function main() {
   } catch (error: any) {
     console.error("\n❌ Failed to fetch seed details");
     console.error("Error:", error.message);
-    console.error("\nNote: Seed was created successfully but we couldn't fetch its details for display.");
-    console.error("You can verify it was created by checking the transaction on the block explorer.");
+    console.error(
+      "\nNote: Seed was created successfully but we couldn't fetch its details for display."
+    );
+    console.error(
+      "You can verify it was created by checking the transaction on the block explorer."
+    );
     throw error;
   }
 
@@ -520,15 +574,33 @@ async function main() {
   console.log(`Seed ID:          ${id}`);
   console.log(`Creator:          ${creator}`);
   console.log(`IPFS Hash:        ${ipfsHash}`);
-  console.log(`Created At:       ${new Date(Number(createdAt) * 1000).toISOString()}`);
+  console.log(
+    `Created At:       ${new Date(Number(createdAt) * 1000).toISOString()}`
+  );
 
   console.log("\n🔗 Transaction Links:\n");
-  console.log(`Deployment:       ${networkConfig.explorer}/tx/${result.txHashes!.deployment}`);
-  console.log(`Merkle Update:    ${networkConfig.explorer}/tx/${result.txHashes!.merkleUpdate}`);
+  console.log(
+    `Deployment:       ${networkConfig.explorer}/tx/${
+      result.txHashes!.deployment
+    }`
+  );
+  console.log(
+    `Merkle Update:    ${networkConfig.explorer}/tx/${
+      result.txHashes!.merkleUpdate
+    }`
+  );
   if (result.txHashes!.creatorGrant) {
-    console.log(`Creator Grant:    ${networkConfig.explorer}/tx/${result.txHashes!.creatorGrant}`);
+    console.log(
+      `Creator Grant:    ${networkConfig.explorer}/tx/${
+        result.txHashes!.creatorGrant
+      }`
+    );
   }
-  console.log(`Test Seed:        ${networkConfig.explorer}/tx/${result.txHashes!.testSeed}`);
+  console.log(
+    `Test Seed:        ${networkConfig.explorer}/tx/${
+      result.txHashes!.testSeed
+    }`
+  );
 
   console.log("\n📁 Updated Files:\n");
   console.log(`✅ .env.local (added L2_SEEDS_CONTRACT)`);
@@ -551,10 +623,16 @@ async function main() {
   console.log(`   - Or GitHub Actions (see README)`);
   console.log(``);
   console.log(`5. Grant RELAYER_ROLE for gasless blessings (optional):`);
-  console.log(`   cast send ${contractAddress} "addRelayer(address)" ${relayerAccount.address} \\`);
-  console.log(`     --rpc-url ${networkConfig.rpcUrl} --private-key $PRIVATE_KEY`);
+  console.log(
+    `   cast send ${contractAddress} "addRelayer(address)" ${relayerAccount.address} \\`
+  );
+  console.log(
+    `     --rpc-url ${networkConfig.rpcUrl} --private-key $PRIVATE_KEY`
+  );
 
-  console.log("\n✨ Deployment configuration saved to deployment-result.json\n");
+  console.log(
+    "\n✨ Deployment configuration saved to deployment-result.json\n"
+  );
 
   // Save deployment result
   writeFileSync(

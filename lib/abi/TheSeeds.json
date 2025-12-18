@@ -57,8 +57,106 @@
     "type": "error"
   },
   {
-    "inputs": [],
-    "name": "DuplicateTokenIds",
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "ERC721IncorrectOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "operator",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ERC721InsufficientApproval",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "approver",
+        "type": "address"
+      }
+    ],
+    "name": "ERC721InvalidApprover",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "operator",
+        "type": "address"
+      }
+    ],
+    "name": "ERC721InvalidOperator",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "ERC721InvalidOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "receiver",
+        "type": "address"
+      }
+    ],
+    "name": "ERC721InvalidReceiver",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "ERC721InvalidSender",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ERC721NonexistentToken",
     "type": "error"
   },
   {
@@ -99,11 +197,6 @@
   {
     "inputs": [],
     "name": "MaxSeedsReached",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "MustProvideNFTProof",
     "type": "error"
   },
   {
@@ -156,24 +249,49 @@
     "inputs": [
       {
         "indexed": true,
-        "internalType": "uint256",
-        "name": "seedId",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
       },
       {
         "indexed": true,
         "internalType": "address",
-        "name": "blesser",
+        "name": "approved",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "Approval",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "operator",
         "type": "address"
       },
       {
         "indexed": false,
-        "internalType": "string",
-        "name": "reason",
-        "type": "string"
+        "internalType": "bool",
+        "name": "approved",
+        "type": "bool"
       }
     ],
-    "name": "BlessingFailed",
+    "name": "ApprovalForAll",
     "type": "event"
   },
   {
@@ -238,25 +356,6 @@
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "currentAmount",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "scheduledAmount",
-        "type": "uint256"
-      }
-    ],
-    "name": "BlessingsPerNFTScheduled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
         "name": "previousAmount",
         "type": "uint256"
       },
@@ -294,44 +393,6 @@
       }
     ],
     "name": "ContractUnpaused",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "creator",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "addedBy",
-        "type": "address"
-      }
-    ],
-    "name": "CreatorAdded",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "creator",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "removedBy",
-        "type": "address"
-      }
-    ],
-    "name": "CreatorRemoved",
     "type": "event"
   },
   {
@@ -401,44 +462,6 @@
       }
     ],
     "name": "OwnershipRootUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "relayer",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "addedBy",
-        "type": "address"
-      }
-    ],
-    "name": "RelayerAdded",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "relayer",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "removedBy",
-        "type": "address"
-      }
-    ],
-    "name": "RelayerRemoved",
     "type": "event"
   },
   {
@@ -549,12 +572,6 @@
         "internalType": "uint256",
         "name": "timestamp",
         "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "reason",
-        "type": "string"
       }
     ],
     "name": "RoundSkipped",
@@ -564,32 +581,31 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "resetScores",
-        "type": "bool"
-      }
-    ],
-    "name": "ScoreResetPolicyUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
       {
         "indexed": true,
         "internalType": "uint256",
-        "name": "round",
+        "name": "seedId",
         "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "creator",
+        "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "seedsAffected",
+        "name": "round",
         "type": "uint256"
       }
     ],
-    "name": "ScoresReset",
+    "name": "SeedNFTMinted",
     "type": "event"
   },
   {
@@ -637,12 +653,6 @@
         "internalType": "uint256",
         "name": "newScore",
         "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "decayFactor",
-        "type": "uint256"
       }
     ],
     "name": "SeedScoreUpdated",
@@ -667,12 +677,6 @@
         "indexed": false,
         "internalType": "string",
         "name": "ipfsHash",
-        "type": "string"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "title",
         "type": "string"
       },
       {
@@ -708,19 +712,25 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "currentPeriod",
-        "type": "uint256"
+        "indexed": true,
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
       },
       {
-        "indexed": false,
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": true,
         "internalType": "uint256",
-        "name": "scheduledPeriod",
+        "name": "tokenId",
         "type": "uint256"
       }
     ],
-    "name": "VotingPeriodScheduled",
+    "name": "Transfer",
     "type": "event"
   },
   {
@@ -774,12 +784,6 @@
         "internalType": "uint256",
         "name": "score",
         "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "bytes32",
-        "name": "seedProof",
-        "type": "bytes32"
       }
     ],
     "name": "WinnerSelected",
@@ -877,19 +881,6 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "VERSION",
-    "outputs": [
-      {
-        "internalType": "string",
-        "name": "",
-        "type": "string"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "address",
@@ -923,45 +914,6 @@
         "type": "uint256"
       }
     ],
-    "name": "allBlessings",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "seedId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "blesser",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "actor",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "isDelegated",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
     "name": "allSeedIds",
     "outputs": [
       {
@@ -971,6 +923,24 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "approve",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -989,6 +959,25 @@
     "name": "approveDelegate",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "balanceOf",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -1181,6 +1170,25 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getApproved",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "_user",
         "type": "address"
@@ -1196,24 +1204,6 @@
       {
         "internalType": "uint256",
         "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getCurrentLeader",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "leadingSeedId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "score",
         "type": "uint256"
       }
     ],
@@ -1313,49 +1303,12 @@
   },
   {
     "inputs": [],
-    "name": "getEligibleSeeds",
-    "outputs": [
-      {
-        "internalType": "uint256[]",
-        "name": "",
-        "type": "uint256[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "getEligibleSeedsCount",
     "outputs": [
       {
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_offset",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_limit",
-        "type": "uint256"
-      }
-    ],
-    "name": "getEligibleSeedsPaginated",
-    "outputs": [
-      {
-        "internalType": "uint256[]",
-        "name": "",
-        "type": "uint256[]"
       }
     ],
     "stateMutability": "view",
@@ -1500,175 +1453,16 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_seedId",
+        "name": "tokenId",
         "type": "uint256"
       }
     ],
-    "name": "getSeedBlessings",
+    "name": "getSeedIdByTokenId",
     "outputs": [
       {
-        "components": [
-          {
-            "internalType": "uint256",
-            "name": "seedId",
-            "type": "uint256"
-          },
-          {
-            "internalType": "address",
-            "name": "blesser",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
-            "name": "actor",
-            "type": "address"
-          },
-          {
-            "internalType": "uint256",
-            "name": "timestamp",
-            "type": "uint256"
-          },
-          {
-            "internalType": "bool",
-            "name": "isDelegated",
-            "type": "bool"
-          }
-        ],
-        "internalType": "struct TheSeeds.Blessing[]",
+        "internalType": "uint256",
         "name": "",
-        "type": "tuple[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_seedId",
         "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_offset",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_limit",
-        "type": "uint256"
-      }
-    ],
-    "name": "getSeedBlessingsPaginated",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "uint256",
-            "name": "seedId",
-            "type": "uint256"
-          },
-          {
-            "internalType": "address",
-            "name": "blesser",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
-            "name": "actor",
-            "type": "address"
-          },
-          {
-            "internalType": "uint256",
-            "name": "timestamp",
-            "type": "uint256"
-          },
-          {
-            "internalType": "bool",
-            "name": "isDelegated",
-            "type": "bool"
-          }
-        ],
-        "internalType": "struct TheSeeds.Blessing[]",
-        "name": "blessings",
-        "type": "tuple[]"
-      },
-      {
-        "internalType": "uint256",
-        "name": "total",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_startId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_count",
-        "type": "uint256"
-      }
-    ],
-    "name": "getSeeds",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "uint256",
-            "name": "id",
-            "type": "uint256"
-          },
-          {
-            "internalType": "address",
-            "name": "creator",
-            "type": "address"
-          },
-          {
-            "internalType": "string",
-            "name": "ipfsHash",
-            "type": "string"
-          },
-          {
-            "internalType": "uint256",
-            "name": "blessings",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "createdAt",
-            "type": "uint256"
-          },
-          {
-            "internalType": "bool",
-            "name": "isWinner",
-            "type": "bool"
-          },
-          {
-            "internalType": "bool",
-            "name": "isRetracted",
-            "type": "bool"
-          },
-          {
-            "internalType": "uint256",
-            "name": "winnerInRound",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
-            "name": "submittedInRound",
-            "type": "uint256"
-          }
-        ],
-        "internalType": "struct TheSeeds.Seed[]",
-        "name": "",
-        "type": "tuple[]"
       }
     ],
     "stateMutability": "view",
@@ -1767,132 +1561,18 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "getTotalBlessings",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getTotalSeedsCount",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "_user",
-        "type": "address"
+        "internalType": "uint256",
+        "name": "seedId",
+        "type": "uint256"
       }
     ],
-    "name": "getUserBlessings",
+    "name": "getTokenIdBySeedId",
     "outputs": [
       {
-        "components": [
-          {
-            "internalType": "uint256",
-            "name": "seedId",
-            "type": "uint256"
-          },
-          {
-            "internalType": "address",
-            "name": "blesser",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
-            "name": "actor",
-            "type": "address"
-          },
-          {
-            "internalType": "uint256",
-            "name": "timestamp",
-            "type": "uint256"
-          },
-          {
-            "internalType": "bool",
-            "name": "isDelegated",
-            "type": "bool"
-          }
-        ],
-        "internalType": "struct TheSeeds.Blessing[]",
+        "internalType": "uint256",
         "name": "",
-        "type": "tuple[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_user",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_offset",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_limit",
-        "type": "uint256"
-      }
-    ],
-    "name": "getUserBlessingsPaginated",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "uint256",
-            "name": "seedId",
-            "type": "uint256"
-          },
-          {
-            "internalType": "address",
-            "name": "blesser",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
-            "name": "actor",
-            "type": "address"
-          },
-          {
-            "internalType": "uint256",
-            "name": "timestamp",
-            "type": "uint256"
-          },
-          {
-            "internalType": "bool",
-            "name": "isDelegated",
-            "type": "bool"
-          }
-        ],
-        "internalType": "struct TheSeeds.Blessing[]",
-        "name": "blessings",
-        "type": "tuple[]"
-      },
-      {
-        "internalType": "uint256",
-        "name": "total",
         "type": "uint256"
       }
     ],
@@ -1939,17 +1619,17 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "_user",
-        "type": "address"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
-        "internalType": "uint256",
-        "name": "_seedId",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
       }
     ],
-    "name": "hasBlessed",
+    "name": "hasRole",
     "outputs": [
       {
         "internalType": "bool",
@@ -1963,17 +1643,17 @@
   {
     "inputs": [
       {
-        "internalType": "bytes32",
-        "name": "role",
-        "type": "bytes32"
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
       },
       {
         "internalType": "address",
-        "name": "account",
+        "name": "operator",
         "type": "address"
       }
     ],
-    "name": "hasRole",
+    "name": "isApprovedForAll",
     "outputs": [
       {
         "internalType": "bool",
@@ -2034,6 +1714,19 @@
   },
   {
     "inputs": [],
+    "name": "name",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "nextBlessingsPerNFT",
     "outputs": [
       {
@@ -2061,27 +1754,61 @@
   {
     "inputs": [
       {
-        "internalType": "string",
-        "name": "reason",
-        "type": "string"
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "",
+        "type": "bytes"
       }
     ],
-    "name": "pause",
-    "outputs": [],
+    "name": "onERC721Received",
+    "outputs": [
+      {
+        "internalType": "bytes4",
+        "name": "",
+        "type": "bytes4"
+      }
+    ],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "pauseReason",
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "ownerOf",
     "outputs": [
       {
-        "internalType": "string",
+        "internalType": "address",
         "name": "",
-        "type": "string"
+        "type": "address"
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "pause",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -2257,6 +1984,57 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "safeTransferFrom",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "data",
+        "type": "bytes"
+      }
+    ],
+    "name": "safeTransferFrom",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
@@ -2274,19 +2052,8 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "seedBlessings",
+    "inputs": [],
+    "name": "seedCount",
     "outputs": [
       {
         "internalType": "uint256",
@@ -2298,8 +2065,14 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "seedCount",
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "seedIdToTokenId",
     "outputs": [
       {
         "internalType": "uint256",
@@ -2409,6 +2182,37 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "operator",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "approved",
+        "type": "bool"
+      }
+    ],
+    "name": "setApprovalForAll",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "baseURI_",
+        "type": "string"
+      }
+    ],
+    "name": "setBaseURI",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "string",
         "name": "_ipfsHash",
         "type": "string"
@@ -2446,12 +2250,63 @@
   },
   {
     "inputs": [],
+    "name": "symbol",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "tieBreakingStrategy",
     "outputs": [
       {
         "internalType": "enum TheSeeds.TieBreakingStrategy",
         "name": "",
         "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "tokenIdToSeedId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "tokenURI",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
       }
     ],
     "stateMutability": "view",
@@ -2468,6 +2323,29 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "transferFrom",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -2566,30 +2444,6 @@
     "name": "updateVotingPeriod",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "userBlessings",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {

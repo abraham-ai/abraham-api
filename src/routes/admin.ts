@@ -1047,4 +1047,586 @@ admin.post("/create-auction", requireAdminKey, async (c) => {
   }
 });
 
+/**
+ * POST /admin/config/voting-period
+ * Update the voting period (deferred until next winner selection)
+ *
+ * Request body:
+ * {
+ *   "periodInSeconds": number  // Between 3600 (1 hour) and 604800 (7 days)
+ * }
+ *
+ * Authentication: X-Admin-Key header required
+ */
+admin.post("/config/voting-period", requireAdminKey, async (c) => {
+  try {
+    const body = await c.req.json();
+    const { periodInSeconds } = body;
+
+    if (!periodInSeconds || typeof periodInSeconds !== "number") {
+      return c.json(
+        {
+          success: false,
+          error: "periodInSeconds is required and must be a number",
+        },
+        400
+      );
+    }
+
+    if (periodInSeconds < 3600 || periodInSeconds > 604800) {
+      return c.json(
+        {
+          success: false,
+          error: "Period must be between 1 hour (3600s) and 7 days (604800s)",
+        },
+        400
+      );
+    }
+
+    const result = await contractService.updateVotingPeriod(periodInSeconds);
+
+    if (!result.success) {
+      return c.json(
+        {
+          success: false,
+          error: result.error,
+        },
+        500
+      );
+    }
+
+    const network = process.env.NETWORK || "baseSepolia";
+    const blockExplorer =
+      network === "base"
+        ? `https://basescan.org/tx/${result.txHash}`
+        : `https://sepolia.basescan.org/tx/${result.txHash}`;
+
+    return c.json({
+      success: true,
+      data: {
+        periodInSeconds,
+        periodInDays: periodInSeconds / 86400,
+        txHash: result.txHash,
+        blockExplorer,
+        message: "Voting period update queued. Will take effect after next winner selection.",
+      },
+    });
+  } catch (error) {
+    console.error("Error updating voting period:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to update voting period",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * POST /admin/config/blessings-per-nft
+ * Update the blessings per NFT (deferred until next winner selection)
+ *
+ * Request body:
+ * {
+ *   "amount": number  // Between 1 and 100
+ * }
+ *
+ * Authentication: X-Admin-Key header required
+ */
+admin.post("/config/blessings-per-nft", requireAdminKey, async (c) => {
+  try {
+    const body = await c.req.json();
+    const { amount } = body;
+
+    if (!amount || typeof amount !== "number") {
+      return c.json(
+        {
+          success: false,
+          error: "amount is required and must be a number",
+        },
+        400
+      );
+    }
+
+    if (amount < 1 || amount > 100) {
+      return c.json(
+        {
+          success: false,
+          error: "Amount must be between 1 and 100",
+        },
+        400
+      );
+    }
+
+    const result = await contractService.updateBlessingsPerNFT(amount);
+
+    if (!result.success) {
+      return c.json(
+        {
+          success: false,
+          error: result.error,
+        },
+        500
+      );
+    }
+
+    const network = process.env.NETWORK || "baseSepolia";
+    const blockExplorer =
+      network === "base"
+        ? `https://basescan.org/tx/${result.txHash}`
+        : `https://sepolia.basescan.org/tx/${result.txHash}`;
+
+    return c.json({
+      success: true,
+      data: {
+        blessingsPerNFT: amount,
+        txHash: result.txHash,
+        blockExplorer,
+        message: "Blessings per NFT update queued. Will take effect after next winner selection.",
+      },
+    });
+  } catch (error) {
+    console.error("Error updating blessings per NFT:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to update blessings per NFT",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * POST /admin/config/score-reset
+ * Update the score reset policy
+ *
+ * Request body:
+ * {
+ *   "enabled": boolean  // true to reset scores each round, false to keep cumulative
+ * }
+ *
+ * Authentication: X-Admin-Key header required
+ */
+admin.post("/config/score-reset", requireAdminKey, async (c) => {
+  try {
+    const body = await c.req.json();
+    const { enabled } = body;
+
+    if (typeof enabled !== "boolean") {
+      return c.json(
+        {
+          success: false,
+          error: "enabled is required and must be a boolean",
+        },
+        400
+      );
+    }
+
+    const result = await contractService.updateScoreResetPolicy(enabled);
+
+    if (!result.success) {
+      return c.json(
+        {
+          success: false,
+          error: result.error,
+        },
+        500
+      );
+    }
+
+    const network = process.env.NETWORK || "baseSepolia";
+    const blockExplorer =
+      network === "base"
+        ? `https://basescan.org/tx/${result.txHash}`
+        : `https://sepolia.basescan.org/tx/${result.txHash}`;
+
+    return c.json({
+      success: true,
+      data: {
+        resetScoresOnRoundEnd: enabled,
+        txHash: result.txHash,
+        blockExplorer,
+        message: enabled
+          ? "Score reset enabled. Scores will reset each round."
+          : "Score reset disabled. Scores will be cumulative across rounds.",
+      },
+    });
+  } catch (error) {
+    console.error("Error updating score reset policy:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to update score reset policy",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * POST /admin/config/round-mode
+ * Update the round mode
+ *
+ * Request body:
+ * {
+ *   "mode": "ROUND_BASED" | "NON_ROUND_BASED"  // or 0 | 1
+ * }
+ *
+ * Authentication: X-Admin-Key header required
+ */
+admin.post("/config/round-mode", requireAdminKey, async (c) => {
+  try {
+    const body = await c.req.json();
+    let { mode } = body;
+
+    if (mode === undefined || mode === null) {
+      return c.json(
+        {
+          success: false,
+          error: "mode is required",
+        },
+        400
+      );
+    }
+
+    // Convert string to number if needed
+    if (typeof mode === "string") {
+      if (mode === "ROUND_BASED") mode = 0;
+      else if (mode === "NON_ROUND_BASED") mode = 1;
+      else {
+        return c.json(
+          {
+            success: false,
+            error: "Invalid mode. Must be 'ROUND_BASED' or 'NON_ROUND_BASED'",
+          },
+          400
+        );
+      }
+    }
+
+    if (typeof mode !== "number" || (mode !== 0 && mode !== 1)) {
+      return c.json(
+        {
+          success: false,
+          error: "Mode must be 0 (ROUND_BASED) or 1 (NON_ROUND_BASED)",
+        },
+        400
+      );
+    }
+
+    const result = await contractService.updateRoundMode(mode);
+
+    if (!result.success) {
+      return c.json(
+        {
+          success: false,
+          error: result.error,
+        },
+        500
+      );
+    }
+
+    const network = process.env.NETWORK || "baseSepolia";
+    const blockExplorer =
+      network === "base"
+        ? `https://basescan.org/tx/${result.txHash}`
+        : `https://sepolia.basescan.org/tx/${result.txHash}`;
+
+    const modeNames = ["ROUND_BASED", "NON_ROUND_BASED"];
+
+    return c.json({
+      success: true,
+      data: {
+        roundMode: modeNames[mode],
+        txHash: result.txHash,
+        blockExplorer,
+        message: `Round mode updated to ${modeNames[mode]}`,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating round mode:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to update round mode",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * POST /admin/config/tie-breaking
+ * Update the tie-breaking strategy
+ *
+ * Request body:
+ * {
+ *   "strategy": "LOWEST_SEED_ID" | "EARLIEST_SUBMISSION" | "PSEUDO_RANDOM"  // or 0 | 1 | 2
+ * }
+ *
+ * Authentication: X-Admin-Key header required
+ */
+admin.post("/config/tie-breaking", requireAdminKey, async (c) => {
+  try {
+    const body = await c.req.json();
+    let { strategy } = body;
+
+    if (strategy === undefined || strategy === null) {
+      return c.json(
+        {
+          success: false,
+          error: "strategy is required",
+        },
+        400
+      );
+    }
+
+    // Convert string to number if needed
+    if (typeof strategy === "string") {
+      if (strategy === "LOWEST_SEED_ID") strategy = 0;
+      else if (strategy === "EARLIEST_SUBMISSION") strategy = 1;
+      else if (strategy === "PSEUDO_RANDOM") strategy = 2;
+      else {
+        return c.json(
+          {
+            success: false,
+            error: "Invalid strategy. Must be 'LOWEST_SEED_ID', 'EARLIEST_SUBMISSION', or 'PSEUDO_RANDOM'",
+          },
+          400
+        );
+      }
+    }
+
+    if (typeof strategy !== "number" || strategy < 0 || strategy > 2) {
+      return c.json(
+        {
+          success: false,
+          error: "Strategy must be 0 (LOWEST_SEED_ID), 1 (EARLIEST_SUBMISSION), or 2 (PSEUDO_RANDOM)",
+        },
+        400
+      );
+    }
+
+    const result = await contractService.updateTieBreakingStrategy(strategy);
+
+    if (!result.success) {
+      return c.json(
+        {
+          success: false,
+          error: result.error,
+        },
+        500
+      );
+    }
+
+    const network = process.env.NETWORK || "baseSepolia";
+    const blockExplorer =
+      network === "base"
+        ? `https://basescan.org/tx/${result.txHash}`
+        : `https://sepolia.basescan.org/tx/${result.txHash}`;
+
+    const strategyNames = ["LOWEST_SEED_ID", "EARLIEST_SUBMISSION", "PSEUDO_RANDOM"];
+
+    return c.json({
+      success: true,
+      data: {
+        tieBreakingStrategy: strategyNames[strategy],
+        txHash: result.txHash,
+        blockExplorer,
+        message: `Tie-breaking strategy updated to ${strategyNames[strategy]}`,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating tie-breaking strategy:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to update tie-breaking strategy",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * POST /admin/config/deadlock
+ * Update the deadlock strategy
+ *
+ * Request body:
+ * {
+ *   "strategy": "REVERT" | "SKIP_ROUND"  // or 0 | 1
+ * }
+ *
+ * Authentication: X-Admin-Key header required
+ */
+admin.post("/config/deadlock", requireAdminKey, async (c) => {
+  try {
+    const body = await c.req.json();
+    let { strategy } = body;
+
+    if (strategy === undefined || strategy === null) {
+      return c.json(
+        {
+          success: false,
+          error: "strategy is required",
+        },
+        400
+      );
+    }
+
+    // Convert string to number if needed
+    if (typeof strategy === "string") {
+      if (strategy === "REVERT") strategy = 0;
+      else if (strategy === "SKIP_ROUND") strategy = 1;
+      else {
+        return c.json(
+          {
+            success: false,
+            error: "Invalid strategy. Must be 'REVERT' or 'SKIP_ROUND'",
+          },
+          400
+        );
+      }
+    }
+
+    if (typeof strategy !== "number" || (strategy !== 0 && strategy !== 1)) {
+      return c.json(
+        {
+          success: false,
+          error: "Strategy must be 0 (REVERT) or 1 (SKIP_ROUND)",
+        },
+        400
+      );
+    }
+
+    const result = await contractService.updateDeadlockStrategy(strategy);
+
+    if (!result.success) {
+      return c.json(
+        {
+          success: false,
+          error: result.error,
+        },
+        500
+      );
+    }
+
+    const network = process.env.NETWORK || "baseSepolia";
+    const blockExplorer =
+      network === "base"
+        ? `https://basescan.org/tx/${result.txHash}`
+        : `https://sepolia.basescan.org/tx/${result.txHash}`;
+
+    const strategyNames = ["REVERT", "SKIP_ROUND"];
+
+    return c.json({
+      success: true,
+      data: {
+        deadlockStrategy: strategyNames[strategy],
+        txHash: result.txHash,
+        blockExplorer,
+        message: `Deadlock strategy updated to ${strategyNames[strategy]}`,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating deadlock strategy:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to update deadlock strategy",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * POST /admin/config/base-uri
+ * Set the base URI for NFT token metadata
+ *
+ * Request body:
+ * {
+ *   "baseURI": string  // e.g., "https://metadata.example.com/" or ""
+ * }
+ *
+ * Note: If baseURI is empty, tokenURI will return ipfs://<hash>
+ * If baseURI is set, tokenURI will return <baseURI><hash>
+ *
+ * Authentication: X-Admin-Key header required
+ */
+admin.post("/config/base-uri", requireAdminKey, async (c) => {
+  try {
+    const body = await c.req.json();
+    const { baseURI } = body;
+
+    if (baseURI === undefined || baseURI === null) {
+      return c.json(
+        {
+          success: false,
+          error: "baseURI is required (use empty string to reset to ipfs://)",
+        },
+        400
+      );
+    }
+
+    if (typeof baseURI !== "string") {
+      return c.json(
+        {
+          success: false,
+          error: "baseURI must be a string",
+        },
+        400
+      );
+    }
+
+    const result = await contractService.setBaseURI(baseURI);
+
+    if (!result.success) {
+      return c.json(
+        {
+          success: false,
+          error: result.error,
+        },
+        500
+      );
+    }
+
+    const network = process.env.NETWORK || "baseSepolia";
+    const blockExplorer =
+      network === "base"
+        ? `https://basescan.org/tx/${result.txHash}`
+        : `https://sepolia.basescan.org/tx/${result.txHash}`;
+
+    return c.json({
+      success: true,
+      data: {
+        baseURI,
+        txHash: result.txHash,
+        blockExplorer,
+        message: baseURI
+          ? `Base URI set to ${baseURI}. Tokens will use this prefix.`
+          : "Base URI cleared. Tokens will use ipfs:// prefix.",
+      },
+    });
+  } catch (error) {
+    console.error("Error setting base URI:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to set base URI",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
 export default admin;

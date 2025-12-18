@@ -15,8 +15,11 @@ const config: HardhatUserConfig = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200,
+        runs: 1, // Optimize for smallest deployment size
       },
+      metadata: {
+        bytecodeHash: "none" // Don't include metadata hash to save space
+      }
     },
   },
 
