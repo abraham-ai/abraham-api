@@ -7,6 +7,8 @@ The Abraham API provides two ways to submit blessings:
 1. **Gasless (Backend-Signed)**: POST `/blessings` - Backend submits blessing on behalf of user
 2. **User-Signed**: POST `/blessings/prepare` - User signs and submits their own transaction
 
+> **📘 Looking for smart contract documentation?** See [Seeds Contract Reference](./SEEDS_CONTRACT_REFERENCE.md) for a complete guide to all TheSeeds.sol contract functions with code examples.
+
 ## Table of Contents
 
 - [Authentication](#authentication)

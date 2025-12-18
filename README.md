@@ -1488,6 +1488,8 @@ export function CreateSeedFlow() {
 For detailed setup instructions, API documentation, and deployment guides, see:
 - [Quick Start Deployment](./docs/QUICK_START_DEPLOYMENT.md) - 5-step quick start
 - [Full Deployment Guide](./docs/DEPLOYMENT_GUIDE.md) - Complete deployment and role setup
+- [Seeds Contract Reference](./docs/SEEDS_CONTRACT_REFERENCE.md) - Complete smart contract function reference with code examples
+- [API Reference](./docs/API_REFERENCE.md) - REST API endpoints documentation
 - [Seed Creation System](./docs/SEED_CREATION_SYSTEM.md) - Architecture and integration
 - [Blessing System](./docs/BLESSING_SYSTEM.md) - Blessing mechanics
 - [Leaderboard System](./docs/LEADERBOARD.md) - Ranking and scoring mechanics
