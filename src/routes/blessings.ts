@@ -513,7 +513,7 @@ blessings.get("/seed/:seedId", async (c) => {
       data: {
         seedId,
         seed: {
-          title: seed.title,
+          ipfsHash: seed.ipfsHash,
           creator: seed.creator,
           blessings: Number(seed.blessings),
         },

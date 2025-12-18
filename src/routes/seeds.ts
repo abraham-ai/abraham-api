@@ -133,6 +133,8 @@ seeds.post("/", withAuth, async (c) => {
               blessings: Number(seed.blessings),
               createdAt: Number(seed.createdAt),
               isWinner: seed.isWinner,
+              isRetracted: seed.isRetracted,
+              winnerInRound: Number(seed.winnerInRound),
               submittedInRound: Number(seed.submittedInRound),
             }
           : null,
@@ -357,11 +359,10 @@ seeds.get("/", async (c) => {
           id: Number(seed.id),
           creator: seed.creator,
           ipfsHash: seed.ipfsHash,
-          title: seed.title,
-          description: seed.description,
           blessings: Number(seed.blessings),
           createdAt: Number(seed.createdAt),
           isWinner: seed.isWinner,
+          isRetracted: seed.isRetracted,
           winnerInRound: Number(seed.winnerInRound),
           submittedInRound: Number(seed.submittedInRound),
           metadata: metadata,
@@ -465,6 +466,7 @@ seeds.get("/:seedId", async (c) => {
         score: score,
         createdAt: Number(seed.createdAt),
         isWinner: seed.isWinner,
+        isRetracted: seed.isRetracted,
         winnerInRound: Number(seed.winnerInRound),
         submittedInRound: Number(seed.submittedInRound),
         metadata: metadata,
@@ -611,6 +613,7 @@ seeds.get("/stats", async (c) => {
           blessings: Number(seed.blessings),
           createdAt: Number(seed.createdAt),
           isWinner: seed.isWinner,
+          isRetracted: seed.isRetracted,
           winnerInRound: Number(seed.winnerInRound),
           submittedInRound: Number(seed.submittedInRound),
         };
@@ -743,6 +746,7 @@ seeds.get("/round/current", async (c) => {
           score: score,
           createdAt: Number(seed.createdAt),
           isWinner: seed.isWinner,
+          isRetracted: seed.isRetracted,
           winnerInRound: Number(seed.winnerInRound),
           submittedInRound: Number(seed.submittedInRound),
           metadata: metadata,
@@ -840,6 +844,7 @@ seeds.get("/round/:roundNumber", async (c) => {
           score: score,
           createdAt: Number(seed.createdAt),
           isWinner: seed.isWinner,
+          isRetracted: seed.isRetracted,
           winnerInRound: Number(seed.winnerInRound),
           submittedInRound: Number(seed.submittedInRound),
           metadata: metadata,
@@ -862,6 +867,231 @@ seeds.get("/round/:roundNumber", async (c) => {
       {
         success: false,
         error: "Failed to fetch round seeds",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /seeds/token/:tokenId
+ * Get seed information by its NFT token ID
+ */
+seeds.get("/token/:tokenId", async (c) => {
+  try {
+    const tokenId = parseInt(c.req.param("tokenId"));
+
+    if (isNaN(tokenId) || tokenId < 0) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid tokenId",
+        },
+        400
+      );
+    }
+
+    // Get seed ID from token ID
+    const seedId = await contractService.getSeedIdByTokenId(tokenId);
+
+    // Get seed details
+    const seed = await contractService.getSeed(Number(seedId));
+
+    // Fetch IPFS metadata
+    let metadata = null;
+    let metadataError = null;
+
+    if (seed.ipfsHash) {
+      try {
+        const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
+          ? seed.ipfsHash.replace("ipfs://", "https://ipfs.io/ipfs/")
+          : seed.ipfsHash.startsWith("http")
+          ? seed.ipfsHash
+          : `https://ipfs.io/ipfs/${seed.ipfsHash}`;
+
+        const response = await fetch(ipfsUrl);
+
+        if (response.ok) {
+          metadata = await response.json();
+        } else {
+          metadataError = `HTTP ${response.status}`;
+        }
+      } catch (error) {
+        metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
+        console.error(`Error fetching IPFS metadata:`, error);
+      }
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        tokenId,
+        seedId: Number(seedId),
+        seed: {
+          id: Number(seed.id),
+          creator: seed.creator,
+          ipfsHash: seed.ipfsHash,
+          blessings: Number(seed.blessings),
+          createdAt: Number(seed.createdAt),
+          isWinner: seed.isWinner,
+          isRetracted: seed.isRetracted,
+          winnerInRound: Number(seed.winnerInRound),
+          submittedInRound: Number(seed.submittedInRound),
+        },
+        metadata,
+        metadataError,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching seed by token:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch seed by token ID",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /seeds/:seedId/token
+ * Get NFT token ID for a winning seed
+ * Returns 0 if seed hasn't won yet
+ */
+seeds.get("/:seedId/token", async (c) => {
+  try {
+    const seedId = parseInt(c.req.param("seedId"));
+
+    if (isNaN(seedId) || seedId < 0) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid seedId",
+        },
+        400
+      );
+    }
+
+    const tokenId = await contractService.getTokenIdBySeedId(seedId);
+
+    return c.json({
+      success: true,
+      data: {
+        seedId,
+        tokenId: Number(tokenId),
+        hasWon: tokenId > 0n,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching token for seed:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch token ID for seed",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /seeds/:seedId/score/round/:roundNumber
+ * Get blessing score for a seed in a specific round
+ */
+seeds.get("/:seedId/score/round/:roundNumber", async (c) => {
+  try {
+    const seedId = parseInt(c.req.param("seedId"));
+    const roundNumber = parseInt(c.req.param("roundNumber"));
+
+    if (isNaN(seedId) || seedId < 0) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid seedId",
+        },
+        400
+      );
+    }
+
+    if (isNaN(roundNumber) || roundNumber < 1) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid round number",
+        },
+        400
+      );
+    }
+
+    const score = await contractService.getSeedScoreByRound(roundNumber, seedId);
+
+    return c.json({
+      success: true,
+      data: {
+        seedId,
+        round: roundNumber,
+        score: score.toString(),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching seed score by round:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch seed score for round",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /seeds/config
+ * Get contract configuration (round mode, strategies, etc.)
+ */
+seeds.get("/config", async (c) => {
+  try {
+    const roundMode = await contractService.getRoundMode();
+    const tieBreakingStrategy = await contractService.getTieBreakingStrategy();
+    const deadlockStrategy = await contractService.getDeadlockStrategy();
+    const eligibleSeedsCount = await contractService.getEligibleSeedsCount();
+    const secondsUntilReset = await contractService.getSecondsUntilDailyReset();
+
+    // Map enums to readable names
+    const roundModeNames = ["ROUND_BASED", "NON_ROUND_BASED"];
+    const tieBreakingNames = ["LOWEST_SEED_ID", "EARLIEST_SUBMISSION", "PSEUDO_RANDOM"];
+    const deadlockNames = ["REVERT", "SKIP_ROUND"];
+
+    return c.json({
+      success: true,
+      data: {
+        roundMode: {
+          value: roundMode,
+          name: roundModeNames[roundMode] || "UNKNOWN",
+        },
+        tieBreakingStrategy: {
+          value: tieBreakingStrategy,
+          name: tieBreakingNames[tieBreakingStrategy] || "UNKNOWN",
+        },
+        deadlockStrategy: {
+          value: deadlockStrategy,
+          name: deadlockNames[deadlockStrategy] || "UNKNOWN",
+        },
+        eligibleSeedsCount: Number(eligibleSeedsCount),
+        secondsUntilBlessingReset: Number(secondsUntilReset),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching contract config:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch contract configuration",
         details: error instanceof Error ? error.message : String(error),
       },
       500
