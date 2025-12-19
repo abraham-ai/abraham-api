@@ -1,7 +1,7 @@
-import type { HardhatUserConfig } from "hardhat/config";
-import "@nomicfoundation/hardhat-toolbox-viem";
-import "@nomicfoundation/hardhat-ethers";
-import "@nomicfoundation/hardhat-verify";
+import { defineConfig } from "hardhat/config";
+import hardhatToolboxViem from "@nomicfoundation/hardhat-toolbox-viem";
+import hardhatEthers from "@nomicfoundation/hardhat-ethers";
+import hardhatVerify from "@nomicfoundation/hardhat-verify";
 import { config as dotenvConfig } from "dotenv";
 
 dotenvConfig({ path: ".env.local" });
@@ -9,7 +9,13 @@ dotenvConfig({ path: ".env.local" });
 const privateKey = process.env.PRIVATE_KEY ?? "";
 const sepoliaRpcUrl = process.env.SEPOLIA_RPC_URL ?? "https://rpc.sepolia.org";
 
-const config: HardhatUserConfig = {
+export default defineConfig({
+  plugins: [
+    hardhatToolboxViem,
+    hardhatEthers,
+    hardhatVerify,
+  ],
+
   solidity: {
     version: "0.8.28",
     settings: {
@@ -52,49 +58,41 @@ const config: HardhatUserConfig = {
   },
 
   /**
-   * 🔍 Verification config (NEW)
+   * 🔍 Verification config
+   * In Hardhat 3, use a single API key that works across all Etherscan-compatible explorers
+   * Base networks use BASESCAN_API_KEY, Ethereum networks use ETHERSCAN_API_KEY
    */
   verify: {
     etherscan: {
-      apiKey: process.env.ETHERSCAN_API_KEY ?? "",
-    },
-
-    // Optional: disable explorers you don't want
-    blockscout: {
-      enabled: true,
-    },
-
-    sourcify: {
-      enabled: false,
+      apiKey: process.env.BASESCAN_API_KEY ?? process.env.ETHERSCAN_API_KEY ?? "",
     },
   },
 
   /**
-   * 🌐 Chain descriptors for non-native networks
+   * 🌐 Custom chain descriptors for non-default networks
+   * Required for Base chains to work with verification
+   * Updated to use Etherscan V2 API (unified endpoint for all chains)
    */
   chainDescriptors: {
-    8453: {
-      name: "Base",
-      blockExplorers: {
-        etherscan: {
-          name: "BaseScan",
-          url: "https://basescan.org",
-          apiUrl: "https://api.basescan.org/api",
-        },
-      },
-    },
-
     84532: {
-      name: "Base Sepolia",
+      name: "baseSepolia",
       blockExplorers: {
         etherscan: {
           name: "BaseScan Sepolia",
           url: "https://sepolia.basescan.org",
-          apiUrl: "https://api-sepolia.basescan.org/api",
+          apiUrl: "https://api.etherscan.io/v2/api",
+        },
+      },
+    },
+    8453: {
+      name: "baseMainnet",
+      blockExplorers: {
+        etherscan: {
+          name: "BaseScan",
+          url: "https://basescan.org",
+          apiUrl: "https://api.etherscan.io/v2/api",
         },
       },
     },
   },
-};
-
-export default config;
+});

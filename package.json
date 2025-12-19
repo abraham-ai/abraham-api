@@ -33,7 +33,10 @@
     "verify:contract:base": "tsx scripts/verifyContract.ts -- --network baseMainnet",
     "verify:seeds": "tsx scripts/verifySeedsContract.ts",
     "verify:seeds:base-sepolia": "tsx scripts/verifySeedsContract.ts -- --network baseSepolia",
-    "verify:seeds:base": "tsx scripts/verifySeedsContract.ts -- --network baseMainnet"
+    "verify:seeds:base": "tsx scripts/verifySeedsContract.ts -- --network baseMainnet",
+    "select-winner": "tsx scripts/selectWinner.ts",
+    "switch-non-round": "tsx scripts/switchToNonRoundBased.ts",
+    "extend-voting": "tsx scripts/extendVotingPeriod.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.5",

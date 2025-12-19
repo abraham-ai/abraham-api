@@ -321,7 +321,16 @@ class BlessingService {
       };
     }
 
-    // 3. Check if seed exists and is not a winner
+    // 3. Check if blessing period has ended
+    const timeRemaining = await contractService.getTimeUntilPeriodEnd();
+    if (timeRemaining === 0n) {
+      return {
+        success: false,
+        error: "Blessing period has ended. Waiting for winner selection to start new round.",
+      };
+    }
+
+    // 4. Check if seed exists and is not a winner
     try {
       const seed = await contractService.getSeed(seedId);
       if (seed.isWinner) {
@@ -337,7 +346,7 @@ class BlessingService {
       };
     }
 
-    // 4. Submit blessing to blockchain with NFT proof
+    // 5. Submit blessing to blockchain with NFT proof
     // Contract will verify ownership and daily limits on-chain
     const result = await contractService.blessSeedFor(
       seedId,
@@ -398,7 +407,7 @@ class BlessingService {
     };
     seedInfo?: {
       id: number;
-      title: string;
+      ipfsHash: string;
       creator: Address;
       currentBlessings: number;
     };
@@ -419,7 +428,16 @@ class BlessingService {
       };
     }
 
-    // 2. Check if seed exists and is not a winner
+    // 2. Check if blessing period has ended
+    const timeRemaining = await contractService.getTimeUntilPeriodEnd();
+    if (timeRemaining === 0n) {
+      return {
+        success: false,
+        error: "Blessing period has ended. Waiting for winner selection to start new round.",
+      };
+    }
+
+    // 3. Check if seed exists and is not a winner
     let seed;
     try {
       seed = await contractService.getSeed(seedId);
@@ -436,7 +454,7 @@ class BlessingService {
       };
     }
 
-    // 3. Prepare transaction data with NFT proof
+    // 4. Prepare transaction data with NFT proof
     const transaction = contractService.prepareBlessingTransaction(
       seedId,
       walletAddress as Address,

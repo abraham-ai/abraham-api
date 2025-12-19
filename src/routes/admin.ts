@@ -299,8 +299,9 @@ admin.get("/snapshot-status", async (c) => {
  * This endpoint:
  * 1. Calls selectDailyWinner() on The Seeds contract (Base)
  * 2. Winner is determined by: sqrt(per-user blessings) * time_decay
- * 3. Starts a new 24-hour blessing period
- * 4. Optionally elevates winner to Abraham creation (if autoElevate=true)
+ * 3. Mints an NFT for the winning seed on The Seeds contract
+ * 4. Starts a new 24-hour blessing period
+ * 5. Optionally elevates winner to Abraham creation (if autoElevate=true)
  *
  * Query Parameters:
  * - autoElevate: Set to 'true' to automatically elevate winner to Abraham creation (optional)
@@ -314,7 +315,16 @@ admin.get("/snapshot-status", async (c) => {
  *   "success": true,
  *   "data": {
  *     "winningSeedId": number,
+ *     "round": number,
+ *     "txHash": string,
+ *     "blockExplorer": string,
  *     "seed": {...},
+ *     "nft": {
+ *       "tokenId": number,
+ *       "tokenURI": string,
+ *       "openseaUrl": string,
+ *       "contractAddress": string
+ *     },
  *     "nextStep": "Call POST /admin/elevate-seed?seedId=X to mint Abraham creation"
  *   }
  * }
@@ -324,7 +334,16 @@ admin.get("/snapshot-status", async (c) => {
  *   "success": true,
  *   "data": {
  *     "winningSeedId": number,
+ *     "round": number,
+ *     "txHash": string,
+ *     "blockExplorer": string,
  *     "seed": {...},
+ *     "nft": {
+ *       "tokenId": number,
+ *       "tokenURI": string,
+ *       "openseaUrl": string,
+ *       "contractAddress": string
+ *     },
  *     "abraham": {
  *       "tokenId": number,
  *       "auctionId": number,
@@ -390,6 +409,7 @@ const selectWinnerHandler = async (c: any) => {
 
     // Get winning seed details
     let seed = null;
+    let nftData = null;
     if (result.winningSeedId !== undefined) {
       try {
         seed = await contractService.getSeed(result.winningSeedId);
@@ -398,6 +418,34 @@ const selectWinnerHandler = async (c: any) => {
         console.log(`   Creator: ${seed.creator}`);
         console.log(`   Blessings: ${seed.blessings}`);
         console.log("");
+
+        // Get NFT information for the winning seed
+        try {
+          const tokenId = await contractService.getTokenIdBySeedId(result.winningSeedId);
+          if (tokenId > 0n) {
+            const tokenURI = await contractService.tokenURI(Number(tokenId));
+
+            // Construct NFT marketplace links
+            const network = process.env.NETWORK || "baseSepolia";
+            const chain = network === "base" ? "base" : "base-sepolia";
+            const openseaUrl = `https://opensea.io/assets/${chain}/${process.env.L2_SEEDS_CONTRACT}/${tokenId}`;
+
+            nftData = {
+              tokenId: Number(tokenId),
+              tokenURI,
+              openseaUrl,
+              contractAddress: process.env.L2_SEEDS_CONTRACT,
+            };
+
+            console.log(`✅ NFT minted for winning seed`);
+            console.log(`   Token ID: ${tokenId}`);
+            console.log(`   Token URI: ${tokenURI}`);
+            console.log(`   OpenSea: ${openseaUrl}`);
+            console.log("");
+          }
+        } catch (nftError) {
+          console.warn("⚠️  Couldn't fetch NFT details:", nftError);
+        }
       } catch (error) {
         console.warn("⚠️  Couldn't fetch seed details:", error);
       }
@@ -441,6 +489,7 @@ const selectWinnerHandler = async (c: any) => {
               isWinner: seed.isWinner,
               winnerInRound: Number(seed.winnerInRound),
             },
+            nft: nftData,
             abraham: null,
             warning: "Abraham service not configured - auto-elevation skipped",
             timestamp: new Date().toISOString(),
@@ -465,6 +514,7 @@ const selectWinnerHandler = async (c: any) => {
               ipfsHash: seed.ipfsHash,
               blessings: Number(seed.blessings),
             },
+            nft: nftData,
           },
         }, 400);
       }
@@ -502,6 +552,7 @@ const selectWinnerHandler = async (c: any) => {
               isWinner: seed.isWinner,
               winnerInRound: Number(seed.winnerInRound),
             },
+            nft: nftData,
             abraham: null,
             timestamp: new Date().toISOString(),
             nextStep: `Retry elevation with: POST /admin/elevate-seed?seedId=${result.winningSeedId}`,
@@ -530,6 +581,7 @@ const selectWinnerHandler = async (c: any) => {
             isWinner: seed.isWinner,
             winnerInRound: Number(seed.winnerInRound),
           },
+          nft: nftData,
           abraham: {
             tokenId: elevationResult.tokenId,
             auctionId: elevationResult.auctionId,
@@ -567,6 +619,7 @@ const selectWinnerHandler = async (c: any) => {
               winnerInRound: Number(seed.winnerInRound),
             }
           : null,
+        nft: nftData,
         timestamp: new Date().toISOString(),
         message: "Winner selected successfully. New blessing period started.",
         nextStep: `To elevate to Abraham creation, call: POST /admin/elevate-seed?seedId=${result.winningSeedId}`,
