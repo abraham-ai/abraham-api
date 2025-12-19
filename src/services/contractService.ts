@@ -260,17 +260,19 @@ class ContractService {
   }
 
   /**
-   * Read: Get current leading seed and its blessing score
+   * Read: Get current leading seed and its blessing score (uses getCurrentLeaders and returns first)
    */
   async getCurrentLeader(): Promise<{ leadingSeedId: bigint; score: bigint }> {
     const result = await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
-      functionName: "getCurrentLeader",
+      functionName: "getCurrentLeaders",
       args: [],
     });
 
-    const [leadingSeedId, score] = result as [bigint, bigint];
+    const [leadingSeedIds, score] = result as [bigint[], bigint];
+    // Return the first leader, or 0 if no leaders
+    const leadingSeedId = leadingSeedIds.length > 0 ? leadingSeedIds[0] : 0n;
     return { leadingSeedId, score };
   }
 

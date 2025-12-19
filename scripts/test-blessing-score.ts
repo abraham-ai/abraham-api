@@ -229,16 +229,19 @@ async function main() {
   // ============================================================
   console.log("📝 Step 6: Checking current leader...");
 
-  const leader = await publicClient.readContract({
+  const leaders = await publicClient.readContract({
     address: contractAddress,
     abi: SEEDS_ABI,
-    functionName: "getCurrentLeader",
-  }) as [bigint, bigint];
+    functionName: "getCurrentLeaders",
+  }) as [bigint[], bigint];
 
-  console.log(`   Leading Seed ID: ${leader[0]}`);
-  console.log(`   Leading Score: ${leader[1]}`);
+  const leadingSeedIds = leaders[0];
+  const score = leaders[1];
 
-  if (leader[1] > 0n) {
+  console.log(`   Leading Seed IDs: ${leadingSeedIds.join(', ')}`);
+  console.log(`   Leading Score: ${score}`);
+
+  if (score > 0n) {
     console.log(`   ✅ Leader has score > 0`);
   }
 
