@@ -73,21 +73,13 @@ class LeaderboardService {
       });
     }
 
-    // Get all blessers by checking seeds
-    const seedCount = await contractService.getSeedCount();
-    const totalSeeds = Number(seedCount);
+    // Note: The contract no longer stores individual blessing records
+    // We can't get the list of all participants anymore
+    // This functionality needs to be redesigned or removed
+    console.warn("getAllParticipants: Individual blessing records are no longer available in the contract");
 
-    for (let i = 1; i <= totalSeeds; i++) {
-      try {
-        const blessings = await contractService.getSeedBlessings(i);
-        blessings.forEach((blessing) => {
-          participants.add(blessing.blesser.toLowerCase());
-        });
-      } catch (error) {
-        console.error(`Error fetching blessings for seed ${i}:`, error);
-      }
-    }
-
+    // Return empty set for now
+    // TODO: Implement alternative way to track participants (e.g., event logs, off-chain indexing)
     return participants;
   }
 
@@ -106,19 +98,18 @@ class LeaderboardService {
     const snapshot = await blessingService.getSnapshot();
     const nftCount = snapshot?.holderIndex[lowerAddress]?.length || 0;
 
-    // Get user's blessings
-    const allBlessings = await contractService.getUserBlessings(lowerAddress);
+    // Note: The contract no longer stores individual blessing records
+    // We can only get the daily blessing count
+    console.warn("getUserStats: Individual blessing records are no longer available in the contract");
 
-    // Filter blessings by timeframe
-    const timeframeSeconds = TIMEFRAME_SECONDS[timeframe];
-    const now = Math.floor(Date.now() / 1000);
-    const timeframeCutoff = timeframeSeconds ? now - timeframeSeconds : 0;
+    // Get daily blessing count as a fallback
+    const dailyBlessingCount = await contractService.getUserDailyBlessingCount(lowerAddress);
 
-    const userBlessings = timeframeSeconds
-      ? allBlessings.filter((b) => Number(b.timestamp) >= timeframeCutoff)
-      : allBlessings;
+    // Return minimal stats based on available data
+    // TODO: Implement alternative way to track user stats (e.g., event logs, off-chain indexing)
+    const userBlessings: any[] = []; // Empty array since we don't have individual records
 
-    // Determine which blessings were on winning seeds with timing data
+    // This section will not work without individual blessing records
     const blessingsWithWinStatus = await Promise.all(
       userBlessings.map(async (blessing) => {
         try {

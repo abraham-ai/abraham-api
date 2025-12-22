@@ -62,7 +62,9 @@ class ContractService {
     // Get configuration from environment
     const network = process.env.NETWORK || "baseSepolia";
     const rpcUrl = process.env.L2_RPC_URL;
-    const contractAddress = process.env.L2_SEEDS_CONTRACT;
+    const contractAddress =
+      process.env.L2_SEEDS_CONTRACT ||
+      "0xaea1cfd09da8f226a2ff2590d6b748563cf517f0";
     const relayerKey = process.env.RELAYER_PRIVATE_KEY;
 
     if (!contractAddress) {
@@ -83,7 +85,9 @@ class ContractService {
     // Create wallet client if relayer key is provided
     if (relayerKey) {
       this.relayerAccount = privateKeyToAccount(
-        (relayerKey.startsWith("0x") ? relayerKey : `0x${relayerKey}`) as `0x${string}`
+        (relayerKey.startsWith("0x")
+          ? relayerKey
+          : `0x${relayerKey}`) as `0x${string}`
       );
 
       this.walletClient = createWalletClient({
@@ -92,14 +96,18 @@ class ContractService {
         transport: http(rpcUrl),
       });
 
-      console.log(`✅ Contract service initialized with relayer: ${this.relayerAccount.address}`);
+      console.log(
+        `✅ Contract service initialized with relayer: ${this.relayerAccount.address}`
+      );
     } else {
       console.warn(
         "⚠️  RELAYER_PRIVATE_KEY not set - backend-signed blessings disabled"
       );
     }
 
-    console.log(`📄 Connected to TheSeeds contract at: ${this.contractAddress}`);
+    console.log(
+      `📄 Connected to TheSeeds contract at: ${this.contractAddress}`
+    );
     console.log(`🌐 Network: ${chain.name}`);
   }
 
@@ -146,7 +154,10 @@ class ContractService {
   /**
    * Read: Check if delegate is approved for user
    */
-  async isDelegate(userAddress: Address, delegateAddress: Address): Promise<boolean> {
+  async isDelegate(
+    userAddress: Address,
+    delegateAddress: Address
+  ): Promise<boolean> {
     return (await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
@@ -168,31 +179,47 @@ class ContractService {
   }
 
   /**
-   * Read: Get all blessings for a seed
+   * Read: Get user's daily blessing count
+   * Returns how many blessings the user has performed today (resets at midnight UTC)
    */
-  async getSeedBlessings(seedId: number): Promise<Blessing[]> {
-    const blessings = await this.publicClient.readContract({
+  async getUserDailyBlessingCount(userAddress: Address): Promise<bigint> {
+    return (await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
-      functionName: "getSeedBlessings",
-      args: [BigInt(seedId)],
-    });
-
-    return blessings as unknown as Blessing[];
+      functionName: "getUserDailyBlessingCount",
+      args: [userAddress],
+    })) as bigint;
   }
 
   /**
-   * Read: Get all blessings by a user
+   * Read: Get remaining blessings for a user
+   * Returns how many more blessings a user can perform today based on NFT count
    */
-  async getUserBlessings(userAddress: Address): Promise<Blessing[]> {
-    const blessings = await this.publicClient.readContract({
+  async getRemainingBlessings(
+    userAddress: Address,
+    nftCount: number
+  ): Promise<bigint> {
+    return (await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
-      functionName: "getUserBlessings",
-      args: [userAddress],
-    });
+      functionName: "getRemainingBlessings",
+      args: [userAddress, BigInt(nftCount)],
+    })) as bigint;
+  }
 
-    return blessings as unknown as Blessing[];
+  /**
+   * Read: Get blessing count for a user on a specific seed
+   */
+  async getBlessingCount(
+    userAddress: Address,
+    seedId: number
+  ): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "getBlessingCount",
+      args: [userAddress, BigInt(seedId)],
+    })) as bigint;
   }
 
   /**
@@ -363,7 +390,10 @@ class ContractService {
   /**
    * Read: Get current leaders (multiple in case of tie)
    */
-  async getCurrentLeaders(): Promise<{ leadingSeedIds: bigint[]; score: bigint }> {
+  async getCurrentLeaders(): Promise<{
+    leadingSeedIds: bigint[];
+    score: bigint;
+  }> {
     const result = await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
@@ -606,7 +636,8 @@ class ContractService {
    * Check if an address has CREATOR_ROLE
    */
   async hasCreatorRole(address: Address): Promise<boolean> {
-    const CREATOR_ROLE = "0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7"; // keccak256("CREATOR_ROLE")
+    const CREATOR_ROLE =
+      "0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7"; // keccak256("CREATOR_ROLE")
     return (await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
@@ -620,9 +651,7 @@ class ContractService {
    * Requires relayer to have CREATOR_ROLE
    * Note: Title, description, and image are stored in IPFS metadata
    */
-  async submitSeed(
-    ipfsHash: string
-  ): Promise<{
+  async submitSeed(ipfsHash: string): Promise<{
     success: boolean;
     seedId?: number;
     txHash?: Hash;
@@ -698,10 +727,7 @@ class ContractService {
    * Prepare seed submission transaction for client-side signing
    * Note: Title, description, and image are stored in IPFS metadata
    */
-  prepareSeedSubmissionTransaction(
-    ipfsHash: string,
-    creatorAddress: Address
-  ) {
+  prepareSeedSubmissionTransaction(ipfsHash: string, creatorAddress: Address) {
     return {
       to: this.contractAddress,
       data: encodeFunctionData({
@@ -1171,8 +1197,10 @@ class ContractService {
       }
 
       // Check if there are any non-winner seeds with scores > 0
-      const eligibleSeeds = roundSeeds.filter(seed => !seed.isWinner);
-      console.log(`   Eligible Seeds (not already winners): ${eligibleSeeds.length}`);
+      const eligibleSeeds = roundSeeds.filter((seed) => !seed.isWinner);
+      console.log(
+        `   Eligible Seeds (not already winners): ${eligibleSeeds.length}`
+      );
 
       if (eligibleSeeds.length === 0) {
         return {
@@ -1194,7 +1222,8 @@ class ContractService {
       if (leader.score === 0n) {
         return {
           success: false,
-          error: "Leading seed has blessing score of 0 (no valid blessings counted)",
+          error:
+            "Leading seed has blessing score of 0 (no valid blessings counted)",
           diagnostics: {
             currentRound: Number(currentRound),
             seedsInRound: roundSeeds.length,
@@ -1208,7 +1237,9 @@ class ContractService {
         };
       }
 
-      console.log("✅ Pre-flight checks passed, proceeding with winner selection...");
+      console.log(
+        "✅ Pre-flight checks passed, proceeding with winner selection..."
+      );
 
       // ============================================================
       // EXECUTE WINNER SELECTION
@@ -1265,8 +1296,12 @@ class ContractService {
 
       // Parse common errors
       let errorMessage = "Failed to select daily winner";
-      if (error.message?.includes("VotingPeriodNotEnded") || error.message?.includes("BlessingPeriodNotEnded")) {
-        errorMessage = "Blessing period has not ended yet (24 hours not elapsed)";
+      if (
+        error.message?.includes("VotingPeriodNotEnded") ||
+        error.message?.includes("BlessingPeriodNotEnded")
+      ) {
+        errorMessage =
+          "Blessing period has not ended yet (24 hours not elapsed)";
       } else if (error.message?.includes("NoValidWinner")) {
         errorMessage = "No valid winner (contract validation failed)";
       }

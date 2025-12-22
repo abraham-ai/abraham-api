@@ -174,29 +174,22 @@ class BlessingService {
 
   /**
    * Count how many blessings a user has performed in the current period
-   * Fetches from blockchain and filters by timestamp
+   * Uses the contract's built-in daily blessing counter (resets at midnight UTC)
    */
   private async countBlessingsInCurrentPeriod(
     walletAddress: string
   ): Promise<number> {
-    const { start } = this.getCurrentPeriod();
-    const periodStartTimestamp = Math.floor(start.getTime() / 1000); // Convert to Unix timestamp
-
     try {
-      // Fetch all blessings by this user from the blockchain
-      const allBlessings = await contractService.getUserBlessings(
+      // Get the daily blessing count directly from the contract
+      // The contract tracks this internally and resets at midnight UTC
+      const dailyCount = await contractService.getUserDailyBlessingCount(
         walletAddress as Address
       );
 
-      // Count only blessings performed in the current period
-      const blessingsInPeriod = allBlessings.filter(
-        (blessing) => Number(blessing.timestamp) >= periodStartTimestamp
-      );
-
-      return blessingsInPeriod.length;
+      return Number(dailyCount);
     } catch (error) {
       console.error(
-        `Error fetching on-chain blessings for ${walletAddress}:`,
+        `Error fetching daily blessing count for ${walletAddress}:`,
         error
       );
       // Return 0 if we can't fetch from blockchain
@@ -369,6 +362,16 @@ class BlessingService {
     const maxBlessings = proofData.tokenIds.length * BLESSINGS_PER_NFT;
     const usedBlessings = await this.countBlessingsInCurrentPeriod(walletAddress);
     const remainingBlessings = Math.max(0, maxBlessings - usedBlessings);
+
+    // 7. Update cached user data with the new blessing count
+    const addressLower = walletAddress.toLowerCase();
+    const cachedData = this.blessingData.get(addressLower);
+    if (cachedData) {
+      cachedData.usedBlessings = usedBlessings;
+      cachedData.maxBlessings = maxBlessings;
+      cachedData.nftCount = proofData.tokenIds.length;
+      this.blessingData.set(addressLower, cachedData);
+    }
 
     const blockExplorer =
       process.env.NETWORK === "base"
@@ -585,19 +588,27 @@ class BlessingService {
   }
 
   /**
-   * Get all blessings for a specific seed from blockchain
-   * @deprecated Use contractService.getSeedBlessings() directly
+   * Get blessing count for a specific user on a seed
+   * @deprecated The contract no longer stores individual blessing records.
+   * Use contractService.getBlessingCount(userAddress, seedId) instead.
    */
-  async getBlessingsForSeed(seedId: number) {
-    return await contractService.getSeedBlessings(seedId);
+  async getBlessingCount(userAddress: string, seedId: number): Promise<number> {
+    const count = await contractService.getBlessingCount(
+      userAddress as Address,
+      seedId
+    );
+    return Number(count);
   }
 
   /**
-   * Get all blessings by a specific user from blockchain
-   * @deprecated Use contractService.getUserBlessings() directly
+   * Get user's daily blessing count
+   * Returns how many blessings the user has performed today
    */
-  async getBlessingsByUser(userAddress: string) {
-    return await contractService.getUserBlessings(userAddress as Address);
+  async getUserDailyBlessingCount(userAddress: string): Promise<number> {
+    const count = await contractService.getUserDailyBlessingCount(
+      userAddress as Address
+    );
+    return Number(count);
   }
 
   /**
@@ -607,14 +618,6 @@ class BlessingService {
   async getTotalBlessingsCount(): Promise<number> {
     const total = await contractService.getTotalBlessings();
     return Number(total);
-  }
-
-  /**
-   * Check if a user has blessed a specific seed (from blockchain)
-   * @deprecated Use contractService.hasBlessed() directly
-   */
-  async hasUserBlessedSeed(userAddress: string, seedId: number): Promise<boolean> {
-    return await contractService.hasBlessed(userAddress as Address, seedId);
   }
 
   /**
