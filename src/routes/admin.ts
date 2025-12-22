@@ -706,32 +706,19 @@ admin.get("/winner-diagnostics", requireAdminKey, async (c) => {
       }))
     );
 
-    // Get detailed blessing info for leading seed to diagnose scoring issue
+    // Get blessing count for leading seed
+    // Note: Individual blessing records are no longer available in the contract
     let blessingDetails = null;
     if (leader.leadingSeedId > 0n) {
-      const blessings = await contractService.getSeedBlessings(Number(leader.leadingSeedId));
-
-      // Group blessings by user to see blessing count per user
-      const blesserCounts = new Map<string, number>();
-      for (const blessing of blessings) {
-        const blesser = blessing.blesser.toLowerCase();
-        blesserCounts.set(blesser, (blesserCounts.get(blesser) || 0) + 1);
-      }
+      const leadingSeed = await contractService.getSeed(Number(leader.leadingSeedId));
 
       blessingDetails = {
-        totalBlessings: blessings.length,
-        uniqueBlessers: blesserCounts.size,
-        blessingsPerUser: Array.from(blesserCounts.entries()).map(([user, count]) => ({
-          user,
-          count,
-          sqrtCount: Math.floor(Math.sqrt(count)),
-        })),
+        totalBlessings: Number(leadingSeed.blessings),
+        note: "Individual blessing records are no longer available. The contract now only tracks total counts.",
       };
 
-      console.log(`\nBlessing Distribution for Seed ${leader.leadingSeedId}:`);
+      console.log(`\nBlessing Count for Seed ${leader.leadingSeedId}:`);
       console.log(`  Total Blessings: ${blessingDetails.totalBlessings}`);
-      console.log(`  Unique Users: ${blessingDetails.uniqueBlessers}`);
-      console.log(`  Blessings per user:`, blessingDetails.blessingsPerUser);
     }
 
     // Determine readiness

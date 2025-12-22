@@ -505,9 +505,8 @@ blessings.get("/seed/:seedId", async (c) => {
     // Get seed info
     const seed = await contractService.getSeed(seedId);
 
-    // Get all blessings
-    const blessings = await contractService.getSeedBlessings(seedId);
-
+    // Note: The contract no longer stores individual blessing records
+    // Only the total blessing count is available
     return c.json({
       success: true,
       data: {
@@ -517,13 +516,8 @@ blessings.get("/seed/:seedId", async (c) => {
           creator: seed.creator,
           blessings: Number(seed.blessings),
         },
-        blessings: blessings.map((b) => ({
-          blesser: b.blesser,
-          actor: b.actor,
-          timestamp: Number(b.timestamp),
-          isDelegated: b.isDelegated,
-        })),
-        count: blessings.length,
+        message: "Individual blessing records are no longer available. The contract now only tracks blessing counts.",
+        totalBlessings: Number(seed.blessings),
       },
     });
   } catch (error) {
@@ -557,19 +551,16 @@ blessings.get("/user/:address", async (c) => {
       );
     }
 
-    const blessings = await contractService.getUserBlessings(address);
+    // Get user's daily blessing count
+    const dailyCount = await contractService.getUserDailyBlessingCount(address);
 
     return c.json({
       success: true,
       data: {
         address,
-        blessings: blessings.map((b) => ({
-          seedId: Number(b.seedId),
-          actor: b.actor,
-          timestamp: Number(b.timestamp),
-          isDelegated: b.isDelegated,
-        })),
-        count: blessings.length,
+        message: "Individual blessing records are no longer available. The contract now only tracks daily blessing counts.",
+        dailyBlessingCount: Number(dailyCount),
+        note: "This count resets at midnight UTC each day",
       },
     });
   } catch (error) {
@@ -719,7 +710,8 @@ blessings.get("/firstworks/nfts/:address", async (c) => {
         {
           success: false,
           error: "No snapshot available",
-          message: "Snapshot data is not yet available. Please try again later.",
+          message:
+            "Snapshot data is not yet available. Please try again later.",
         },
         404
       );
@@ -742,16 +734,15 @@ blessings.get("/firstworks/nfts/:address", async (c) => {
     // Create client to fetch metadata from contract
     const FIRSTWORKS_RPC_URL = process.env.FIRSTWORKS_RPC_URL;
     // Use FIRSTWORKS_CONTRACT_ADDRESS or fallback to known address
-    const FIRSTWORKS_ADDRESS = (
-      process.env.FIRSTWORKS_CONTRACT_ADDRESS ||
-      "0x8F814c7C75C5E9e0EDe0336F535604B1915C1985"
-    ) as Address;
+    const FIRSTWORKS_ADDRESS = (process.env.FIRSTWORKS_CONTRACT_ADDRESS ||
+      "0xacd206fc330cfaaf407755f14dc702b84fa36468") as Address;
 
     if (!FIRSTWORKS_RPC_URL) {
       return c.json(
         {
           success: false,
-          error: "FirstWorks RPC URL not configured. Set FIRSTWORKS_RPC_URL in environment variables.",
+          error:
+            "FirstWorks RPC URL not configured. Set FIRSTWORKS_RPC_URL in environment variables.",
         },
         500
       );
@@ -767,12 +758,12 @@ blessings.get("/firstworks/nfts/:address", async (c) => {
       tokenIds.map(async (tokenId) => {
         try {
           // Get tokenURI from contract
-          const tokenURI = await client.readContract({
+          const tokenURI = (await client.readContract({
             address: FIRSTWORKS_ADDRESS,
             abi: AbrahamFirstWorks,
             functionName: "tokenURI",
             args: [BigInt(tokenId)],
-          }) as string;
+          })) as string;
 
           // Fetch metadata from URI (IPFS or HTTP)
           let metadata = null;
@@ -791,7 +782,10 @@ blessings.get("/firstworks/nfts/:address", async (c) => {
               metadataError = `HTTP ${response.status}`;
             }
           } catch (error) {
-            metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
+            metadataError =
+              error instanceof Error
+                ? error.message
+                : "Failed to fetch metadata";
           }
 
           return {
@@ -806,7 +800,8 @@ blessings.get("/firstworks/nfts/:address", async (c) => {
             tokenId,
             tokenURI: null,
             metadata: null,
-            metadataError: error instanceof Error ? error.message : "Unknown error",
+            metadataError:
+              error instanceof Error ? error.message : "Unknown error",
           };
         }
       })
