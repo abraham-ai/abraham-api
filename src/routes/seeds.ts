@@ -402,6 +402,191 @@ seeds.get("/", async (c) => {
 });
 
 /**
+ * GET /seeds/minted
+ * Get all minted seeds (winning seeds that have been minted as ERC721 NFTs)
+ * Supports pagination via query parameters
+ *
+ * Query params:
+ * - page: Page number (default: 1)
+ * - limit: Items per page (default: 10, max: 100)
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "seeds": [{
+ *       "id": number,
+ *       "tokenId": number,
+ *       "creator": string,
+ *       "ipfsHash": string,
+ *       "blessings": number,
+ *       "score": string,
+ *       "createdAt": number,
+ *       "isWinner": true,
+ *       "isRetracted": boolean,
+ *       "winnerInRound": number,
+ *       "submittedInRound": number,
+ *       "metadata": object | null,
+ *       "metadataError": string | null
+ *     }],
+ *     "pagination": {
+ *       "page": number,
+ *       "limit": number,
+ *       "total": number,
+ *       "totalPages": number,
+ *       "hasNextPage": boolean,
+ *       "hasPrevPage": boolean
+ *     }
+ *   }
+ * }
+ */
+seeds.get("/minted", async (c) => {
+  try {
+    // Parse pagination parameters
+    const page = parseInt(c.req.query("page") || "1");
+    const limit = Math.min(parseInt(c.req.query("limit") || "10"), 100);
+
+    if (isNaN(page) || page < 1) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid page number",
+        },
+        400
+      );
+    }
+
+    if (isNaN(limit) || limit < 1) {
+      return c.json(
+        {
+          success: false,
+          error: "Invalid limit",
+        },
+        400
+      );
+    }
+
+    // Get total seed count
+    const totalCount = await contractService.getSeedCount();
+    const total = Number(totalCount);
+
+    // Fetch all seeds and filter for winners
+    const winnerSeeds = [];
+    for (let i = 0; i < total; i++) {
+      try {
+        const seed = await contractService.getSeed(i);
+
+        // Only include seeds that have won (been minted as NFTs)
+        if (seed.isWinner) {
+          // Get token ID for this winning seed
+          const tokenId = await contractService.getTokenIdBySeedId(i);
+
+          winnerSeeds.push({
+            seed,
+            tokenId: Number(tokenId),
+          });
+        }
+      } catch (error) {
+        console.error(`Error fetching seed ${i}:`, error);
+        // Continue with other seeds even if one fails
+      }
+    }
+
+    // Calculate pagination for filtered results
+    const totalWinners = winnerSeeds.length;
+    const totalPages = Math.ceil(totalWinners / limit);
+    const startIndex = (page - 1) * limit;
+    const endIndex = Math.min(startIndex + limit, totalWinners);
+
+    // Get seeds for current page
+    const paginatedWinners = winnerSeeds.slice(startIndex, endIndex);
+
+    // Fetch IPFS metadata for paginated seeds
+    const seedsWithMetadata = await Promise.all(
+      paginatedWinners.map(async ({ seed, tokenId }) => {
+        const seedId = Number(seed.id);
+
+        // Fetch IPFS metadata
+        let metadata = null;
+        let metadataError = null;
+
+        if (seed.ipfsHash) {
+          try {
+            // Convert IPFS hash to HTTP gateway URL
+            const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
+              ? seed.ipfsHash.replace("ipfs://", "https://ipfs.io/ipfs/")
+              : seed.ipfsHash.startsWith("http")
+              ? seed.ipfsHash
+              : `https://ipfs.io/ipfs/${seed.ipfsHash}`;
+
+            const response = await fetch(ipfsUrl);
+
+            if (response.ok) {
+              metadata = await response.json();
+            } else {
+              metadataError = `HTTP ${response.status}`;
+            }
+          } catch (error) {
+            metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
+            console.error(`Error fetching IPFS metadata for seed ${seedId}:`, error);
+          }
+        }
+
+        // Fetch blessing score
+        let score = "0";
+        try {
+          const seedScore = await contractService.getSeedBlessingScore(seedId);
+          score = seedScore.toString();
+        } catch (error) {
+          console.error(`Error fetching blessing score for seed ${seedId}:`, error);
+        }
+
+        return {
+          id: seedId,
+          tokenId,
+          creator: seed.creator,
+          ipfsHash: seed.ipfsHash,
+          blessings: Number(seed.blessings),
+          score,
+          createdAt: Number(seed.createdAt),
+          isWinner: seed.isWinner,
+          isRetracted: seed.isRetracted,
+          winnerInRound: Number(seed.winnerInRound),
+          submittedInRound: Number(seed.submittedInRound),
+          metadata,
+          metadataError,
+        };
+      })
+    );
+
+    return c.json({
+      success: true,
+      data: {
+        seeds: seedsWithMetadata,
+        pagination: {
+          page,
+          limit,
+          total: totalWinners,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching minted seeds:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch minted seeds",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
  * GET /seeds/:seedId
  * Get details of a specific seed with its IPFS metadata
  */
@@ -1092,191 +1277,6 @@ seeds.get("/config", async (c) => {
       {
         success: false,
         error: "Failed to fetch contract configuration",
-        details: error instanceof Error ? error.message : String(error),
-      },
-      500
-    );
-  }
-});
-
-/**
- * GET /seeds/minted
- * Get all minted seeds (winning seeds that have been minted as ERC721 NFTs)
- * Supports pagination via query parameters
- *
- * Query params:
- * - page: Page number (default: 1)
- * - limit: Items per page (default: 10, max: 100)
- *
- * Response:
- * {
- *   "success": true,
- *   "data": {
- *     "seeds": [{
- *       "id": number,
- *       "tokenId": number,
- *       "creator": string,
- *       "ipfsHash": string,
- *       "blessings": number,
- *       "score": string,
- *       "createdAt": number,
- *       "isWinner": true,
- *       "isRetracted": boolean,
- *       "winnerInRound": number,
- *       "submittedInRound": number,
- *       "metadata": object | null,
- *       "metadataError": string | null
- *     }],
- *     "pagination": {
- *       "page": number,
- *       "limit": number,
- *       "total": number,
- *       "totalPages": number,
- *       "hasNextPage": boolean,
- *       "hasPrevPage": boolean
- *     }
- *   }
- * }
- */
-seeds.get("/minted", async (c) => {
-  try {
-    // Parse pagination parameters
-    const page = parseInt(c.req.query("page") || "1");
-    const limit = Math.min(parseInt(c.req.query("limit") || "10"), 100);
-
-    if (isNaN(page) || page < 1) {
-      return c.json(
-        {
-          success: false,
-          error: "Invalid page number",
-        },
-        400
-      );
-    }
-
-    if (isNaN(limit) || limit < 1) {
-      return c.json(
-        {
-          success: false,
-          error: "Invalid limit",
-        },
-        400
-      );
-    }
-
-    // Get total seed count
-    const totalCount = await contractService.getSeedCount();
-    const total = Number(totalCount);
-
-    // Fetch all seeds and filter for winners
-    const winnerSeeds = [];
-    for (let i = 0; i < total; i++) {
-      try {
-        const seed = await contractService.getSeed(i);
-
-        // Only include seeds that have won (been minted as NFTs)
-        if (seed.isWinner) {
-          // Get token ID for this winning seed
-          const tokenId = await contractService.getTokenIdBySeedId(i);
-
-          winnerSeeds.push({
-            seed,
-            tokenId: Number(tokenId),
-          });
-        }
-      } catch (error) {
-        console.error(`Error fetching seed ${i}:`, error);
-        // Continue with other seeds even if one fails
-      }
-    }
-
-    // Calculate pagination for filtered results
-    const totalWinners = winnerSeeds.length;
-    const totalPages = Math.ceil(totalWinners / limit);
-    const startIndex = (page - 1) * limit;
-    const endIndex = Math.min(startIndex + limit, totalWinners);
-
-    // Get seeds for current page
-    const paginatedWinners = winnerSeeds.slice(startIndex, endIndex);
-
-    // Fetch IPFS metadata for paginated seeds
-    const seedsWithMetadata = await Promise.all(
-      paginatedWinners.map(async ({ seed, tokenId }) => {
-        const seedId = Number(seed.id);
-
-        // Fetch IPFS metadata
-        let metadata = null;
-        let metadataError = null;
-
-        if (seed.ipfsHash) {
-          try {
-            // Convert IPFS hash to HTTP gateway URL
-            const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
-              ? seed.ipfsHash.replace("ipfs://", "https://ipfs.io/ipfs/")
-              : seed.ipfsHash.startsWith("http")
-              ? seed.ipfsHash
-              : `https://ipfs.io/ipfs/${seed.ipfsHash}`;
-
-            const response = await fetch(ipfsUrl);
-
-            if (response.ok) {
-              metadata = await response.json();
-            } else {
-              metadataError = `HTTP ${response.status}`;
-            }
-          } catch (error) {
-            metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
-            console.error(`Error fetching IPFS metadata for seed ${seedId}:`, error);
-          }
-        }
-
-        // Fetch blessing score
-        let score = "0";
-        try {
-          const seedScore = await contractService.getSeedBlessingScore(seedId);
-          score = seedScore.toString();
-        } catch (error) {
-          console.error(`Error fetching blessing score for seed ${seedId}:`, error);
-        }
-
-        return {
-          id: seedId,
-          tokenId,
-          creator: seed.creator,
-          ipfsHash: seed.ipfsHash,
-          blessings: Number(seed.blessings),
-          score,
-          createdAt: Number(seed.createdAt),
-          isWinner: seed.isWinner,
-          isRetracted: seed.isRetracted,
-          winnerInRound: Number(seed.winnerInRound),
-          submittedInRound: Number(seed.submittedInRound),
-          metadata,
-          metadataError,
-        };
-      })
-    );
-
-    return c.json({
-      success: true,
-      data: {
-        seeds: seedsWithMetadata,
-        pagination: {
-          page,
-          limit,
-          total: totalWinners,
-          totalPages,
-          hasNextPage: page < totalPages,
-          hasPrevPage: page > 1,
-        },
-      },
-    });
-  } catch (error) {
-    console.error("Error fetching minted seeds:", error);
-    return c.json(
-      {
-        success: false,
-        error: "Failed to fetch minted seeds",
         details: error instanceof Error ? error.message : String(error),
       },
       500
