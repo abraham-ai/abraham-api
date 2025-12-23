@@ -1146,21 +1146,43 @@ class ContractService {
       // ============================================================
       console.log("🔍 Running pre-flight diagnostics...");
 
-      // Check 1: Get current round
+      // Check 0: Get round mode to determine which checks to run
+      const roundMode = await this.getRoundMode();
+      const isNonRoundBased = roundMode === 1;
+      console.log(`   Round Mode: ${isNonRoundBased ? 'NON_ROUND_BASED' : 'ROUND_BASED'}`);
+
+      // Check 1: Get current round (still tracked even in NON_ROUND_BASED)
       const currentRound = await this.getCurrentRound();
       console.log(`   Current Round: ${currentRound}`);
 
-      // Check 2: Get seeds in current round
-      const roundSeeds = await this.getCurrentRoundSeeds();
-      console.log(`   Seeds in Round: ${roundSeeds.length}`);
+      // Check 2: Get eligible seeds count
+      // In NON_ROUND_BASED mode, use getEligibleSeedsCount() instead of getCurrentRoundSeeds()
+      let seedsCount: number;
+      let roundSeeds: Seed[] = [];
 
-      if (roundSeeds.length === 0) {
+      if (isNonRoundBased) {
+        // NON_ROUND_BASED: Seeds are not grouped by rounds
+        const eligibleCount = await this.getEligibleSeedsCount();
+        seedsCount = Number(eligibleCount);
+        console.log(`   Eligible Seeds: ${seedsCount}`);
+      } else {
+        // ROUND_BASED: Check seeds in current round
+        roundSeeds = await this.getCurrentRoundSeeds();
+        seedsCount = roundSeeds.length;
+        console.log(`   Seeds in Round: ${seedsCount}`);
+      }
+
+      if (seedsCount === 0) {
+        const errorMsg = isNonRoundBased
+          ? "No eligible seeds available for winner selection"
+          : "No seeds submitted in current round";
+
         return {
           success: false,
-          error: "No seeds submitted in current round",
+          error: errorMsg,
           diagnostics: {
             currentRound: Number(currentRound),
-            seedsInRound: 0,
+            seedsInRound: seedsCount,
             timeRemaining: 0,
             currentLeader: { seedId: 0, score: "0", blessings: "0" },
           },
@@ -1177,7 +1199,7 @@ class ContractService {
           error: `Voting period not ended (${timeRemaining}s remaining)`,
           diagnostics: {
             currentRound: Number(currentRound),
-            seedsInRound: roundSeeds.length,
+            seedsInRound: seedsCount,
             timeRemaining: Number(timeRemaining),
             currentLeader: { seedId: 0, score: "0", blessings: "0" },
           },
@@ -1196,27 +1218,30 @@ class ContractService {
         console.log(`   Leading Seed Blessings: ${leaderSeed.blessings}`);
       }
 
-      // Check if there are any non-winner seeds with scores > 0
-      const eligibleSeeds = roundSeeds.filter((seed) => !seed.isWinner);
-      console.log(
-        `   Eligible Seeds (not already winners): ${eligibleSeeds.length}`
-      );
+      // Check 5: Verify eligible seeds in ROUND_BASED mode
+      // In NON_ROUND_BASED mode, we already verified eligibility with getEligibleSeedsCount()
+      if (!isNonRoundBased) {
+        const eligibleSeeds = roundSeeds.filter((seed) => !seed.isWinner);
+        console.log(
+          `   Eligible Seeds (not already winners): ${eligibleSeeds.length}`
+        );
 
-      if (eligibleSeeds.length === 0) {
-        return {
-          success: false,
-          error: "All seeds in current round have already won",
-          diagnostics: {
-            currentRound: Number(currentRound),
-            seedsInRound: roundSeeds.length,
-            timeRemaining: 0,
-            currentLeader: {
-              seedId: Number(leader.leadingSeedId),
-              score: leader.score.toString(),
-              blessings: leaderSeed?.blessings.toString() || "0",
+        if (eligibleSeeds.length === 0) {
+          return {
+            success: false,
+            error: "All seeds in current round have already won",
+            diagnostics: {
+              currentRound: Number(currentRound),
+              seedsInRound: seedsCount,
+              timeRemaining: 0,
+              currentLeader: {
+                seedId: Number(leader.leadingSeedId),
+                score: leader.score.toString(),
+                blessings: leaderSeed?.blessings.toString() || "0",
+              },
             },
-          },
-        };
+          };
+        }
       }
 
       if (leader.score === 0n) {
@@ -1226,7 +1251,7 @@ class ContractService {
             "Leading seed has blessing score of 0 (no valid blessings counted)",
           diagnostics: {
             currentRound: Number(currentRound),
-            seedsInRound: roundSeeds.length,
+            seedsInRound: seedsCount,
             timeRemaining: 0,
             currentLeader: {
               seedId: Number(leader.leadingSeedId),
@@ -1282,7 +1307,7 @@ class ContractService {
         txHash: hash,
         diagnostics: {
           currentRound: Number(currentRound),
-          seedsInRound: roundSeeds.length,
+          seedsInRound: seedsCount,
           timeRemaining: 0,
           currentLeader: {
             seedId: Number(leader.leadingSeedId),

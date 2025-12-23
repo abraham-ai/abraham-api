@@ -667,13 +667,33 @@ admin.get("/winner-diagnostics", requireAdminKey, async (c) => {
     console.log(`   Time: ${new Date().toISOString()}`);
     console.log(`${"=".repeat(60)}\n`);
 
+    // Get round mode to determine which checks to run
+    const roundMode = await contractService.getRoundMode();
+    const isNonRoundBased = roundMode === 1;
+    console.log(`Round Mode: ${isNonRoundBased ? 'NON_ROUND_BASED' : 'ROUND_BASED'}`);
+
     // Get current round
     const currentRound = await contractService.getCurrentRound();
     console.log(`Current Round: ${currentRound}`);
 
-    // Get seeds in current round
-    const roundSeeds = await contractService.getCurrentRoundSeeds();
-    console.log(`Seeds in Round: ${roundSeeds.length}`);
+    // Get eligible seeds count
+    let seedsCount: number;
+    let roundSeeds: any[] = [];
+    let eligibleSeeds: any[] = [];
+
+    if (isNonRoundBased) {
+      // NON_ROUND_BASED: Get total eligible seeds count
+      const eligibleCount = await contractService.getEligibleSeedsCount();
+      seedsCount = Number(eligibleCount);
+      console.log(`Eligible Seeds: ${seedsCount}`);
+    } else {
+      // ROUND_BASED: Get seeds in current round
+      roundSeeds = await contractService.getCurrentRoundSeeds();
+      seedsCount = roundSeeds.length;
+      eligibleSeeds = roundSeeds.filter(seed => !seed.isWinner);
+      console.log(`Seeds in Round: ${seedsCount}`);
+      console.log(`Eligible Seeds (not winners): ${eligibleSeeds.length}`);
+    }
 
     // Get time remaining
     const timeRemaining = await contractService.getTimeUntilPeriodEnd();
@@ -692,19 +712,17 @@ admin.get("/winner-diagnostics", requireAdminKey, async (c) => {
       console.log(`Leader Is Winner: ${leaderSeed.isWinner}`);
     }
 
-    // Check eligible seeds
-    const eligibleSeeds = roundSeeds.filter(seed => !seed.isWinner);
-    console.log(`Eligible Seeds (not winners): ${eligibleSeeds.length}`);
-
-    // Get blessing scores for all seeds in round
-    const seedScores = await Promise.all(
-      roundSeeds.map(async (seed) => ({
-        id: Number(seed.id),
-        blessings: Number(seed.blessings),
-        isWinner: seed.isWinner,
-        score: Number(await contractService.getSeedBlessingScore(Number(seed.id))),
-      }))
-    );
+    // Get blessing scores for seeds in round (ROUND_BASED only)
+    const seedScores = isNonRoundBased
+      ? []
+      : await Promise.all(
+          roundSeeds.map(async (seed) => ({
+            id: Number(seed.id),
+            blessings: Number(seed.blessings),
+            isWinner: seed.isWinner,
+            score: Number(await contractService.getSeedBlessingScore(Number(seed.id))),
+          }))
+        );
 
     // Get blessing count for leading seed
     // Note: Individual blessing records are no longer available in the contract
@@ -721,21 +739,22 @@ admin.get("/winner-diagnostics", requireAdminKey, async (c) => {
       console.log(`  Total Blessings: ${blessingDetails.totalBlessings}`);
     }
 
-    // Determine readiness
+    // Determine readiness (mode-aware)
+    const eligibleCount = isNonRoundBased ? seedsCount : eligibleSeeds.length;
     const isReady =
-      roundSeeds.length > 0 &&
+      seedsCount > 0 &&
       timeRemaining === 0n &&
-      eligibleSeeds.length > 0 &&
+      eligibleCount > 0 &&
       leader.score > 0n;
 
     const issues = [];
-    if (roundSeeds.length === 0) {
-      issues.push("No seeds in current round");
+    if (seedsCount === 0) {
+      issues.push(isNonRoundBased ? "No eligible seeds available" : "No seeds in current round");
     }
     if (timeRemaining > 0n) {
       issues.push(`Voting period not ended (${timeRemaining}s remaining)`);
     }
-    if (eligibleSeeds.length === 0) {
+    if (eligibleCount === 0 && seedsCount > 0) {
       issues.push("All seeds have already won");
     }
     if (leader.score === 0n) {
@@ -752,8 +771,9 @@ admin.get("/winner-diagnostics", requireAdminKey, async (c) => {
       ready: isReady,
       issues: issues.length > 0 ? issues : undefined,
       diagnostics: {
+        roundMode: isNonRoundBased ? 'NON_ROUND_BASED' : 'ROUND_BASED',
         currentRound: Number(currentRound),
-        seedsInRound: roundSeeds.length,
+        seedsInRound: seedsCount,
         timeRemaining: Number(timeRemaining),
         votingPeriodEnded: timeRemaining === 0n,
         currentLeader: {
@@ -763,7 +783,7 @@ admin.get("/winner-diagnostics", requireAdminKey, async (c) => {
           isWinner: leaderSeed?.isWinner || false,
           blessingDistribution: blessingDetails,
         },
-        eligibleSeeds: eligibleSeeds.length,
+        eligibleSeeds: eligibleCount,
         allSeedScores: seedScores,
       },
     });
