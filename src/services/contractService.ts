@@ -1117,6 +1117,98 @@ class ContractService {
                       WINNER SELECTION FUNCTIONS
   //////////////////////////////////////////////////////////////*/
 
+  /*//////////////////////////////////////////////////////////////
+                        EVENT FETCHING FUNCTIONS
+  //////////////////////////////////////////////////////////////*/
+
+  /**
+   * Fetch blessing events from the blockchain
+   * Handles RPC block range limits by fetching in batches
+   * @param fromBlock - Starting block number (default: contract deployment block)
+   * @param toBlock - Ending block number (default: 'latest')
+   * @param userAddress - Optional filter for specific user
+   * @param seedId - Optional filter for specific seed
+   */
+  async getBlessingEvents(options?: {
+    fromBlock?: bigint;
+    toBlock?: bigint | "latest";
+    userAddress?: Address;
+    seedId?: number;
+  }): Promise<Blessing[]> {
+    const BATCH_SIZE = 50000n; // Safe batch size below the 100k limit
+    const CONTRACT_DEPLOYMENT_BLOCK = 35145587n; // First contract interaction block
+    const allBlessings: Blessing[] = [];
+
+    try {
+      // Get the latest block number if toBlock is 'latest'
+      const latestBlock = await this.publicClient.getBlockNumber();
+      const fromBlock = options?.fromBlock || CONTRACT_DEPLOYMENT_BLOCK;
+      const toBlock = options?.toBlock === "latest" || !options?.toBlock
+        ? latestBlock
+        : options.toBlock;
+
+      // Fetch in batches to avoid exceeding RPC limits
+      let currentFrom = fromBlock;
+
+      while (currentFrom <= toBlock) {
+        const currentTo = currentFrom + BATCH_SIZE > toBlock
+          ? toBlock
+          : currentFrom + BATCH_SIZE;
+
+        // Build event filter for this batch
+        const filter: any = {
+          address: this.contractAddress,
+          event: {
+            type: "event",
+            name: "BlessingSubmitted",
+            inputs: [
+              { indexed: true, name: "seedId", type: "uint256" },
+              { indexed: true, name: "blesser", type: "address" },
+              { indexed: true, name: "actor", type: "address" },
+              { indexed: false, name: "isDelegated", type: "bool" },
+              { indexed: false, name: "timestamp", type: "uint256" },
+            ],
+          },
+          fromBlock: currentFrom,
+          toBlock: currentTo,
+        };
+
+        // Add topic filters if specified
+        if (options?.seedId !== undefined) {
+          filter.args = { seedId: BigInt(options.seedId) };
+        }
+        if (options?.userAddress) {
+          filter.args = { ...filter.args, blesser: options.userAddress };
+        }
+
+        const logs = await this.publicClient.getLogs(filter);
+
+        // Parse logs into Blessing objects
+        const blessings: Blessing[] = logs.map((log: any) => ({
+          seedId: log.args.seedId,
+          blesser: log.args.blesser,
+          actor: log.args.actor,
+          timestamp: log.args.timestamp,
+          isDelegated: log.args.isDelegated,
+        }));
+
+        allBlessings.push(...blessings);
+
+        // Move to next batch
+        currentFrom = currentTo + 1n;
+      }
+
+      return allBlessings;
+    } catch (error) {
+      console.error("Error fetching blessing events:", error);
+      return [];
+    }
+  }
+
+  /*//////////////////////////////////////////////////////////////
+                      WINNER SELECTION FUNCTIONS
+  //////////////////////////////////////////////////////////////*/
+
   /**
    * Admin: Select daily winner (call contract's selectDailyWinner)
    * Only callable by relayer/admin account
