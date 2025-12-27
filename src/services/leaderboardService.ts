@@ -59,6 +59,35 @@ interface UserStats {
 }
 
 class LeaderboardService {
+  // Cache for blessing events (refreshed every 5 minutes)
+  private blessingEventsCache: {
+    data: any[];
+    timestamp: number;
+  } | null = null;
+  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+  /**
+   * Get all blessing events with caching
+   */
+  private async getAllBlessingEvents(): Promise<any[]> {
+    const now = Date.now();
+
+    // Return cached data if still valid
+    if (this.blessingEventsCache && (now - this.blessingEventsCache.timestamp) < this.CACHE_TTL) {
+      return this.blessingEventsCache.data;
+    }
+
+    const events = await contractService.getBlessingEvents();
+
+    // Update cache
+    this.blessingEventsCache = {
+      data: events,
+      timestamp: now,
+    };
+
+    return events;
+  }
+
   /**
    * Get all unique addresses from NFT holders and blessers
    */
@@ -73,13 +102,12 @@ class LeaderboardService {
       });
     }
 
-    // Note: The contract no longer stores individual blessing records
-    // We can't get the list of all participants anymore
-    // This functionality needs to be redesigned or removed
-    console.warn("getAllParticipants: Individual blessing records are no longer available in the contract");
+    // Get all blessing events from cache/blockchain
+    const blessings = await this.getAllBlessingEvents();
+    blessings.forEach((blessing) => {
+      participants.add(blessing.blesser.toLowerCase());
+    });
 
-    // Return empty set for now
-    // TODO: Implement alternative way to track participants (e.g., event logs, off-chain indexing)
     return participants;
   }
 
@@ -98,18 +126,28 @@ class LeaderboardService {
     const snapshot = await blessingService.getSnapshot();
     const nftCount = snapshot?.holderIndex[lowerAddress]?.length || 0;
 
-    // Note: The contract no longer stores individual blessing records
-    // We can only get the daily blessing count
-    console.warn("getUserStats: Individual blessing records are no longer available in the contract");
+    // Get all blessing events from cache and filter for this user
+    const allBlessings = (await this.getAllBlessingEvents()).filter(
+      (blessing) => blessing.blesser.toLowerCase() === lowerAddress
+    );
 
-    // Get daily blessing count as a fallback
-    const dailyBlessingCount = await contractService.getUserDailyBlessingCount(lowerAddress);
+    // Calculate timeframe cutoff
+    const now = Math.floor(Date.now() / 1000);
+    let timeframeCutoff = 0;
+    if (timeframe !== "lifetime") {
+      const secondsInTimeframe = TIMEFRAME_SECONDS[timeframe];
+      if (secondsInTimeframe) {
+        timeframeCutoff = now - secondsInTimeframe;
+      }
+    }
 
-    // Return minimal stats based on available data
-    // TODO: Implement alternative way to track user stats (e.g., event logs, off-chain indexing)
-    const userBlessings: any[] = []; // Empty array since we don't have individual records
+    // Filter blessings by timeframe
+    const userBlessings = allBlessings.filter((blessing) => {
+      const timestamp = Number(blessing.timestamp);
+      return timestamp >= timeframeCutoff;
+    });
 
-    // This section will not work without individual blessing records
+    // Enrich blessings with winner status and early bird scores
     const blessingsWithWinStatus = await Promise.all(
       userBlessings.map(async (blessing) => {
         try {
