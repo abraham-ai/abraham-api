@@ -318,14 +318,14 @@ seeds.get("/", async (c) => {
     const totalCount = await contractService.getSeedCount();
     const total = Number(totalCount);
 
-    // Calculate pagination
+    // Calculate pagination (reversed to show latest first)
     const totalPages = Math.ceil(total / limit);
-    const startIndex = (page - 1) * limit;
-    const endIndex = Math.min(startIndex + limit, total);
+    const startIndex = total - (page - 1) * limit - 1;
+    const endIndex = Math.max(startIndex - limit + 1, 0);
 
-    // Fetch seeds for current page
+    // Fetch seeds for current page (from latest to earliest)
     const seeds = [];
-    for (let i = startIndex; i < endIndex; i++) {
+    for (let i = startIndex; i >= endIndex; i--) {
       try {
         const seed = await contractService.getSeed(i);
 
