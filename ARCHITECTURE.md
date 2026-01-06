@@ -444,6 +444,263 @@ contract TheSeeds {
 - Seed curation bonuses
 - Community treasury from Covenant sales
 
+---
+
+## v2.0 Features: Commandments & Configuration (2026-01-06)
+
+### Commandments System
+
+**Purpose:** Enable perpetual discussion and commentary on seeds
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    The Seeds Contract                    │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  Blessings (Votes)           Commandments (Comments)    │
+│  ├─ Time-restricted         ├─ Perpetual               │
+│  ├─ Affects scoring         ├─ No score impact*        │
+│  ├─ Voting period only      ├─ Anytime, any seed       │
+│  └─ Daily limit: 1/NFT      └─ Daily limit: 1/NFT      │
+│                                                          │
+│  * Can be enabled via scoringConfig.commandmentWeight   │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Key Design Decisions:**
+- **No Time Restrictions:** Can comment on any seed (current, past, or winners)
+- **Separate Daily Limits:** 2 NFTs = 2 blessings/day AND 2 commandments/day
+- **IPFS Storage:** Comments stored on IPFS, hashes on-chain
+- **Event-Based Retrieval:** Uses `CommandmentSubmitted` events for scalability
+- **Same Auth:** Uses same Merkle proof + delegation system as blessings
+
+**Data Flow:**
+```
+User submits commandment
+      │
+      ├─ Verify NFT ownership (Merkle proof)
+      ├─ Check daily limit
+      ├─ Upload to IPFS (backend)
+      ├─ Submit IPFS hash to contract
+      └─ Emit CommandmentSubmitted event
+
+API retrieves commandments
+      │
+      ├─ Index CommandmentSubmitted events
+      ├─ Filter by seedId/user/timeframe
+      ├─ Fetch IPFS metadata
+      └─ Return enriched data
+```
+
+### Configurable Economics
+
+**Purpose:** Flexible pricing and scoring for sustainable governance
+
+#### Cost Configuration
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Cost Management                        │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  Blessing Cost: 0 ETH → configurable                    │
+│  Commandment Cost: 0 ETH → configurable                 │
+│                                                          │
+│  Treasury: Deployer address → configurable              │
+│  Fee Withdrawal: Admin-only, to treasury                │
+│                                                          │
+│  Deferred Updates: Applied at round end                 │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Admin Functions:**
+- `updateBlessingCost(uint256 newCost)` - Set blessing price
+- `updateCommandmentCost(uint256 newCost)` - Set commandment price
+- `updateTreasury(address newTreasury)` - Change fee recipient
+- `withdrawFees()` - Transfer collected fees to treasury
+
+**Economic Flow:**
+```
+User Action → Payment → Contract Balance → Admin Withdrawal → Treasury
+```
+
+#### Scoring Configuration
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  Scoring Parameters                      │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  Blessing Weight: 1000 (1.0x) → configurable            │
+│  Commandment Weight: 0 (disabled) → configurable        │
+│  Time Decay Min: 10 → configurable                      │
+│  Time Decay Base: 1000 → configurable                   │
+│                                                          │
+│  Deferred Updates: Applied at round end                 │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Admin Function:**
+- `updateScoringConfig(blessingWeight, commandmentWeight, timeDecayMin, timeDecayBase)`
+
+**Future Possibilities:**
+- Enable commandment scoring (set weight > 0)
+- Adjust blessing vs commandment impact ratio
+- Fine-tune time decay for different dynamics
+
+### Contract Size Optimization
+
+**Challenge:** Contract exceeded 24.5 KB limit (26.4 KB)
+
+**Solution:** Event-based indexing instead of view functions
+
+**Removed Functions:**
+```
+❌ getCommandmentsBySeed(seedId)
+   → ✅ Filter CommandmentSubmitted events
+
+❌ getCurrentLeaders()
+   → ✅ Calculate from seed data off-chain
+
+❌ getSeedsByRound(round)
+   → ✅ Filter SeedSubmitted events
+
+❌ getCurrentRoundSeeds()
+   → ✅ Use event-based getSeedsByRound
+```
+
+**Results:**
+- Contract size: 26.4 KB → 23.6 KB (10.6% reduction)
+- Under limit by: 977 bytes (4.0% buffer)
+- Gas savings: Array construction moved off-chain
+- Scalability: Better handling of large datasets
+
+### API Architecture Updates
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    API Service Layer                     │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  contractService.ts                                      │
+│  ├─ Event-based data retrieval                          │
+│  ├─ Caching (5-min TTL for events)                      │
+│  ├─ Batch event fetching (50k blocks)                   │
+│  └─ Parallel IPFS metadata enrichment                   │
+│                                                          │
+│  commandmentService.ts (NEW)                             │
+│  ├─ IPFS upload (Vercel Blob)                           │
+│  ├─ Merkle proof generation                             │
+│  ├─ Gasless submission (relayer)                        │
+│  └─ Stats and eligibility checks                        │
+│                                                          │
+│  ipfsService.ts (NEW)                                    │
+│  ├─ Content hash generation                             │
+│  ├─ Vercel Blob upload                                  │
+│  ├─ Metadata fetching                                   │
+│  └─ Hash to URL conversion                              │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**New Endpoints:**
+```
+POST   /api/commandments                    - Submit commandment
+GET    /api/commandments/seed/:seedId       - Get seed's commandments
+GET    /api/commandments/user/:address      - Get user's commandments
+GET    /api/commandments/stats              - Get user stats
+GET    /api/commandments/eligibility        - Check if can comment
+GET    /api/commandments/all                - Get all commandments
+
+POST   /api/admin/update-blessing-cost      - Update blessing cost
+POST   /api/admin/update-commandment-cost   - Update commandment cost
+POST   /api/admin/update-scoring-config     - Update scoring weights
+POST   /api/admin/withdraw-fees             - Withdraw collected fees
+```
+
+### Security Enhancements
+
+**Deferred Configuration Updates:**
+- Costs and scoring updates applied at round end
+- Prevents mid-round manipulation
+- Ensures fair gameplay for all participants
+
+**Payment Security:**
+- Overpayment refund mechanism
+- Reentrancy protection (`nonReentrant`)
+- Treasury withdrawal requires admin role
+- Solidity 0.8+ overflow protection
+
+**Access Control:**
+- Role-based permissions (ADMIN_ROLE, RELAYER_ROLE, CREATOR_ROLE)
+- Delegate approval system (same as blessings)
+- Merkle proof verification (prevents fake NFT claims)
+
+**Rate Limiting:**
+- Independent daily limits for blessings and commandments
+- Per-NFT limits prevent spam
+- Daily reset mechanism (UTC-based)
+
+### Deployment Workflow
+
+```
+1. Deploy Contract
+   ├─ Default: free blessings, free commandments
+   ├─ Commandment scoring disabled (weight = 0)
+   └─ Treasury = deployer address
+
+2. Initial Configuration (Optional)
+   ├─ Update treasury address
+   ├─ Set blessing/commandment costs
+   ├─ Adjust daily limits
+   └─ Configure scoring weights
+
+3. Grant Roles
+   ├─ RELAYER_ROLE → Backend (for gasless txns)
+   └─ CREATOR_ROLE → Backend (for seed creation)
+
+4. Update Merkle Root
+   ├─ Generate from FirstWorks snapshot
+   └─ Post to contract
+
+5. Monitor & Maintain
+   ├─ Daily snapshot updates
+   ├─ Periodic fee withdrawal
+   └─ Configuration adjustments as needed
+```
+
+### Future Architecture Considerations
+
+**Potential Enhancements:**
+
+1. **Commandment Scoring**
+   - Enable by setting `commandmentWeight > 0`
+   - Weight insightful discussion
+   - Negative weights for critical commentary
+
+2. **Dynamic Pricing**
+   - Automatic cost adjustment based on demand
+   - Surge pricing during high activity
+   - Discounts for consistent participants
+
+3. **Nested Commandments**
+   - Reply to commandments
+   - Thread-based discussions
+   - Recursive data structures
+
+4. **Reputation System**
+   - Weight votes by user reputation
+   - Reward quality commentary
+   - Slash malicious actors
+
+5. **Commandment NFTs**
+   - Mint exceptional commandments as NFTs
+   - Tradeable commentary
+   - Curator rewards
+
 ## Conclusion
 
 This hybrid architecture balances:

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { withAuth, getAuthUser } from "../middleware/auth.js";
 import { contractService } from "../services/contractService.js";
+import { commandmentService } from "../services/commandmentService.js";
 import type { Address } from "viem";
 
 const seeds = new Hono();
@@ -641,6 +642,14 @@ seeds.get("/:seedId", async (c) => {
       console.error(`Error fetching blessing score for seed ${seedId}:`, error);
     }
 
+    // Fetch commandments
+    let commandments: any[] = [];
+    try {
+      commandments = await commandmentService.getCommandmentsBySeed(seedId);
+    } catch (error) {
+      console.error(`Error fetching commandments for seed ${seedId}:`, error);
+    }
+
     return c.json({
       success: true,
       data: {
@@ -656,6 +665,8 @@ seeds.get("/:seedId", async (c) => {
         submittedInRound: Number(seed.submittedInRound),
         metadata: metadata,
         metadataError: metadataError,
+        commandments: commandments,
+        commandmentCount: commandments.length,
       },
     });
   } catch (error) {

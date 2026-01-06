@@ -4,6 +4,7 @@ import blessings from './routes/blessings.js'
 import seeds from './routes/seeds.js'
 import admin from './routes/admin.js'
 import leaderboard from './routes/leaderboard.js'
+import commandments from './routes/commandments.js'
 
 const app = new Hono()
 
@@ -46,6 +47,14 @@ app.get('/', (c) => {
       getLeaderboard: 'GET /api/leaderboard',
       getUserRank: 'GET /api/leaderboard/user/:address',
 
+      // Commandments (Comments)
+      submitCommandment: 'POST /api/commandments',
+      getCommandmentsBySeed: 'GET /api/commandments/seed/:seedId',
+      getCommandmentsByUser: 'GET /api/commandments/user/:address',
+      getCommandmentStats: 'GET /api/commandments/stats',
+      checkCommandmentEligibility: 'GET /api/commandments/eligibility',
+      getAllCommandments: 'GET /api/commandments/all',
+
       // Admin Operations (requires X-Admin-Key)
       updateSnapshot: 'POST /api/admin/update-snapshot (requires X-Admin-Key)',
       reloadSnapshot: 'POST /api/admin/reload-snapshot (requires X-Admin-Key)',
@@ -57,6 +66,7 @@ app.get('/', (c) => {
 // Mount routes
 app.route('/api/seeds', seeds)
 app.route('/api/blessings', blessings)
+app.route('/api/commandments', commandments)
 app.route('/api/leaderboard', leaderboard)
 app.route('/api/admin', admin)
 
