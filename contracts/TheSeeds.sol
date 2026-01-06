@@ -59,6 +59,23 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
         uint256 submittedInRound;
     }
 
+    struct Commandment {
+        uint256 id;
+        uint256 seedId;
+        address commenter;
+        string ipfsHash;
+        uint256 createdAt;
+    }
+
+    struct ScoringConfig {
+        uint256 blessingWeight;
+        uint256 commandmentWeight;
+        uint256 timeDecayMin;
+        uint256 timeDecayBase;
+        uint256 scaleFactorBlessings;
+        uint256 scaleFactorCommandments;
+    }
+
     mapping(uint256 => Seed) public seeds;
     mapping(uint256 => uint256) public roundWinners;
     mapping(uint256 => uint256[]) public roundSeedIds;
@@ -72,6 +89,27 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
     mapping(uint256 => uint256) public tokenIdToSeedId;
     mapping(uint256 => uint256) public seedIdToTokenId;
     string private _baseTokenURI;
+
+    // Commandments storage
+    mapping(uint256 => Commandment) public commandments;
+    mapping(uint256 => uint256[]) public seedCommandmentIds;
+    mapping(uint256 => uint256) public commandmentCount;
+    mapping(address => mapping(uint256 => uint256)) public userDailyCommandments;
+    uint256 public totalCommandments;
+    uint256 public commandmentsPerNFT;
+    uint256 public nextCommandmentsPerNFT;
+
+    // Cost configuration
+    uint256 public blessingCost;
+    uint256 public commandmentCost;
+    uint256 public nextBlessingCost;
+    uint256 public nextCommandmentCost;
+    address public treasury;
+
+    // Scoring configuration
+    ScoringConfig public scoringConfig;
+    ScoringConfig public nextScoringConfig;
+    bool public pendingScoringUpdate;
 
     event OwnershipRootUpdated(bytes32 indexed newRoot, uint256 timestamp, uint256 blockNumber);
     event SeedSubmitted(uint256 indexed seedId, address indexed creator, string ipfsHash, uint256 timestamp);
@@ -90,6 +128,12 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
     event RoundSkipped(uint256 indexed round, uint256 timestamp);
     event SeedScoreUpdated(uint256 indexed seedId, address indexed blesser, uint256 previousScore, uint256 newScore);
     event SeedNFTMinted(uint256 indexed tokenId, uint256 indexed seedId, address indexed creator, uint256 round);
+    event CommandmentSubmitted(uint256 indexed commandmentId, uint256 indexed seedId, address indexed commenter, address actor, bool isDelegated, string ipfsHash, uint256 timestamp);
+    event CostUpdated(string costType, uint256 previousCost, uint256 newCost);
+    event ScoringConfigUpdated(uint256 blessingWeight, uint256 commandmentWeight, uint256 timeDecayMin, uint256 timeDecayBase);
+    event TreasuryUpdated(address indexed previousTreasury, address indexed newTreasury);
+    event FeesWithdrawn(address indexed to, uint256 amount);
+    event CommandmentsPerNFTUpdated(uint256 previousAmount, uint256 newAmount);
 
     error InvalidMerkleProof();
     error SeedNotFound();
@@ -111,6 +155,13 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
     error RoundSeedLimitReached();
     error AlreadyRetracted();
     error InvalidIPFSHash();
+    error DailyCommandmentLimitReached();
+    error InsufficientPayment();
+    error InvalidTreasury();
+    error NoFeesToWithdraw();
+    error TreasuryNotSet();
+    error InvalidCommandmentsPerNFT();
+    error InvalidCost();
 
     constructor(address _admin, address _initialCreator) ERC721("The Seeds", "SEED") {
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
@@ -128,6 +179,24 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
         tieBreakingStrategy = TieBreakingStrategy.LOWEST_SEED_ID;
         deadlockStrategy = DeadlockStrategy.REVERT;
         _nextTokenId = 1;
+
+        // Initialize commandments config
+        commandmentsPerNFT = 1;
+
+        // Initialize cost config (free by default)
+        blessingCost = 0;
+        commandmentCost = 0;
+        treasury = _admin;
+
+        // Initialize scoring config with current hardcoded values
+        scoringConfig = ScoringConfig({
+            blessingWeight: 1000,
+            commandmentWeight: 0,
+            timeDecayMin: 10,
+            timeDecayBase: 1000,
+            scaleFactorBlessings: SCORE_SCALE_FACTOR,
+            scaleFactorCommandments: SCORE_SCALE_FACTOR
+        });
 
         emit BlessingPeriodStarted(1, block.timestamp);
     }
@@ -234,6 +303,75 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
             userDailyBlessings[_blessers[i]][currentDay]++;
             _processBless(_seedIds[i], _blessers[i], msg.sender, true);
         }
+    }
+
+    function commentOnSeed(uint256 _seedId, string memory _ipfsHash, uint256[] memory _tokenIds, bytes32[] memory _merkleProof)
+        external payable whenNotPaused nonReentrant {
+        if (msg.value < commandmentCost) revert InsufficientPayment();
+        if (!_verifyOwnership(msg.sender, _tokenIds, _merkleProof)) revert InvalidMerkleProof();
+        if (_tokenIds.length == 0) revert NoVotingPower();
+
+        _checkAndUpdateCommandmentLimit(msg.sender, _tokenIds.length);
+        _processCommandment(_seedId, msg.sender, msg.sender, false, _ipfsHash);
+
+        // Refund excess payment
+        if (msg.value > commandmentCost) {
+            (bool success, ) = payable(msg.sender).call{value: msg.value - commandmentCost}("");
+            require(success, "Refund failed");
+        }
+    }
+
+    function commentOnSeedFor(uint256 _seedId, address _commenter, string memory _ipfsHash, uint256[] memory _tokenIds, bytes32[] memory _merkleProof)
+        external payable whenNotPaused nonReentrant {
+        if (_commenter == address(0)) revert InvalidBlesser();
+        if (msg.value < commandmentCost) revert InsufficientPayment();
+
+        bool isApprovedDelegate = isDelegateApproved[_commenter][msg.sender];
+        bool isRelayer = hasRole(RELAYER_ROLE, msg.sender);
+
+        if (!isApprovedDelegate && !isRelayer) revert NotAuthorized();
+        if (!_verifyOwnership(_commenter, _tokenIds, _merkleProof)) revert InvalidMerkleProof();
+        if (_tokenIds.length == 0) revert NoVotingPower();
+
+        _checkAndUpdateCommandmentLimit(_commenter, _tokenIds.length);
+        _processCommandment(_seedId, _commenter, msg.sender, true, _ipfsHash);
+
+        // Refund excess payment
+        if (msg.value > commandmentCost) {
+            (bool success, ) = payable(msg.sender).call{value: msg.value - commandmentCost}("");
+            require(success, "Refund failed");
+        }
+    }
+
+    function _checkAndUpdateCommandmentLimit(address _user, uint256 _nftCount) internal {
+        uint256 currentDay = block.timestamp / 1 days;
+        uint256 maxCommandments = _nftCount * commandmentsPerNFT;
+        uint256 currentCommandments = userDailyCommandments[_user][currentDay];
+
+        if (currentCommandments >= maxCommandments) revert DailyCommandmentLimitReached();
+        userDailyCommandments[_user][currentDay]++;
+    }
+
+    function _processCommandment(uint256 _seedId, address _commenter, address _actor, bool _isDelegated, string memory _ipfsHash) internal {
+        Seed storage seed = seeds[_seedId];
+
+        if (seed.createdAt == 0) revert SeedNotFound();
+        _validateIPFSHash(_ipfsHash);
+
+        uint256 commandmentId = totalCommandments++;
+
+        commandments[commandmentId] = Commandment({
+            id: commandmentId,
+            seedId: _seedId,
+            commenter: _commenter,
+            ipfsHash: _ipfsHash,
+            createdAt: block.timestamp
+        });
+
+        seedCommandmentIds[_seedId].push(commandmentId);
+        commandmentCount[_seedId]++;
+
+        emit CommandmentSubmitted(commandmentId, _seedId, _commenter, _actor, _isDelegated, _ipfsHash, block.timestamp);
     }
 
     function _checkAndUpdateDailyLimit(address _user, uint256 _nftCount) internal {
@@ -477,6 +615,53 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
         emit DeadlockStrategyUpdated(previousStrategy, _newStrategy);
     }
 
+    function updateBlessingCost(uint256 _newCost) external onlyRole(ADMIN_ROLE) {
+        nextBlessingCost = _newCost;
+    }
+
+    function updateCommandmentCost(uint256 _newCost) external onlyRole(ADMIN_ROLE) {
+        nextCommandmentCost = _newCost;
+    }
+
+    function updateCommandmentsPerNFT(uint256 _newAmount) external onlyRole(ADMIN_ROLE) {
+        if (_newAmount == 0 || _newAmount > 100) revert InvalidCommandmentsPerNFT();
+        nextCommandmentsPerNFT = _newAmount;
+    }
+
+    function updateTreasury(address _newTreasury) external onlyRole(ADMIN_ROLE) {
+        if (_newTreasury == address(0)) revert InvalidTreasury();
+        address previous = treasury;
+        treasury = _newTreasury;
+        emit TreasuryUpdated(previous, _newTreasury);
+    }
+
+    function withdrawFees() external onlyRole(ADMIN_ROLE) {
+        uint256 balance = address(this).balance;
+        if (balance == 0) revert NoFeesToWithdraw();
+        if (treasury == address(0)) revert TreasuryNotSet();
+
+        (bool success, ) = payable(treasury).call{value: balance}("");
+        require(success, "Transfer failed");
+        emit FeesWithdrawn(treasury, balance);
+    }
+
+    function updateScoringConfig(
+        uint256 _blessingWeight,
+        uint256 _commandmentWeight,
+        uint256 _timeDecayMin,
+        uint256 _timeDecayBase
+    ) external onlyRole(ADMIN_ROLE) {
+        nextScoringConfig = ScoringConfig({
+            blessingWeight: _blessingWeight,
+            commandmentWeight: _commandmentWeight,
+            timeDecayMin: _timeDecayMin,
+            timeDecayBase: _timeDecayBase,
+            scaleFactorBlessings: scoringConfig.scaleFactorBlessings,
+            scaleFactorCommandments: scoringConfig.scaleFactorCommandments
+        });
+        pendingScoringUpdate = true;
+    }
+
     function setBaseURI(string memory baseURI_) external onlyRole(ADMIN_ROLE) {
         _baseTokenURI = baseURI_;
     }
@@ -518,19 +703,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
         return periodEnd - block.timestamp;
     }
 
-    function getSeedsByRound(uint256 _round) external view returns (Seed[] memory) {
-        uint256[] memory seedIds = roundSeedIds[_round];
-        Seed[] memory result = new Seed[](seedIds.length);
-
-        for (uint256 i = 0; i < seedIds.length; i++) {
-            result[i] = seeds[seedIds[i]];
-        }
-        return result;
-    }
-
-    function getCurrentRoundSeeds() external view returns (Seed[] memory) {
-        return this.getSeedsByRound(currentRound);
-    }
+    // Removed: getSeedsByRound & getCurrentRoundSeeds - build from SeedSubmitted events for scalability
 
     function getBlessingCount(address _user, uint256 _seedId) external view returns (uint256) {
         return userSeedBlessingCount[_user][_seedId];
@@ -581,38 +754,30 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
         return nextDayStart - block.timestamp;
     }
 
-    function getCurrentLeaders() external view returns (uint256[] memory leadingSeedIds, uint256 score) {
-        uint256[] memory candidateSeeds = roundMode == RoundMode.ROUND_BASED ? roundSeedIds[currentRound] : allSeedIds;
-        uint256 maxScore = 0;
-        uint256 leaderCount = 0;
+    // Removed: getCommandmentsBySeed - use CommandmentSubmitted events for scalability
 
-        for (uint256 i = 0; i < candidateSeeds.length; i++) {
-            uint256 seedId = candidateSeeds[i];
-            if (!seeds[seedId].isWinner && !seeds[seedId].isRetracted) {
-                uint256 seedScore = seedBlessingScore[seedId];
-                if (seedScore > maxScore) {
-                    maxScore = seedScore;
-                    leaderCount = 1;
-                } else if (seedScore == maxScore && seedScore > 0) {
-                    leaderCount++;
-                }
-            }
-        }
-
-        if (leaderCount == 0) return (new uint256[](0), 0);
-
-        uint256[] memory leaders = new uint256[](leaderCount);
-        uint256 index = 0;
-
-        for (uint256 i = 0; i < candidateSeeds.length; i++) {
-            uint256 seedId = candidateSeeds[i];
-            if (!seeds[seedId].isWinner && !seeds[seedId].isRetracted && seedBlessingScore[seedId] == maxScore) {
-                leaders[index++] = seedId;
-            }
-        }
-
-        return (leaders, maxScore);
+    function getUserDailyCommandmentCount(address _user) external view returns (uint256) {
+        uint256 currentDay = block.timestamp / 1 days;
+        return userDailyCommandments[_user][currentDay];
     }
+
+    function getRemainingCommandments(address _user, uint256 _nftCount) external view returns (uint256) {
+        uint256 currentDay = block.timestamp / 1 days;
+        uint256 maxCommandments = _nftCount * commandmentsPerNFT;
+        uint256 used = userDailyCommandments[_user][currentDay];
+        if (used >= maxCommandments) return 0;
+        return maxCommandments - used;
+    }
+
+    function getScoringConfig() external view returns (ScoringConfig memory) {
+        return scoringConfig;
+    }
+
+    function getContractBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+
+    // Removed: getCurrentLeaders - calculate off-chain from blessing data for better scalability
 
     function _verifyOwnership(address _voter, uint256[] memory _tokenIds, bytes32[] memory _merkleProof) internal view returns (bool) {
         if (currentOwnershipRoot == bytes32(0)) return false;
@@ -703,6 +868,40 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
             blessingsPerNFT = nextBlessingsPerNFT;
             nextBlessingsPerNFT = 0;
             emit BlessingsPerNFTUpdated(previous, blessingsPerNFT);
+        }
+
+        // Apply blessing cost updates
+        if (nextBlessingCost != blessingCost) {
+            uint256 previous = blessingCost;
+            blessingCost = nextBlessingCost;
+            emit CostUpdated("blessing", previous, blessingCost);
+        }
+
+        // Apply commandment cost updates
+        if (nextCommandmentCost != commandmentCost) {
+            uint256 previous = commandmentCost;
+            commandmentCost = nextCommandmentCost;
+            emit CostUpdated("commandment", previous, commandmentCost);
+        }
+
+        // Apply commandmentsPerNFT updates
+        if (nextCommandmentsPerNFT > 0) {
+            uint256 previous = commandmentsPerNFT;
+            commandmentsPerNFT = nextCommandmentsPerNFT;
+            nextCommandmentsPerNFT = 0;
+            emit CommandmentsPerNFTUpdated(previous, commandmentsPerNFT);
+        }
+
+        // Apply scoring config updates
+        if (pendingScoringUpdate) {
+            scoringConfig = nextScoringConfig;
+            pendingScoringUpdate = false;
+            emit ScoringConfigUpdated(
+                scoringConfig.blessingWeight,
+                scoringConfig.commandmentWeight,
+                scoringConfig.timeDecayMin,
+                scoringConfig.timeDecayBase
+            );
         }
     }
 }

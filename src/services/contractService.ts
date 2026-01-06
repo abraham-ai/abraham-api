@@ -250,28 +250,38 @@ class ContractService {
    * Read: Get seeds by round number
    */
   async getSeedsByRound(round: number): Promise<Seed[]> {
-    const seeds = await this.publicClient.readContract({
+    // Optimized: Build from SeedSubmitted events for this round
+    const events = await this.publicClient.getContractEvents({
       address: this.contractAddress,
       abi: SEEDS_ABI,
-      functionName: "getSeedsByRound",
-      args: [BigInt(round)],
+      eventName: "SeedSubmitted",
+      fromBlock: 0n,
+      toBlock: "latest",
     });
 
-    return seeds as unknown as Seed[];
+    // Filter events for this round and fetch seed data
+    const seedPromises = events
+      .map((event: any) => event.args as { seedId: bigint; creator: string; ipfsHash: string; timestamp: bigint })
+      .map(async (args) => {
+        const seed = await this.getSeed(Number(args.seedId));
+        // Check if seed was submitted in this round
+        if (Number(seed.winnerInRound) === 0 || Number(seed.winnerInRound) > round) {
+          return seed;
+        }
+        return null;
+      });
+
+    const allSeeds = await Promise.all(seedPromises);
+    return allSeeds.filter((s): s is Seed => s !== null);
   }
 
   /**
    * Read: Get seeds from current round
+   * Optimized: Uses getSeedsByRound with current round
    */
   async getCurrentRoundSeeds(): Promise<Seed[]> {
-    const seeds = await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getCurrentRoundSeeds",
-      args: [],
-    });
-
-    return seeds as unknown as Seed[];
+    const currentRound = await this.getCurrentRound();
+    return this.getSeedsByRound(Number(currentRound));
   }
 
   /**
@@ -389,20 +399,42 @@ class ContractService {
 
   /**
    * Read: Get current leaders (multiple in case of tie)
+   * Optimized: Calculates from seed data instead of removed view function
    */
   async getCurrentLeaders(): Promise<{
     leadingSeedIds: bigint[];
     score: bigint;
   }> {
-    const result = await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getCurrentLeaders",
-      args: [],
-    });
+    // Get current round and total seeds
+    const [currentRound, totalSeeds, roundMode] = await Promise.all([
+      this.getCurrentRound(),
+      this.getSeedCount(),
+      this.getRoundMode(),
+    ]);
 
-    const [leadingSeedIds, score] = result as [bigint[], bigint];
-    return { leadingSeedIds, score };
+    // Find seeds with max score
+    let maxScore = 0n;
+    const leaders: bigint[] = [];
+
+    for (let i = 0; i < Number(totalSeeds); i++) {
+      const seedId = BigInt(i);
+      const seed = await this.getSeed(Number(seedId));
+
+      // Skip winners and retracted seeds
+      if (seed.isWinner || seed.isRetracted) continue;
+
+      const seedScore = BigInt(seed.blessings);
+
+      if (seedScore > maxScore) {
+        maxScore = seedScore;
+        leaders.length = 0;
+        leaders.push(seedId);
+      } else if (seedScore === maxScore && seedScore > 0n) {
+        leaders.push(seedId);
+      }
+    }
+
+    return { leadingSeedIds: leaders, score: maxScore };
   }
 
   /*//////////////////////////////////////////////////////////////
@@ -1426,6 +1458,442 @@ class ContractService {
       return {
         success: false,
         error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * ======================
+   * COMMANDMENT OPERATIONS
+   * ======================
+   */
+
+  /**
+   * Read: Get commandments for a seed (from events)
+   * Optimized: Uses event indexing instead of removed view function
+   */
+  async getCommandmentsBySeed(seedId: number): Promise<any[]> {
+    const events = await this.getCommandmentEvents();
+    return events.filter((event: any) => event.seedId === seedId);
+  }
+
+  /**
+   * Read: Get user's daily commandment count
+   */
+  async getUserDailyCommandmentCount(userAddress: Address): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "getUserDailyCommandmentCount",
+      args: [userAddress],
+    })) as bigint;
+  }
+
+  /**
+   * Read: Get remaining commandments for user
+   */
+  async getRemainingCommandments(
+    userAddress: Address,
+    nftCount: number
+  ): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "getRemainingCommandments",
+      args: [userAddress, BigInt(nftCount)],
+    })) as bigint;
+  }
+
+  /**
+   * Read: Get scoring configuration
+   */
+  async getScoringConfig(): Promise<{
+    blessingWeight: bigint;
+    commandmentWeight: bigint;
+    timeDecayMin: bigint;
+    timeDecayBase: bigint;
+    scaleFactorBlessings: bigint;
+    scaleFactorCommandments: bigint;
+  }> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "getScoringConfig",
+      args: [],
+    })) as any;
+  }
+
+  /**
+   * Read: Get contract balance (collected fees)
+   */
+  async getContractBalance(): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "getContractBalance",
+      args: [],
+    })) as bigint;
+  }
+
+  /**
+   * Write: Submit commandment on behalf of user (relayer function)
+   */
+  async commentOnSeedFor(
+    seedId: number,
+    userAddress: Address,
+    ipfsHash: string,
+    tokenIds: number[],
+    merkleProof: string[]
+  ): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    commandmentId?: number;
+    error?: string;
+  }> {
+    if (!this.walletClient || !this.relayerAccount) {
+      return { success: false, error: "Relayer not configured" };
+    }
+
+    try {
+      // Get commandment cost
+      const cost = (await this.publicClient.readContract({
+        address: this.contractAddress,
+        abi: SEEDS_ABI,
+        functionName: "commandmentCost",
+        args: [],
+      })) as bigint;
+
+      const tokenIdsBigInt = tokenIds.map((id) => BigInt(id));
+      const proofFormatted = merkleProof as `0x${string}`[];
+
+      const hash = await this.walletClient.writeContract({
+        address: this.contractAddress,
+        abi: SEEDS_ABI,
+        functionName: "commentOnSeedFor",
+        args: [BigInt(seedId), userAddress, ipfsHash, tokenIdsBigInt, proofFormatted],
+        value: cost,
+      } as any);
+
+      const receipt = await this.publicClient.waitForTransactionReceipt({
+        hash,
+      });
+
+      // Parse CommandmentSubmitted event to get ID
+      let commandmentId: number | undefined;
+      for (const log of receipt.logs) {
+        try {
+          if (log.topics[0] && log.topics[1]) {
+            // First indexed parameter is commandmentId
+            commandmentId = Number(BigInt(log.topics[1]));
+            break;
+          }
+        } catch (e) {
+          // Skip invalid logs
+        }
+      }
+
+      return {
+        success: receipt.status === "success",
+        txHash: hash,
+        commandmentId,
+      };
+    } catch (error: any) {
+      console.error("Error submitting commandment:", error);
+
+      let errorMessage = "Failed to submit commandment";
+      if (error.message.includes("DailyCommandmentLimitReached")) {
+        errorMessage = "Daily commandment limit reached";
+      } else if (error.message.includes("InvalidMerkleProof")) {
+        errorMessage = "Invalid NFT ownership proof";
+      } else if (error.message.includes("InsufficientPayment")) {
+        errorMessage = "Insufficient payment for commandment";
+      } else if (error.message.includes("SeedNotFound")) {
+        errorMessage = "Seed not found";
+      }
+
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Fetch commandment events from blockchain
+   */
+  async getCommandmentEvents(options?: {
+    fromBlock?: bigint;
+    toBlock?: bigint | "latest";
+    userAddress?: Address;
+    seedId?: number;
+  }): Promise<any[]> {
+    const BATCH_SIZE = 50000n;
+    const allCommandments: any[] = [];
+
+    try {
+      const latestBlock = await this.publicClient.getBlockNumber();
+      const fromBlock = options?.fromBlock || 0n;
+      const toBlock =
+        options?.toBlock === "latest" || !options?.toBlock
+          ? latestBlock
+          : options.toBlock;
+
+      let currentFrom = fromBlock;
+
+      while (currentFrom <= toBlock) {
+        const currentTo =
+          currentFrom + BATCH_SIZE > toBlock ? toBlock : currentFrom + BATCH_SIZE;
+
+        const filter: any = {
+          address: this.contractAddress,
+          event: {
+            type: "event",
+            name: "CommandmentSubmitted",
+            inputs: [
+              { indexed: true, name: "commandmentId", type: "uint256" },
+              { indexed: true, name: "seedId", type: "uint256" },
+              { indexed: true, name: "commenter", type: "address" },
+              { indexed: false, name: "actor", type: "address" },
+              { indexed: false, name: "isDelegated", type: "bool" },
+              { indexed: false, name: "ipfsHash", type: "string" },
+              { indexed: false, name: "timestamp", type: "uint256" },
+            ],
+          },
+          fromBlock: currentFrom,
+          toBlock: currentTo,
+        };
+
+        if (options?.seedId !== undefined) {
+          filter.args = { seedId: BigInt(options.seedId) };
+        }
+        if (options?.userAddress) {
+          filter.args = { ...filter.args, commenter: options.userAddress };
+        }
+
+        const logs = await this.publicClient.getLogs(filter);
+
+        const commandments = logs.map((log: any) => ({
+          commandmentId: log.args.commandmentId,
+          seedId: log.args.seedId,
+          commenter: log.args.commenter,
+          actor: log.args.actor,
+          isDelegated: log.args.isDelegated,
+          ipfsHash: log.args.ipfsHash,
+          timestamp: log.args.timestamp,
+        }));
+
+        allCommandments.push(...commandments);
+        currentFrom = currentTo + 1n;
+      }
+
+      return allCommandments;
+    } catch (error) {
+      console.error("Error fetching commandment events:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Admin: Update commandment cost
+   */
+  async updateCommandmentCost(newCost: bigint): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    error?: string;
+  }> {
+    if (!this.walletClient || !this.relayerAccount) {
+      return { success: false, error: "Wallet client not initialized" };
+    }
+
+    try {
+      const hash = await this.walletClient.writeContract({
+        address: this.contractAddress,
+        abi: SEEDS_ABI,
+        functionName: "updateCommandmentCost",
+        args: [newCost],
+      } as any);
+
+      const receipt = await this.publicClient.waitForTransactionReceipt({
+        hash,
+      });
+
+      return {
+        success: receipt.status === "success",
+        txHash: hash,
+      };
+    } catch (error: any) {
+      console.error("Error updating commandment cost:", error);
+      return {
+        success: false,
+        error: error.message || "Failed to update commandment cost",
+      };
+    }
+  }
+
+  /**
+   * Admin: Update blessing cost
+   */
+  async updateBlessingCost(newCost: bigint): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    error?: string;
+  }> {
+    if (!this.walletClient || !this.relayerAccount) {
+      return { success: false, error: "Wallet client not initialized" };
+    }
+
+    try {
+      const hash = await this.walletClient.writeContract({
+        address: this.contractAddress,
+        abi: SEEDS_ABI,
+        functionName: "updateBlessingCost",
+        args: [newCost],
+      } as any);
+
+      const receipt = await this.publicClient.waitForTransactionReceipt({
+        hash,
+      });
+
+      return {
+        success: receipt.status === "success",
+        txHash: hash,
+      };
+    } catch (error: any) {
+      console.error("Error updating blessing cost:", error);
+      return {
+        success: false,
+        error: error.message || "Failed to update blessing cost",
+      };
+    }
+  }
+
+  /**
+   * Admin: Update scoring configuration
+   */
+  async updateScoringConfig(config: {
+    blessingWeight: number;
+    commandmentWeight: number;
+    timeDecayMin: number;
+    timeDecayBase: number;
+  }): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    error?: string;
+  }> {
+    if (!this.walletClient || !this.relayerAccount) {
+      return { success: false, error: "Wallet client not initialized" };
+    }
+
+    try {
+      const hash = await this.walletClient.writeContract({
+        address: this.contractAddress,
+        abi: SEEDS_ABI,
+        functionName: "updateScoringConfig",
+        args: [
+          BigInt(config.blessingWeight),
+          BigInt(config.commandmentWeight),
+          BigInt(config.timeDecayMin),
+          BigInt(config.timeDecayBase),
+        ],
+      } as any);
+
+      const receipt = await this.publicClient.waitForTransactionReceipt({
+        hash,
+      });
+
+      return {
+        success: receipt.status === "success",
+        txHash: hash,
+      };
+    } catch (error: any) {
+      console.error("Error updating scoring config:", error);
+      return {
+        success: false,
+        error: error.message || "Failed to update scoring config",
+      };
+    }
+  }
+
+  /**
+   * Admin: Withdraw collected fees to treasury
+   */
+  async withdrawFees(): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    amount?: bigint;
+    error?: string;
+  }> {
+    if (!this.walletClient || !this.relayerAccount) {
+      return { success: false, error: "Wallet client not initialized" };
+    }
+
+    try {
+      // Get balance before withdrawal
+      const balance = await this.getContractBalance();
+
+      const hash = await this.walletClient.writeContract({
+        address: this.contractAddress,
+        abi: SEEDS_ABI,
+        functionName: "withdrawFees",
+        args: [],
+      } as any);
+
+      const receipt = await this.publicClient.waitForTransactionReceipt({
+        hash,
+      });
+
+      return {
+        success: receipt.status === "success",
+        txHash: hash,
+        amount: balance,
+      };
+    } catch (error: any) {
+      console.error("Error withdrawing fees:", error);
+
+      let errorMessage = "Failed to withdraw fees";
+      if (error.message.includes("NoFeesToWithdraw")) {
+        errorMessage = "No fees to withdraw";
+      } else if (error.message.includes("TreasuryNotSet")) {
+        errorMessage = "Treasury address not set";
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Admin: Update treasury address
+   */
+  async updateTreasury(newTreasury: Address): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    error?: string;
+  }> {
+    if (!this.walletClient || !this.relayerAccount) {
+      return { success: false, error: "Wallet client not initialized" };
+    }
+
+    try {
+      const hash = await this.walletClient.writeContract({
+        address: this.contractAddress,
+        abi: SEEDS_ABI,
+        functionName: "updateTreasury",
+        args: [newTreasury],
+      } as any);
+
+      const receipt = await this.publicClient.waitForTransactionReceipt({
+        hash,
+      });
+
+      return {
+        success: receipt.status === "success",
+        txHash: hash,
+      };
+    } catch (error: any) {
+      console.error("Error updating treasury:", error);
+      return {
+        success: false,
+        error: error.message || "Failed to update treasury",
       };
     }
   }
