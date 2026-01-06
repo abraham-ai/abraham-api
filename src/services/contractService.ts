@@ -65,9 +65,9 @@ class ContractService {
     const rpcUrl = process.env.L2_RPC_URL;
     const contractAddress =
       process.env.L2_SEEDS_CONTRACT ||
-      "0xaea1cfd09da8f226a2ff2590d6b748563cf517f0";
+      "0x81901f757fd6b3c37e5391dbe6fa0affe9a181b5";
     const relayerKey = process.env.RELAYER_PRIVATE_KEY;
-    const deploymentBlock = process.env.L2_SEEDS_DEPLOYMENT_BLOCK || "0";
+    const deploymentBlock = process.env.L2_SEEDS_DEPLOYMENT_BLOCK || "35963162";
 
     if (!contractAddress) {
       throw new Error("L2_SEEDS_CONTRACT environment variable not set");
@@ -75,6 +75,8 @@ class ContractService {
 
     this.contractAddress = contractAddress as Address;
     this.deploymentBlock = BigInt(deploymentBlock);
+
+    console.log(`📦 Deployment block set to: ${this.deploymentBlock}`);
 
     // Set up chain
     const chain = network === "base" ? base : baseSepolia;
@@ -264,11 +266,22 @@ class ContractService {
 
     // Filter events for this round and fetch seed data
     const seedPromises = events
-      .map((event: any) => event.args as { seedId: bigint; creator: string; ipfsHash: string; timestamp: bigint })
+      .map(
+        (event: any) =>
+          event.args as {
+            seedId: bigint;
+            creator: string;
+            ipfsHash: string;
+            timestamp: bigint;
+          }
+      )
       .map(async (args) => {
         const seed = await this.getSeed(Number(args.seedId));
         // Check if seed was submitted in this round
-        if (Number(seed.winnerInRound) === 0 || Number(seed.winnerInRound) > round) {
+        if (
+          Number(seed.winnerInRound) === 0 ||
+          Number(seed.winnerInRound) > round
+        ) {
           return seed;
         }
         return null;
@@ -1177,17 +1190,19 @@ class ContractService {
       // Get the latest block number if toBlock is 'latest'
       const latestBlock = await this.publicClient.getBlockNumber();
       const fromBlock = options?.fromBlock || this.deploymentBlock;
-      const toBlock = options?.toBlock === "latest" || !options?.toBlock
-        ? latestBlock
-        : options.toBlock;
+      const toBlock =
+        options?.toBlock === "latest" || !options?.toBlock
+          ? latestBlock
+          : options.toBlock;
 
       // Fetch in batches to avoid exceeding RPC limits
       let currentFrom = fromBlock;
 
       while (currentFrom <= toBlock) {
-        const currentTo = currentFrom + BATCH_SIZE > toBlock
-          ? toBlock
-          : currentFrom + BATCH_SIZE;
+        const currentTo =
+          currentFrom + BATCH_SIZE > toBlock
+            ? toBlock
+            : currentFrom + BATCH_SIZE;
 
         // Build event filter for this batch
         const filter: any = {
@@ -1275,7 +1290,9 @@ class ContractService {
       // Check 0: Get round mode to determine which checks to run
       const roundMode = await this.getRoundMode();
       const isNonRoundBased = roundMode === 1;
-      console.log(`   Round Mode: ${isNonRoundBased ? 'NON_ROUND_BASED' : 'ROUND_BASED'}`);
+      console.log(
+        `   Round Mode: ${isNonRoundBased ? "NON_ROUND_BASED" : "ROUND_BASED"}`
+      );
 
       // Check 1: Get current round (still tracked even in NON_ROUND_BASED)
       const currentRound = await this.getCurrentRound();
@@ -1571,7 +1588,13 @@ class ContractService {
         address: this.contractAddress,
         abi: SEEDS_ABI,
         functionName: "commentOnSeedFor",
-        args: [BigInt(seedId), userAddress, ipfsHash, tokenIdsBigInt, proofFormatted],
+        args: [
+          BigInt(seedId),
+          userAddress,
+          ipfsHash,
+          tokenIdsBigInt,
+          proofFormatted,
+        ],
         value: cost,
       } as any);
 
@@ -1640,7 +1663,9 @@ class ContractService {
 
       while (currentFrom <= toBlock) {
         const currentTo =
-          currentFrom + BATCH_SIZE > toBlock ? toBlock : currentFrom + BATCH_SIZE;
+          currentFrom + BATCH_SIZE > toBlock
+            ? toBlock
+            : currentFrom + BATCH_SIZE;
 
         const filter: any = {
           address: this.contractAddress,
