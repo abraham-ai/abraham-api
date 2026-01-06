@@ -208,9 +208,12 @@ export function ipfsHashToUrl(ipfsHash: string): string {
     return ipfsHash;
   }
 
+  // Get IPFS gateway from environment or use default Pinata gateway
+  const ipfsGateway = process.env.IPFS_GATEWAY || 'https://tomato-causal-partridge-743.mypinata.cloud/ipfs/';
+
   // If it's an ipfs:// URL, convert to HTTP gateway
   if (ipfsHash.startsWith('ipfs://')) {
-    return ipfsHash.replace('ipfs://', 'https://ipfs.io/ipfs/');
+    return ipfsHash.replace('ipfs://', ipfsGateway);
   }
 
   // For blob storage hashes (Qm...), construct blob URL if available
@@ -219,8 +222,8 @@ export function ipfsHashToUrl(ipfsHash: string): string {
     return `${baseUrl}/commandments/${ipfsHash}.json`;
   }
 
-  // Fallback to public IPFS gateway
-  return `https://ipfs.io/ipfs/${ipfsHash}`;
+  // Fallback to IPFS gateway
+  return `${ipfsGateway}${ipfsHash}`;
 }
 
 /**

@@ -337,11 +337,12 @@ seeds.get("/", async (c) => {
         if (seed.ipfsHash) {
           try {
             // Convert IPFS hash to HTTP gateway URL
+            const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
             const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
-              ? seed.ipfsHash.replace("ipfs://", "https://ipfs.io/ipfs/")
+              ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
               : seed.ipfsHash.startsWith("http")
               ? seed.ipfsHash
-              : `https://ipfs.io/ipfs/${seed.ipfsHash}`;
+              : `${ipfsGateway}${seed.ipfsHash}`;
 
             const response = await fetch(ipfsUrl);
 
@@ -514,11 +515,12 @@ seeds.get("/minted", async (c) => {
         if (seed.ipfsHash) {
           try {
             // Convert IPFS hash to HTTP gateway URL
+            const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
             const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
-              ? seed.ipfsHash.replace("ipfs://", "https://ipfs.io/ipfs/")
+              ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
               : seed.ipfsHash.startsWith("http")
               ? seed.ipfsHash
-              : `https://ipfs.io/ipfs/${seed.ipfsHash}`;
+              : `${ipfsGateway}${seed.ipfsHash}`;
 
             const response = await fetch(ipfsUrl);
 
@@ -614,11 +616,12 @@ seeds.get("/:seedId", async (c) => {
     if (seed.ipfsHash) {
       try {
         // Convert IPFS hash to HTTP gateway URL
+        const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
         const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
-          ? seed.ipfsHash.replace("ipfs://", "https://ipfs.io/ipfs/")
+          ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
           : seed.ipfsHash.startsWith("http")
           ? seed.ipfsHash
-          : `https://ipfs.io/ipfs/${seed.ipfsHash}`;
+          : `${ipfsGateway}${seed.ipfsHash}`;
 
         const response = await fetch(ipfsUrl);
 
@@ -906,11 +909,12 @@ seeds.get("/round/current", async (c) => {
         if (seed.ipfsHash) {
           try {
             // Convert IPFS hash to HTTP gateway URL
+            const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
             const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
-              ? seed.ipfsHash.replace("ipfs://", "https://ipfs.io/ipfs/")
+              ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
               : seed.ipfsHash.startsWith("http")
               ? seed.ipfsHash
-              : `https://ipfs.io/ipfs/${seed.ipfsHash}`;
+              : `${ipfsGateway}${seed.ipfsHash}`;
 
             const response = await fetch(ipfsUrl);
 
@@ -1004,11 +1008,12 @@ seeds.get("/round/:roundNumber", async (c) => {
         if (seed.ipfsHash) {
           try {
             // Convert IPFS hash to HTTP gateway URL
+            const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
             const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
-              ? seed.ipfsHash.replace("ipfs://", "https://ipfs.io/ipfs/")
+              ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
               : seed.ipfsHash.startsWith("http")
               ? seed.ipfsHash
-              : `https://ipfs.io/ipfs/${seed.ipfsHash}`;
+              : `${ipfsGateway}${seed.ipfsHash}`;
 
             const response = await fetch(ipfsUrl);
 
@@ -1100,11 +1105,12 @@ seeds.get("/token/:tokenId", async (c) => {
 
     if (seed.ipfsHash) {
       try {
+        const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
         const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
-          ? seed.ipfsHash.replace("ipfs://", "https://ipfs.io/ipfs/")
+          ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
           : seed.ipfsHash.startsWith("http")
           ? seed.ipfsHash
-          : `https://ipfs.io/ipfs/${seed.ipfsHash}`;
+          : `${ipfsGateway}${seed.ipfsHash}`;
 
         const response = await fetch(ipfsUrl);
 
