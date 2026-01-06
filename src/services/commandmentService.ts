@@ -213,15 +213,15 @@ class CommandmentService {
             }
           } catch (error) {
             metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
-            console.error(`Error fetching metadata for commandment ${cmd.id}:`, error);
+            console.error(`Error fetching metadata for commandment ${cmd.commandmentId}:`, error);
           }
 
           return {
-            id: Number(cmd.id),
+            id: Number(cmd.commandmentId),
             seedId: Number(cmd.seedId),
             commenter: cmd.commenter,
             ipfsHash: cmd.ipfsHash,
-            createdAt: Number(cmd.createdAt),
+            createdAt: Number(cmd.timestamp),
             metadata,
             metadataError
           };
@@ -335,10 +335,11 @@ class CommandmentService {
               metadata = await response.json();
             } else {
               metadataError = `HTTP ${response.status}`;
+              console.error(`Failed to fetch metadata for commandment ${event.commandmentId}: HTTP ${response.status} from ${ipfsUrl}`);
             }
           } catch (error) {
             metadataError = error instanceof Error ? error.message : "Failed to fetch";
-            console.error(`Error fetching metadata for commandment:`, error);
+            console.error(`Error fetching metadata for commandment ${event.commandmentId}:`, error);
           }
 
           return {

@@ -1,19 +1,15 @@
 /**
  * IPFS Service
  *
- * This service handles uploading commandment content using Vercel Blob storage
- * as an alternative to IPFS. The content is structured in an IPFS-compatible format.
+ * This service handles uploading commandment content to IPFS using Pinata.
  *
  * Features:
- * - Upload commandment messages and metadata
- * - Generate hash-like identifiers for content addressing
- * - Fetch content by identifier
+ * - Upload commandment messages and metadata to IPFS
+ * - Fetch content by IPFS hash
  * - JSON metadata structure
  */
 
-import { put } from '@vercel/blob';
-import type { PutBlobResult } from '@vercel/blob';
-import crypto from 'crypto';
+import { PinataSDK } from 'pinata';
 
 export interface CommandmentMetadata {
   type: 'commandment';
@@ -31,34 +27,31 @@ export interface IPFSUploadResult {
   error?: string;
 }
 
+// Initialize Pinata client
+let pinata: PinataSDK | null = null;
+
+function getPinataClient(): PinataSDK | null {
+  if (pinata) return pinata;
+
+  const jwt = process.env.PINATA_JWT;
+  if (!jwt) {
+    console.warn('PINATA_JWT not configured');
+    return null;
+  }
+
+  pinata = new PinataSDK({ pinataJwt: jwt });
+  return pinata;
+}
+
 /**
- * Check if blob storage is configured for IPFS-style uploads
+ * Check if IPFS service is configured
  */
 export function isIPFSServiceConfigured(): boolean {
-  return !!process.env.BLOB_READ_WRITE_TOKEN;
+  return !!process.env.PINATA_JWT;
 }
 
 /**
- * Generate a content hash for the commandment
- * Creates a hash similar to IPFS CIDv0 format (starts with Qm, 46 chars)
- *
- * @param content - Content to hash
- * @returns Hash string in IPFS-compatible format
- */
-function generateContentHash(content: string): string {
-  const hash = crypto.createHash('sha256').update(content).digest('base64');
-  // Create a Qm-prefixed hash that passes the contract's IPFS validation
-  // Take first 44 chars of base64 hash and prefix with Qm
-  const base64Hash = hash.replace(/[+/=]/g, (char) => {
-    if (char === '+') return 'a';
-    if (char === '/') return 'b';
-    return 'c';
-  });
-  return 'Qm' + base64Hash.substring(0, 44);
-}
-
-/**
- * Upload commandment content to blob storage
+ * Upload commandment content to IPFS via Pinata
  *
  * @param message - Commandment message text
  * @param author - Author address
@@ -70,10 +63,12 @@ export async function uploadCommandment(
   author: string,
   seedId: number
 ): Promise<IPFSUploadResult> {
-  if (!isIPFSServiceConfigured()) {
+  const client = getPinataClient();
+
+  if (!client) {
     return {
       success: false,
-      error: 'Blob storage not configured. Set BLOB_READ_WRITE_TOKEN in environment.'
+      error: 'IPFS not configured. Set PINATA_JWT in environment.'
     };
   }
 
@@ -88,28 +83,23 @@ export async function uploadCommandment(
       version: '1.0'
     };
 
-    // Generate content hash (IPFS-compatible format)
-    const contentString = JSON.stringify(metadata);
-    const hash = generateContentHash(contentString);
+    // Upload to IPFS via Pinata
+    const upload = await client.upload.public.json(metadata)
+      .name(`commandment-seed-${seedId}-${Date.now()}.json`);
 
-    // Upload to blob storage with hash as filename
-    const path = `commandments/${hash}.json`;
-    const blob = await put(path, contentString, {
-      access: 'public',
-      addRandomSuffix: false,
-      contentType: 'application/json'
-    });
+    const ipfsHash = upload.cid;
+    const ipfsUrl = ipfsHashToUrl(ipfsHash);
 
-    console.log(`✓ Uploaded commandment: ${hash}`);
-    console.log(`  URL: ${blob.url}`);
+    console.log(`✓ Uploaded commandment to IPFS: ${ipfsHash}`);
+    console.log(`  URL: ${ipfsUrl}`);
 
     return {
       success: true,
-      ipfsHash: hash,
-      url: blob.url
+      ipfsHash,
+      url: ipfsUrl
     };
   } catch (error) {
-    console.error('Error uploading commandment:', error);
+    console.error('Error uploading commandment to IPFS:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Upload failed'
@@ -118,39 +108,37 @@ export async function uploadCommandment(
 }
 
 /**
- * Upload arbitrary JSON data (generic IPFS-style upload)
+ * Upload arbitrary JSON data to IPFS via Pinata
  *
  * @param data - JSON data to upload
  * @returns Upload result with hash and URL
  */
 export async function uploadJSON(data: any): Promise<IPFSUploadResult> {
-  if (!isIPFSServiceConfigured()) {
+  const client = getPinataClient();
+
+  if (!client) {
     return {
       success: false,
-      error: 'Blob storage not configured. Set BLOB_READ_WRITE_TOKEN in environment.'
+      error: 'IPFS not configured. Set PINATA_JWT in environment.'
     };
   }
 
   try {
-    const contentString = JSON.stringify(data, null, 2);
-    const hash = generateContentHash(contentString);
+    const upload = await client.upload.public.json(data)
+      .name(`json-${Date.now()}.json`);
 
-    const path = `ipfs-content/${hash}.json`;
-    const blob = await put(path, contentString, {
-      access: 'public',
-      addRandomSuffix: false,
-      contentType: 'application/json'
-    });
+    const ipfsHash = upload.cid;
+    const ipfsUrl = ipfsHashToUrl(ipfsHash);
 
-    console.log(`✓ Uploaded JSON content: ${hash}`);
+    console.log(`✓ Uploaded JSON to IPFS: ${ipfsHash}`);
 
     return {
       success: true,
-      ipfsHash: hash,
-      url: blob.url
+      ipfsHash,
+      url: ipfsUrl
     };
   } catch (error) {
-    console.error('Error uploading JSON:', error);
+    console.error('Error uploading JSON to IPFS:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Upload failed'
@@ -159,31 +147,20 @@ export async function uploadJSON(data: any): Promise<IPFSUploadResult> {
 }
 
 /**
- * Fetch commandment content by hash
- * Attempts to fetch from blob storage URL
+ * Fetch commandment content by hash from IPFS
  *
- * @param hash - IPFS-style hash
+ * @param hash - IPFS hash
  * @returns Parsed content or null if not found
  */
 export async function fetchCommandmentByHash(
   hash: string
 ): Promise<CommandmentMetadata | null> {
   try {
-    // Construct blob URL
-    const baseUrl = process.env.BLOB_READ_WRITE_TOKEN
-      ? `https://${process.env.VERCEL_BLOB_STORE_ID}.public.blob.vercel-storage.com`
-      : null;
-
-    if (!baseUrl) {
-      console.warn('Cannot fetch: Blob storage not configured');
-      return null;
-    }
-
-    const url = `${baseUrl}/commandments/${hash}.json`;
+    const url = ipfsHashToUrl(hash);
     const response = await fetch(url);
 
     if (!response.ok) {
-      console.warn(`Failed to fetch commandment ${hash}: ${response.statusText}`);
+      console.warn(`Failed to fetch commandment ${hash}: HTTP ${response.status} ${response.statusText}`);
       return null;
     }
 
@@ -196,8 +173,7 @@ export async function fetchCommandmentByHash(
 }
 
 /**
- * Convert an IPFS hash to a fetchable HTTP URL
- * Handles both blob storage URLs and public IPFS gateway URLs
+ * Convert an IPFS hash to a fetchable HTTP URL via gateway
  *
  * @param ipfsHash - IPFS hash or URL
  * @returns HTTP URL
@@ -216,13 +192,7 @@ export function ipfsHashToUrl(ipfsHash: string): string {
     return ipfsHash.replace('ipfs://', ipfsGateway);
   }
 
-  // For blob storage hashes (Qm...), construct blob URL if available
-  if (ipfsHash.startsWith('Qm') && process.env.BLOB_READ_WRITE_TOKEN) {
-    const baseUrl = `https://${process.env.VERCEL_BLOB_STORE_ID}.public.blob.vercel-storage.com`;
-    return `${baseUrl}/commandments/${ipfsHash}.json`;
-  }
-
-  // Fallback to IPFS gateway
+  // Convert hash to gateway URL
   return `${ipfsGateway}${ipfsHash}`;
 }
 
