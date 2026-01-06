@@ -45,6 +45,7 @@
     "@vercel/blob": "^2.0.0",
     "dotenv": "^17.2.3",
     "hono": "^4.10.2",
+    "pinata": "^2.5.2",
     "viem": "^2.38.4"
   },
   "devDependencies": {
