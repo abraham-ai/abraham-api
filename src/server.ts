@@ -1,10 +1,11 @@
-// Load environment variables from .env files in development
-// In production (Vercel), environment variables are provided by the platform
+// CRITICAL: Load environment variables BEFORE any other imports
+// This ensures contractService and other services can read env vars during initialization
 if (process.env.NODE_ENV !== 'production') {
   const dotenv = await import('dotenv');
-  // Load .env.local first (for local development), fall back to .env
-  dotenv.config({ path: '.env.local' });
+  // Load .env first (base config)
   dotenv.config();
+  // Then .env.local (overrides for local development)
+  dotenv.config({ path: '.env.local', override: true });
 }
 
 import { serve } from '@hono/node-server'
