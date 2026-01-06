@@ -771,8 +771,9 @@ blessings.get("/firstworks/nfts/:address", async (c) => {
 
           try {
             // Convert IPFS URI to HTTP gateway if needed
+            const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
             const metadataURL = tokenURI.startsWith("ipfs://")
-              ? tokenURI.replace("ipfs://", "https://ipfs.io/ipfs/")
+              ? tokenURI.replace("ipfs://", ipfsGateway)
               : tokenURI;
 
             const response = await fetch(metadataURL);
