@@ -1473,8 +1473,7 @@ class ContractService {
    * Optimized: Uses event indexing instead of removed view function
    */
   async getCommandmentsBySeed(seedId: number): Promise<any[]> {
-    const events = await this.getCommandmentEvents();
-    return events.filter((event: any) => event.seedId === seedId);
+    return await this.getCommandmentEvents({ seedId });
   }
 
   /**
