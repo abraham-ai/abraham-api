@@ -25,7 +25,7 @@ commandments.post("/", withAuth, async (c) => {
     const { seedId, message } = body;
 
     // Validate input
-    if (!seedId || seedId < 0) {
+    if (typeof seedId !== 'number' || seedId < 0) {
       return c.json(
         { success: false, error: "Valid seedId is required" },
         400
