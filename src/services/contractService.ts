@@ -57,6 +57,7 @@ class ContractService {
   private walletClient: WalletClient | null = null;
   private contractAddress: Address;
   private relayerAccount: ReturnType<typeof privateKeyToAccount> | null = null;
+  private deploymentBlock: bigint;
 
   constructor() {
     // Get configuration from environment
@@ -66,12 +67,14 @@ class ContractService {
       process.env.L2_SEEDS_CONTRACT ||
       "0xaea1cfd09da8f226a2ff2590d6b748563cf517f0";
     const relayerKey = process.env.RELAYER_PRIVATE_KEY;
+    const deploymentBlock = process.env.L2_SEEDS_DEPLOYMENT_BLOCK || "0";
 
     if (!contractAddress) {
       throw new Error("L2_SEEDS_CONTRACT environment variable not set");
     }
 
     this.contractAddress = contractAddress as Address;
+    this.deploymentBlock = BigInt(deploymentBlock);
 
     // Set up chain
     const chain = network === "base" ? base : baseSepolia;
@@ -255,7 +258,7 @@ class ContractService {
       address: this.contractAddress,
       abi: SEEDS_ABI,
       eventName: "SeedSubmitted",
-      fromBlock: 0n,
+      fromBlock: this.deploymentBlock,
       toBlock: "latest",
     });
 
@@ -1168,13 +1171,12 @@ class ContractService {
     seedId?: number;
   }): Promise<Blessing[]> {
     const BATCH_SIZE = 50000n; // Safe batch size below the 100k limit
-    const CONTRACT_DEPLOYMENT_BLOCK = 35145587n; // First contract interaction block
     const allBlessings: Blessing[] = [];
 
     try {
       // Get the latest block number if toBlock is 'latest'
       const latestBlock = await this.publicClient.getBlockNumber();
-      const fromBlock = options?.fromBlock || CONTRACT_DEPLOYMENT_BLOCK;
+      const fromBlock = options?.fromBlock || this.deploymentBlock;
       const toBlock = options?.toBlock === "latest" || !options?.toBlock
         ? latestBlock
         : options.toBlock;
@@ -1628,7 +1630,7 @@ class ContractService {
 
     try {
       const latestBlock = await this.publicClient.getBlockNumber();
-      const fromBlock = options?.fromBlock || 0n;
+      const fromBlock = options?.fromBlock || this.deploymentBlock;
       const toBlock =
         options?.toBlock === "latest" || !options?.toBlock
           ? latestBlock
