@@ -324,57 +324,62 @@ seeds.get("/", async (c) => {
     const startIndex = total - (page - 1) * limit - 1;
     const endIndex = Math.max(startIndex - limit + 1, 0);
 
-    // Fetch seeds for current page (from latest to earliest)
-    const seeds = [];
+    // Fetch seeds for current page in parallel (from latest to earliest)
+    const seedIndices = [];
     for (let i = startIndex; i >= endIndex; i--) {
-      try {
-        const seed = await contractService.getSeed(i);
-
-        // Fetch IPFS metadata
-        let metadata = null;
-        let metadataError = null;
-
-        if (seed.ipfsHash) {
-          try {
-            // Convert IPFS hash to HTTP gateway URL
-            const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
-            const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
-              ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
-              : seed.ipfsHash.startsWith("http")
-              ? seed.ipfsHash
-              : `${ipfsGateway}${seed.ipfsHash}`;
-
-            const response = await fetch(ipfsUrl);
-
-            if (response.ok) {
-              metadata = await response.json();
-            } else {
-              metadataError = `HTTP ${response.status}`;
-            }
-          } catch (error) {
-            metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
-            console.error(`Error fetching IPFS metadata for seed ${i}:`, error);
-          }
-        }
-
-        seeds.push({
-          id: Number(seed.id),
-          creator: seed.creator,
-          ipfsHash: seed.ipfsHash,
-          blessings: Number(seed.blessings),
-          createdAt: Number(seed.createdAt),
-          isWinner: seed.isWinner,
-          isRetracted: seed.isRetracted,
-          winnerInRound: Number(seed.winnerInRound),
-          submittedInRound: Number(seed.submittedInRound),
-          metadata: metadata,
-          metadataError: metadataError,
-        });
-      } catch (error) {
-        console.error(`Error fetching seed ${i}:`, error);
-        // Continue with other seeds even if one fails
-      }
+      seedIndices.push(i);
     }
+
+    const seeds = await Promise.all(
+      seedIndices.map(async (i) => {
+        try {
+          const seed = await contractService.getSeed(i);
+
+          // Fetch IPFS metadata in parallel with seed data
+          let metadata = null;
+          let metadataError = null;
+
+          if (seed.ipfsHash) {
+            try {
+              const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
+              const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
+                ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
+                : seed.ipfsHash.startsWith("http")
+                ? seed.ipfsHash
+                : `${ipfsGateway}${seed.ipfsHash}`;
+
+              const response = await fetch(ipfsUrl);
+
+              if (response.ok) {
+                metadata = await response.json();
+              } else {
+                metadataError = `HTTP ${response.status}`;
+              }
+            } catch (error) {
+              metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
+              console.error(`Error fetching IPFS metadata for seed ${i}:`, error);
+            }
+          }
+
+          return {
+            id: Number(seed.id),
+            creator: seed.creator,
+            ipfsHash: seed.ipfsHash,
+            blessings: Number(seed.blessings),
+            createdAt: Number(seed.createdAt),
+            isWinner: seed.isWinner,
+            isRetracted: seed.isRetracted,
+            winnerInRound: Number(seed.winnerInRound),
+            submittedInRound: Number(seed.submittedInRound),
+            metadata: metadata,
+            metadataError: metadataError,
+          };
+        } catch (error) {
+          console.error(`Error fetching seed ${i}:`, error);
+          return null;
+        }
+      })
+    ).then(results => results.filter(seed => seed !== null));
 
     return c.json({
       success: true,
@@ -609,49 +614,63 @@ seeds.get("/:seedId", async (c) => {
 
     const seed = await contractService.getSeed(seedId);
 
-    // Fetch IPFS metadata
-    let metadata = null;
-    let metadataError = null;
+    // Fetch all data in parallel for better performance
+    const [metadataResult, scoreResult, commandmentsResult] = await Promise.allSettled([
+      // Fetch IPFS metadata
+      (async () => {
+        if (!seed.ipfsHash) return { metadata: null, metadataError: null };
 
-    if (seed.ipfsHash) {
-      try {
-        // Convert IPFS hash to HTTP gateway URL
-        const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
-        const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
-          ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
-          : seed.ipfsHash.startsWith("http")
-          ? seed.ipfsHash
-          : `${ipfsGateway}${seed.ipfsHash}`;
+        try {
+          const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
+          const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
+            ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
+            : seed.ipfsHash.startsWith("http")
+            ? seed.ipfsHash
+            : `${ipfsGateway}${seed.ipfsHash}`;
 
-        const response = await fetch(ipfsUrl);
+          const response = await fetch(ipfsUrl);
 
-        if (response.ok) {
-          metadata = await response.json();
-        } else {
-          metadataError = `HTTP ${response.status}`;
+          if (response.ok) {
+            return { metadata: await response.json(), metadataError: null };
+          } else {
+            return { metadata: null, metadataError: `HTTP ${response.status}` };
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : "Failed to fetch metadata";
+          console.error(`Error fetching IPFS metadata for seed ${seedId}:`, error);
+          return { metadata: null, metadataError: errorMsg };
         }
-      } catch (error) {
-        metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
-        console.error(`Error fetching IPFS metadata for seed ${seedId}:`, error);
-      }
-    }
+      })(),
 
-    // Fetch blessing score
-    let score = "0";
-    try {
-      const seedScore = await contractService.getSeedBlessingScore(seedId);
-      score = seedScore.toString();
-    } catch (error) {
-      console.error(`Error fetching blessing score for seed ${seedId}:`, error);
-    }
+      // Fetch blessing score
+      (async () => {
+        try {
+          const seedScore = await contractService.getSeedBlessingScore(seedId);
+          return seedScore.toString();
+        } catch (error) {
+          console.error(`Error fetching blessing score for seed ${seedId}:`, error);
+          return "0";
+        }
+      })(),
 
-    // Fetch commandments
-    let commandments: any[] = [];
-    try {
-      commandments = await commandmentService.getCommandmentsBySeed(seedId);
-    } catch (error) {
-      console.error(`Error fetching commandments for seed ${seedId}:`, error);
-    }
+      // Fetch commandments
+      (async () => {
+        try {
+          return await commandmentService.getCommandmentsBySeed(seedId);
+        } catch (error) {
+          console.error(`Error fetching commandments for seed ${seedId}:`, error);
+          return [];
+        }
+      })(),
+    ]);
+
+    // Extract results
+    const { metadata, metadataError } = metadataResult.status === 'fulfilled'
+      ? metadataResult.value
+      : { metadata: null, metadataError: "Failed to fetch" };
+
+    const score = scoreResult.status === 'fulfilled' ? scoreResult.value : "0";
+    const commandments = commandmentsResult.status === 'fulfilled' ? commandmentsResult.value : [];
 
     return c.json({
       success: true,
@@ -897,46 +916,57 @@ seeds.get("/round/current", async (c) => {
     const currentRound = await contractService.getCurrentRound();
     const roundSeeds = await contractService.getCurrentRoundSeeds();
 
-    // Fetch metadata and scores for each seed
+    // Fetch metadata and scores for each seed in parallel
     const seedsWithMetadata = await Promise.all(
       roundSeeds.map(async (seed) => {
         const seedId = Number(seed.id);
 
-        // Fetch IPFS metadata
-        let metadata = null;
-        let metadataError = null;
+        // Fetch IPFS metadata and blessing score in parallel
+        const [metadataResult, scoreResult] = await Promise.allSettled([
+          // Fetch IPFS metadata
+          (async () => {
+            if (!seed.ipfsHash) return { metadata: null, metadataError: null };
 
-        if (seed.ipfsHash) {
-          try {
-            // Convert IPFS hash to HTTP gateway URL
-            const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
-            const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
-              ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
-              : seed.ipfsHash.startsWith("http")
-              ? seed.ipfsHash
-              : `${ipfsGateway}${seed.ipfsHash}`;
+            try {
+              const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
+              const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
+                ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
+                : seed.ipfsHash.startsWith("http")
+                ? seed.ipfsHash
+                : `${ipfsGateway}${seed.ipfsHash}`;
 
-            const response = await fetch(ipfsUrl);
+              const response = await fetch(ipfsUrl);
 
-            if (response.ok) {
-              metadata = await response.json();
-            } else {
-              metadataError = `HTTP ${response.status}`;
+              if (response.ok) {
+                return { metadata: await response.json(), metadataError: null };
+              } else {
+                return { metadata: null, metadataError: `HTTP ${response.status}` };
+              }
+            } catch (error) {
+              const errorMsg = error instanceof Error ? error.message : "Failed to fetch metadata";
+              console.error(`Error fetching IPFS metadata for seed ${seedId}:`, error);
+              return { metadata: null, metadataError: errorMsg };
             }
-          } catch (error) {
-            metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
-            console.error(`Error fetching IPFS metadata for seed ${seedId}:`, error);
-          }
-        }
+          })(),
 
-        // Fetch blessing score
-        let score = 0;
-        try {
-          const seedScore = await contractService.getSeedBlessingScore(seedId);
-          score = Number(seedScore);
-        } catch (error) {
-          console.error(`Error fetching blessing score for seed ${seedId}:`, error);
-        }
+          // Fetch blessing score
+          (async () => {
+            try {
+              const seedScore = await contractService.getSeedBlessingScore(seedId);
+              return Number(seedScore);
+            } catch (error) {
+              console.error(`Error fetching blessing score for seed ${seedId}:`, error);
+              return 0;
+            }
+          })(),
+        ]);
+
+        // Extract results
+        const { metadata, metadataError } = metadataResult.status === 'fulfilled'
+          ? metadataResult.value
+          : { metadata: null, metadataError: "Failed to fetch" };
+
+        const score = scoreResult.status === 'fulfilled' ? scoreResult.value : 0;
 
         return {
           id: seedId,
@@ -996,46 +1026,57 @@ seeds.get("/round/:roundNumber", async (c) => {
 
     const roundSeeds = await contractService.getSeedsByRound(roundNumber);
 
-    // Fetch metadata and scores for each seed
+    // Fetch metadata and scores for each seed in parallel
     const seedsWithMetadata = await Promise.all(
       roundSeeds.map(async (seed) => {
         const seedId = Number(seed.id);
 
-        // Fetch IPFS metadata
-        let metadata = null;
-        let metadataError = null;
+        // Fetch IPFS metadata and blessing score in parallel
+        const [metadataResult, scoreResult] = await Promise.allSettled([
+          // Fetch IPFS metadata
+          (async () => {
+            if (!seed.ipfsHash) return { metadata: null, metadataError: null };
 
-        if (seed.ipfsHash) {
-          try {
-            // Convert IPFS hash to HTTP gateway URL
-            const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
-            const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
-              ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
-              : seed.ipfsHash.startsWith("http")
-              ? seed.ipfsHash
-              : `${ipfsGateway}${seed.ipfsHash}`;
+            try {
+              const ipfsGateway = process.env.IPFS_GATEWAY || "https://tomato-causal-partridge-743.mypinata.cloud/ipfs/";
+              const ipfsUrl = seed.ipfsHash.startsWith("ipfs://")
+                ? seed.ipfsHash.replace("ipfs://", ipfsGateway)
+                : seed.ipfsHash.startsWith("http")
+                ? seed.ipfsHash
+                : `${ipfsGateway}${seed.ipfsHash}`;
 
-            const response = await fetch(ipfsUrl);
+              const response = await fetch(ipfsUrl);
 
-            if (response.ok) {
-              metadata = await response.json();
-            } else {
-              metadataError = `HTTP ${response.status}`;
+              if (response.ok) {
+                return { metadata: await response.json(), metadataError: null };
+              } else {
+                return { metadata: null, metadataError: `HTTP ${response.status}` };
+              }
+            } catch (error) {
+              const errorMsg = error instanceof Error ? error.message : "Failed to fetch metadata";
+              console.error(`Error fetching IPFS metadata for seed ${seedId}:`, error);
+              return { metadata: null, metadataError: errorMsg };
             }
-          } catch (error) {
-            metadataError = error instanceof Error ? error.message : "Failed to fetch metadata";
-            console.error(`Error fetching IPFS metadata for seed ${seedId}:`, error);
-          }
-        }
+          })(),
 
-        // Fetch blessing score
-        let score = 0;
-        try {
-          const seedScore = await contractService.getSeedBlessingScore(seedId);
-          score = Number(seedScore);
-        } catch (error) {
-          console.error(`Error fetching blessing score for seed ${seedId}:`, error);
-        }
+          // Fetch blessing score
+          (async () => {
+            try {
+              const seedScore = await contractService.getSeedBlessingScore(seedId);
+              return Number(seedScore);
+            } catch (error) {
+              console.error(`Error fetching blessing score for seed ${seedId}:`, error);
+              return 0;
+            }
+          })(),
+        ]);
+
+        // Extract results
+        const { metadata, metadataError } = metadataResult.status === 'fulfilled'
+          ? metadataResult.value
+          : { metadata: null, metadataError: "Failed to fetch" };
+
+        const score = scoreResult.status === 'fulfilled' ? scoreResult.value : 0;
 
         return {
           id: seedId,
