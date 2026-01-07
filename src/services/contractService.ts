@@ -676,6 +676,33 @@ class ContractService {
     };
   }
 
+  /**
+   * Prepare commandment transaction for client-side signing
+   * Returns the data user needs to sign the transaction themselves
+   * Now includes NFT ownership proof for on-chain verification
+   */
+  prepareCommandmentTransaction(
+    seedId: number,
+    userAddress: Address,
+    ipfsHash: string,
+    tokenIds: number[],
+    merkleProof: string[]
+  ) {
+    const tokenIdsBigInt = tokenIds.map((id) => BigInt(id));
+    const proofFormatted = merkleProof as `0x${string}`[];
+
+    return {
+      to: this.contractAddress,
+      data: encodeFunctionData({
+        abi: SEEDS_ABI,
+        functionName: "commentOnSeed",
+        args: [BigInt(seedId), ipfsHash, tokenIdsBigInt, proofFormatted],
+      }),
+      from: userAddress,
+      chainId: this.publicClient.chain?.id,
+    };
+  }
+
   /*//////////////////////////////////////////////////////////////
                         SEED CREATION FUNCTIONS
   //////////////////////////////////////////////////////////////*/
