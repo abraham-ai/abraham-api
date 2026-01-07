@@ -1675,7 +1675,7 @@ class ContractService {
             inputs: [
               { indexed: true, name: "commandmentId", type: "uint256" },
               { indexed: true, name: "seedId", type: "uint256" },
-              { indexed: true, name: "commenter", type: "address" },
+              { indexed: true, name: "author", type: "address" },
               { indexed: false, name: "actor", type: "address" },
               { indexed: false, name: "isDelegated", type: "bool" },
               { indexed: false, name: "ipfsHash", type: "string" },
@@ -1690,7 +1690,7 @@ class ContractService {
           filter.args = { seedId: BigInt(options.seedId) };
         }
         if (options?.userAddress) {
-          filter.args = { ...filter.args, commenter: options.userAddress };
+          filter.args = { ...filter.args, author: options.userAddress };
         }
 
         const logs = await this.publicClient.getLogs(filter);
@@ -1698,7 +1698,7 @@ class ContractService {
         const commandments = logs.map((log: any) => ({
           commandmentId: log.args.commandmentId,
           seedId: log.args.seedId,
-          commenter: log.args.commenter,
+          author: log.args.author,
           actor: log.args.actor,
           isDelegated: log.args.isDelegated,
           ipfsHash: log.args.ipfsHash,

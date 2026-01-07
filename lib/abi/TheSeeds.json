@@ -422,7 +422,7 @@
       {
         "indexed": true,
         "internalType": "address",
-        "name": "commenter",
+        "name": "author",
         "type": "address"
       },
       {
@@ -1360,7 +1360,7 @@
       },
       {
         "internalType": "address",
-        "name": "commenter",
+        "name": "author",
         "type": "address"
       },
       {
@@ -1427,7 +1427,7 @@
       },
       {
         "internalType": "address",
-        "name": "_commenter",
+        "name": "_author",
         "type": "address"
       },
       {

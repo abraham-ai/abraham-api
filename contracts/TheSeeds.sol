@@ -62,7 +62,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
     struct Commandment {
         uint256 id;
         uint256 seedId;
-        address commenter;
+        address author;
         string ipfsHash;
         uint256 createdAt;
     }
@@ -128,7 +128,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
     event RoundSkipped(uint256 indexed round, uint256 timestamp);
     event SeedScoreUpdated(uint256 indexed seedId, address indexed blesser, uint256 previousScore, uint256 newScore);
     event SeedNFTMinted(uint256 indexed tokenId, uint256 indexed seedId, address indexed creator, uint256 round);
-    event CommandmentSubmitted(uint256 indexed commandmentId, uint256 indexed seedId, address indexed commenter, address actor, bool isDelegated, string ipfsHash, uint256 timestamp);
+    event CommandmentSubmitted(uint256 indexed commandmentId, uint256 indexed seedId, address indexed author, address actor, bool isDelegated, string ipfsHash, uint256 timestamp);
     event CostUpdated(string costType, uint256 previousCost, uint256 newCost);
     event ScoringConfigUpdated(uint256 blessingWeight, uint256 commandmentWeight, uint256 timeDecayMin, uint256 timeDecayBase);
     event TreasuryUpdated(address indexed previousTreasury, address indexed newTreasury);
@@ -321,20 +321,20 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
         }
     }
 
-    function commentOnSeedFor(uint256 _seedId, address _commenter, string memory _ipfsHash, uint256[] memory _tokenIds, bytes32[] memory _merkleProof)
+    function commentOnSeedFor(uint256 _seedId, address _author, string memory _ipfsHash, uint256[] memory _tokenIds, bytes32[] memory _merkleProof)
         external payable whenNotPaused nonReentrant {
-        if (_commenter == address(0)) revert InvalidBlesser();
+        if (_author == address(0)) revert InvalidBlesser();
         if (msg.value < commandmentCost) revert InsufficientPayment();
 
-        bool isApprovedDelegate = isDelegateApproved[_commenter][msg.sender];
+        bool isApprovedDelegate = isDelegateApproved[_author][msg.sender];
         bool isRelayer = hasRole(RELAYER_ROLE, msg.sender);
 
         if (!isApprovedDelegate && !isRelayer) revert NotAuthorized();
-        if (!_verifyOwnership(_commenter, _tokenIds, _merkleProof)) revert InvalidMerkleProof();
+        if (!_verifyOwnership(_author, _tokenIds, _merkleProof)) revert InvalidMerkleProof();
         if (_tokenIds.length == 0) revert NoVotingPower();
 
-        _checkAndUpdateCommandmentLimit(_commenter, _tokenIds.length);
-        _processCommandment(_seedId, _commenter, msg.sender, true, _ipfsHash);
+        _checkAndUpdateCommandmentLimit(_author, _tokenIds.length);
+        _processCommandment(_seedId, _author, msg.sender, true, _ipfsHash);
 
         // Refund excess payment
         if (msg.value > commandmentCost) {
@@ -352,7 +352,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
         userDailyCommandments[_user][currentDay]++;
     }
 
-    function _processCommandment(uint256 _seedId, address _commenter, address _actor, bool _isDelegated, string memory _ipfsHash) internal {
+    function _processCommandment(uint256 _seedId, address _author, address _actor, bool _isDelegated, string memory _ipfsHash) internal {
         Seed storage seed = seeds[_seedId];
 
         if (seed.createdAt == 0) revert SeedNotFound();
@@ -363,7 +363,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
         commandments[commandmentId] = Commandment({
             id: commandmentId,
             seedId: _seedId,
-            commenter: _commenter,
+            author: _author,
             ipfsHash: _ipfsHash,
             createdAt: block.timestamp
         });
@@ -371,7 +371,7 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
         seedCommandmentIds[_seedId].push(commandmentId);
         commandmentCount[_seedId]++;
 
-        emit CommandmentSubmitted(commandmentId, _seedId, _commenter, _actor, _isDelegated, _ipfsHash, block.timestamp);
+        emit CommandmentSubmitted(commandmentId, _seedId, _author, _actor, _isDelegated, _ipfsHash, block.timestamp);
     }
 
     function _checkAndUpdateDailyLimit(address _user, uint256 _nftCount) internal {

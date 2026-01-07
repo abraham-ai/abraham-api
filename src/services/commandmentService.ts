@@ -18,7 +18,7 @@ import type { Address, Hash } from "viem";
 export interface CommandmentData {
   id: number;
   seedId: number;
-  commenter: Address;
+  author: Address;
   ipfsHash: string;
   createdAt: number;
   metadata?: ipfsService.CommandmentMetadata;
@@ -219,7 +219,7 @@ class CommandmentService {
           return {
             id: Number(cmd.commandmentId),
             seedId: Number(cmd.seedId),
-            commenter: cmd.commenter,
+            author: cmd.author,
             ipfsHash: cmd.ipfsHash,
             createdAt: Number(cmd.timestamp),
             metadata,
@@ -345,7 +345,7 @@ class CommandmentService {
           return {
             id: Number(event.commandmentId),
             seedId: Number(event.seedId),
-            commenter: event.commenter,
+            author: event.author,
             ipfsHash: event.ipfsHash,
             createdAt: Number(event.timestamp),
             metadata,
