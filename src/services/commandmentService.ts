@@ -425,6 +425,187 @@ class CommandmentService {
   }
 
   /**
+   * Prepare a commandment transaction for CLIENT-SIDE signing
+   * This is for users who want to pay gas themselves
+   *
+   * @param userAddress - User's wallet address
+   * @param seedId - Seed to comment on
+   * @param message - Comment message text
+   * @returns Transaction data for client-side signing
+   */
+  async prepareCommandmentTransaction(
+    userAddress: string,
+    seedId: number,
+    message: string
+  ): Promise<{
+    success: boolean;
+    transaction?: {
+      to: Address;
+      data: `0x${string}`;
+      from: Address;
+      chainId?: number;
+    };
+    seedInfo?: any;
+    userInfo?: {
+      nftCount: number;
+      dailyCommandmentCount: number;
+      remainingCommandments: number;
+      commandmentsPerNFT: number;
+    };
+    ipfsHash?: string;
+    error?: string;
+  }> {
+    try {
+      // 1. Validate input
+      if (!userAddress || !message || message.trim().length === 0) {
+        return {
+          success: false,
+          error: "Invalid input: userAddress and message are required"
+        };
+      }
+
+      if (seedId < 0) {
+        return {
+          success: false,
+          error: "Invalid seedId"
+        };
+      }
+
+      if (message.length > 5000) {
+        return {
+          success: false,
+          error: "Message too long (max 5000 characters)"
+        };
+      }
+
+      // 2. Check eligibility (NFT ownership)
+      const snapshot = await blessingService.getSnapshot();
+      if (!snapshot) {
+        return {
+          success: false,
+          error: "Unable to verify NFT ownership: snapshot not loaded"
+        };
+      }
+
+      const addressLower = userAddress.toLowerCase();
+      const tokenIds = snapshot.holderIndex[addressLower] || [];
+
+      if (tokenIds.length === 0) {
+        return {
+          success: false,
+          error: "You must own at least one FirstWorks NFT to comment"
+        };
+      }
+
+      // 3. Check if seed exists
+      let seedInfo;
+      try {
+        const seed = await contractService.getSeed(seedId);
+        seedInfo = {
+          id: seedId,
+          creator: seed.creator,
+          ipfsHash: seed.ipfsHash,
+          blessings: Number(seed.blessings),
+          isWinner: seed.isWinner,
+          isRetracted: seed.isRetracted
+        };
+
+        if (seed.isRetracted) {
+          return {
+            success: false,
+            error: "Cannot comment on a retracted seed"
+          };
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: "Seed not found or invalid"
+        };
+      }
+
+      // 4. Check daily limit
+      const dailyCount = await contractService.getUserDailyCommandmentCount(
+        userAddress as Address
+      );
+      const commandmentsPerNFT = 1; // TODO: Read from contract
+      const maxCommandments = tokenIds.length * commandmentsPerNFT;
+
+      if (Number(dailyCount) >= maxCommandments) {
+        return {
+          success: false,
+          error: `Daily limit reached: ${dailyCount}/${maxCommandments} commandments used today`,
+          userInfo: {
+            nftCount: tokenIds.length,
+            dailyCommandmentCount: Number(dailyCount),
+            remainingCommandments: 0,
+            commandmentsPerNFT
+          }
+        };
+      }
+
+      // 5. Upload to IPFS
+      console.log(`📤 Uploading commandment to IPFS for user ${userAddress}...`);
+      const uploadResult = await ipfsService.uploadCommandment(
+        message,
+        userAddress,
+        seedId
+      );
+
+      if (!uploadResult.success || !uploadResult.ipfsHash) {
+        return {
+          success: false,
+          error: uploadResult.error || "Failed to upload to IPFS"
+        };
+      }
+
+      console.log(`✅ IPFS upload successful: ${uploadResult.ipfsHash}`);
+
+      // 6. Get Merkle proof for on-chain verification
+      const proofData = await this.getTokenIdsAndProof(userAddress);
+      if (!proofData) {
+        return {
+          success: false,
+          error: "Unable to generate proof: snapshot or merkle tree not loaded"
+        };
+      }
+
+      // 7. Prepare transaction data
+      const transaction = contractService.prepareCommandmentTransaction(
+        seedId,
+        userAddress as Address,
+        uploadResult.ipfsHash,
+        proofData.tokenIds,
+        proofData.proof
+      );
+
+      // 8. Get user info
+      const remaining = await contractService.getRemainingCommandments(
+        userAddress as Address,
+        tokenIds.length
+      );
+
+      return {
+        success: true,
+        transaction,
+        seedInfo,
+        userInfo: {
+          nftCount: tokenIds.length,
+          dailyCommandmentCount: Number(dailyCount),
+          remainingCommandments: Number(remaining),
+          commandmentsPerNFT
+        },
+        ipfsHash: uploadResult.ipfsHash
+      };
+    } catch (error) {
+      console.error("Error preparing commandment transaction:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred"
+      };
+    }
+  }
+
+  /**
    * Get token IDs and Merkle proof for a user
    * Private helper method that uses blessingService
    */

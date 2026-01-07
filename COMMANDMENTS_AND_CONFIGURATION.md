@@ -336,9 +336,18 @@ cast send $CONTRACT_ADDRESS "withdrawFees()" \
 
 ## API Endpoints
 
+### Commandment Submission Methods
+
+**Two ways to submit commandments:**
+
+1. **Delegated (Gasless):** `POST /api/commandments` - Backend submits on user's behalf
+2. **Non-Delegated (User-Signed):** `POST /api/commandments/prepare` - User signs transaction themselves
+
+See [Commandment Submission Guide](docs/COMMANDMENT_SUBMISSION_GUIDE.md) for detailed implementation examples.
+
 ### Commandment Endpoints
 
-#### Submit Commandment
+#### Submit Commandment (Delegated/Gasless)
 ```http
 POST /api/commandments
 Authorization: Bearer <JWT_TOKEN>
@@ -362,6 +371,56 @@ Content-Type: application/json
   }
 }
 ```
+
+#### Prepare Commandment Transaction (Non-Delegated/User-Signed)
+```http
+POST /api/commandments/prepare
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "seedId": 42,
+  "message": "This seed is incredible! The composition really speaks to me."
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "transaction": {
+      "to": "0x81901f757fd6b3c37e5391dbe6fa0affe9a181b5",
+      "data": "0x3a2b5c7d...",
+      "from": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+      "chainId": 8453
+    },
+    "seedInfo": {
+      "id": 42,
+      "creator": "0xCreatorAddress...",
+      "ipfsHash": "QmSeedIPFS...",
+      "blessings": 150,
+      "isWinner": false,
+      "isRetracted": false
+    },
+    "userInfo": {
+      "nftCount": 5,
+      "dailyCommandmentCount": 2,
+      "remainingCommandments": 3,
+      "commandmentsPerNFT": 1
+    },
+    "ipfsHash": "QmX7Y8Z9...",
+    "instructions": {
+      "step1": "Send this transaction using your wallet",
+      "step2": "Wait for transaction confirmation",
+      "step3": "Your commandment will be recorded on-chain",
+      "note": "The message has been uploaded to IPFS and the transaction includes the IPFS hash"
+    }
+  }
+}
+```
+
+**Note:** User must sign and submit the returned transaction using their wallet. See [Commandment Submission Guide](docs/COMMANDMENT_SUBMISSION_GUIDE.md) for implementation examples.
 
 #### Get Commandments by Seed
 ```http
