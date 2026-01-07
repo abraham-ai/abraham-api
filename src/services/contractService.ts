@@ -1709,7 +1709,8 @@ class ContractService {
         currentFrom = currentTo + 1n;
       }
 
-      return allCommandments;
+      // Return commandments in reverse order (latest first)
+      return allCommandments.reverse();
     } catch (error) {
       console.error("Error fetching commandment events:", error);
       return [];
