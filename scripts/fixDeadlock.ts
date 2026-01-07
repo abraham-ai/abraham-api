@@ -50,7 +50,6 @@ async function fixDeadlock() {
     console.log("✅ Round skipped successfully!");
     console.log(`   Tx Hash: ${winnerResult.txHash}`);
     console.log(`   Previous Round: 5`);
-    console.log(`   New Round: ${winnerResult.round || 6}`);
     console.log(`   Winning Seed ID: ${winnerResult.winningSeedId} (0 = skipped)\n`);
 
     // STEP 3: Verify new state

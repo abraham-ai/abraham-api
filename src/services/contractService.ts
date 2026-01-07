@@ -4,6 +4,14 @@
  * Handles all interactions with TheSeeds contract on Base Sepolia/Base Mainnet
  */
 
+// CRITICAL: Load environment variables FIRST before any other code runs
+// This ensures env vars are available during service initialization
+if (process.env.NODE_ENV !== 'production') {
+  const dotenv = await import('dotenv');
+  dotenv.config({ path: '.env' });
+  dotenv.config({ path: '.env.local', override: true });
+}
+
 import {
   createPublicClient,
   createWalletClient,
@@ -68,6 +76,13 @@ class ContractService {
       "0x81901f757fd6b3c37e5391dbe6fa0affe9a181b5";
     const relayerKey = process.env.RELAYER_PRIVATE_KEY;
     const deploymentBlock = process.env.L2_SEEDS_DEPLOYMENT_BLOCK || "35963162";
+
+    console.log("🔍 ContractService initialization:");
+    console.log(`   Network: ${network}`);
+    console.log(`   RPC URL: ${rpcUrl ? "✅ Set" : "❌ Not set"}`);
+    console.log(`   Contract: ${contractAddress}`);
+    console.log(`   Relayer Key: ${relayerKey ? "✅ Set" : "❌ Not set"}`);
+    console.log(`   Deployment Block: ${deploymentBlock}`);
 
     if (!contractAddress) {
       throw new Error("L2_SEEDS_CONTRACT environment variable not set");
@@ -313,20 +328,13 @@ class ContractService {
   }
 
   /**
-   * Read: Get current leading seed and its blessing score (uses getCurrentLeaders and returns first)
+   * Read: Get current leading seed and its blessing score
+   * Note: Calculates from seed data since contract doesn't have this view function
    */
   async getCurrentLeader(): Promise<{ leadingSeedId: bigint; score: bigint }> {
-    const result = await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getCurrentLeaders",
-      args: [],
-    });
-
-    const [leadingSeedIds, score] = result as [bigint[], bigint];
-    // Return the first leader, or 0 if no leaders
-    const leadingSeedId = leadingSeedIds.length > 0 ? leadingSeedIds[0] : 0n;
-    return { leadingSeedId, score };
+    const leaders = await this.getCurrentLeaders();
+    const leadingSeedId = leaders.leadingSeedIds.length > 0 ? leaders.leadingSeedIds[0] : 0n;
+    return { leadingSeedId, score: leaders.score };
   }
 
   /**
@@ -1294,6 +1302,7 @@ class ContractService {
     winningSeedId?: number;
     txHash?: Hash;
     error?: string;
+    details?: string;
     diagnostics?: {
       currentRound: number;
       seedsInRound: number;
@@ -1302,9 +1311,15 @@ class ContractService {
     };
   }> {
     if (!this.walletClient || !this.relayerAccount) {
+      console.error("❌ Wallet client not initialized!");
+      console.error("   This usually means RELAYER_PRIVATE_KEY is not set in environment variables");
+      console.error("   Current env check:");
+      console.error(`   - RELAYER_PRIVATE_KEY: ${process.env.RELAYER_PRIVATE_KEY ? "SET" : "NOT SET"}`);
+      console.error(`   - L2_RPC_URL: ${process.env.L2_RPC_URL ? "SET" : "NOT SET"}`);
+
       return {
         success: false,
-        error: "Wallet client not initialized",
+        error: "Wallet client not initialized - RELAYER_PRIVATE_KEY environment variable is required",
       };
     }
 
@@ -1376,19 +1391,7 @@ class ContractService {
         };
       }
 
-      // Check 4: Get current leader and score
-      const leader = await this.getCurrentLeader();
-      console.log(`   Leading Seed ID: ${leader.leadingSeedId}`);
-      console.log(`   Leading Score: ${leader.score}`);
-
-      // Get the seed details to show blessing count
-      let leaderSeed = null;
-      if (leader.leadingSeedId > 0n) {
-        leaderSeed = await this.getSeed(Number(leader.leadingSeedId));
-        console.log(`   Leading Seed Blessings: ${leaderSeed.blessings}`);
-      }
-
-      // Check 5: Verify eligible seeds in ROUND_BASED mode
+      // Check 4: Verify eligible seeds in ROUND_BASED mode
       // In NON_ROUND_BASED mode, we already verified eligibility with getEligibleSeedsCount()
       if (!isNonRoundBased) {
         const eligibleSeeds = roundSeeds.filter((seed) => !seed.isWinner);
@@ -1405,31 +1408,13 @@ class ContractService {
               seedsInRound: seedsCount,
               timeRemaining: 0,
               currentLeader: {
-                seedId: Number(leader.leadingSeedId),
-                score: leader.score.toString(),
-                blessings: leaderSeed?.blessings.toString() || "0",
+                seedId: 0,
+                score: "0",
+                blessings: "0",
               },
             },
           };
         }
-      }
-
-      if (leader.score === 0n) {
-        return {
-          success: false,
-          error:
-            "Leading seed has blessing score of 0 (no valid blessings counted)",
-          diagnostics: {
-            currentRound: Number(currentRound),
-            seedsInRound: seedsCount,
-            timeRemaining: 0,
-            currentLeader: {
-              seedId: Number(leader.leadingSeedId),
-              score: "0",
-              blessings: leaderSeed?.blessings.toString() || "0",
-            },
-          },
-        };
       }
 
       console.log(
@@ -1439,6 +1424,47 @@ class ContractService {
       // ============================================================
       // EXECUTE WINNER SELECTION
       // ============================================================
+      // Check relayer balance
+      console.log("💰 Checking relayer account balance...");
+      const balance = await this.publicClient.getBalance({
+        address: this.relayerAccount.address,
+      });
+      console.log(`   Relayer Balance: ${balance} wei (${Number(balance) / 1e18} ETH)`);
+
+      // Warn if balance is low (less than 0.001 ETH)
+      const minBalance = BigInt(1e15); // 0.001 ETH
+      if (balance < minBalance) {
+        console.warn(`⚠️  WARNING: Relayer balance is low (${Number(balance) / 1e18} ETH)`);
+        console.warn(`   Please fund the relayer account: ${this.relayerAccount.address}`);
+      }
+
+      if (balance === 0n) {
+        return {
+          success: false,
+          error: `Relayer account has no balance. Please fund ${this.relayerAccount.address} with ETH for gas.`,
+        };
+      }
+
+      console.log("🔍 Simulating transaction before submission...");
+
+      // Simulate the transaction first to catch errors
+      try {
+        await this.publicClient.simulateContract({
+          address: this.contractAddress,
+          abi: SEEDS_ABI,
+          functionName: "selectDailyWinner",
+          args: [],
+          account: this.relayerAccount,
+        });
+        console.log("✅ Transaction simulation successful");
+      } catch (simError: any) {
+        console.error("❌ Transaction simulation failed:", simError);
+        throw new Error(
+          `Transaction simulation failed: ${simError.shortMessage || simError.message || String(simError)}`
+        );
+      }
+
+      console.log("📤 Submitting transaction to blockchain...");
       const hash = await this.walletClient.writeContract({
         address: this.contractAddress,
         abi: SEEDS_ABI,
@@ -1480,17 +1506,26 @@ class ContractService {
           seedsInRound: seedsCount,
           timeRemaining: 0,
           currentLeader: {
-            seedId: Number(leader.leadingSeedId),
-            score: leader.score.toString(),
-            blessings: leaderSeed?.blessings.toString() || "0",
+            seedId: winningSeedId || 0,
+            score: "N/A",
+            blessings: "N/A",
           },
         },
       };
     } catch (error: any) {
       console.error("Error selecting daily winner:", error);
+      console.error("Full error details:", {
+        message: error.message,
+        shortMessage: error.shortMessage,
+        details: error.details,
+        cause: error.cause,
+        stack: error.stack,
+      });
 
       // Parse common errors
       let errorMessage = "Failed to select daily winner";
+      let errorDetails = error.message || String(error);
+
       if (
         error.message?.includes("VotingPeriodNotEnded") ||
         error.message?.includes("BlessingPeriodNotEnded")
@@ -1499,11 +1534,15 @@ class ContractService {
           "Blessing period has not ended yet (24 hours not elapsed)";
       } else if (error.message?.includes("NoValidWinner")) {
         errorMessage = "No valid winner (contract validation failed)";
+      } else if (error.shortMessage) {
+        // Use viem's shortMessage if available
+        errorDetails = error.shortMessage;
       }
 
       return {
         success: false,
         error: errorMessage,
+        details: errorDetails,
       };
     }
   }

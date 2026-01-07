@@ -107,8 +107,8 @@ async function elevateSeed() {
     console.log(`   Auction Tx: ${result.auctionTxHash}`);
 
     console.log('\n🔗 BLOCK EXPLORERS:');
-    console.log(`   Mint: ${result.mintExplorer}`);
-    console.log(`   Auction: ${result.auctionExplorer}`);
+    console.log(`   Mint: https://sepolia.etherscan.io/tx/${result.mintTxHash}`);
+    console.log(`   Auction: https://sepolia.etherscan.io/tx/${result.auctionTxHash}`);
 
     console.log('\n🎯 VERIFY:');
     console.log(`   Check creation: npx tsx scripts/checkAbrahamCreations.ts`);

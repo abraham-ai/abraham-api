@@ -100,31 +100,9 @@ async function checkAuction() {
 
     console.log(`\n🔗 View on Etherscan: https://sepolia.etherscan.io/address/${auctionAddress}#readContract`);
 
-    // Get bid history
-    try {
-      const bidHistory = await publicClient.readContract({
-        address: auctionAddress as `0x${string}`,
-        abi: ABRAHAM_AUCTION_ABI,
-        functionName: 'getAuctionBids',
-        args: [auctionId],
-      }) as any[];
-
-      if (bidHistory.length > 0) {
-        console.log('\n' + '═'.repeat(60));
-        console.log(`📜 BID HISTORY (${bidHistory.length} bids)`);
-        console.log('═'.repeat(60));
-
-        bidHistory.forEach((bid, index) => {
-          console.log(`\n${index + 1}. ${Number(bid.amount) / 1e18} ETH`);
-          console.log(`   Bidder: ${bid.bidder}`);
-          console.log(`   Time: ${new Date(Number(bid.timestamp) * 1000).toISOString()}`);
-        });
-      } else {
-        console.log('\n📭 No bids yet');
-      }
-    } catch (e) {
-      console.log('\n⚠️  Could not fetch bid history');
-    }
+    // Note: Bid history function not available on this contract version
+    console.log('\n📜 BID HISTORY');
+    console.log('   (Bid history function not available on this contract version)');
 
   } catch (error) {
     console.error('❌ Error:', error instanceof Error ? error.message : error);
