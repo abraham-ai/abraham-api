@@ -57,7 +57,7 @@ function commentOnSeed(
 **Parameters:**
 - `_seedId` - ID of the seed to comment on
 - `_ipfsHash` - IPFS hash of the comment content
-- `_tokenIds` - Array of FirstWorks NFT IDs owned by commenter
+- `_tokenIds` - Array of FirstWorks NFT IDs owned by author
 - `_merkleProof` - Merkle proof of NFT ownership
 
 **Requirements:**
@@ -69,7 +69,7 @@ function commentOnSeed(
 ```solidity
 function commentOnSeedFor(
     uint256 _seedId,
-    address _commenter,
+    address _author,
     string memory _ipfsHash,
     uint256[] memory _tokenIds,
     bytes32[] memory _merkleProof
@@ -84,7 +84,7 @@ Used by backend API for gasless transactions. Same requirements as direct submis
 struct Commandment {
     uint256 id;           // Unique commandment ID
     uint256 seedId;       // Seed being commented on
-    address commenter;    // Address of commenter
+    address author;       // Address of author
     string ipfsHash;      // IPFS hash of comment content
     uint256 createdAt;    // Timestamp
 }
@@ -105,7 +105,7 @@ mapping(address => mapping(uint256 => uint256)) public userDailyCommandments;  /
 event CommandmentSubmitted(
     uint256 indexed commandmentId,
     uint256 indexed seedId,
-    address indexed commenter,
+    address indexed author,
     address actor,
     bool isDelegated,
     string ipfsHash,
@@ -116,7 +116,7 @@ event CommandmentSubmitted(
 **Indexed fields** (for efficient filtering):
 - `commandmentId` - Filter by commandment
 - `seedId` - Get all commandments for a seed
-- `commenter` - Get all commandments by a user
+- `author` - Get all commandments by a user
 
 ---
 
@@ -378,7 +378,7 @@ GET /api/commandments/seed/:seedId
       {
         "id": 123,
         "seedId": 42,
-        "commenter": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+        "author": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
         "ipfsHash": "QmX7Y8Z9...",
         "createdAt": 1704067200,
         "metadata": {

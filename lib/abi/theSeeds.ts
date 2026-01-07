@@ -429,7 +429,7 @@ export const SEEDS_ABI = [
       {
         "indexed": true,
         "internalType": "address",
-        "name": "commenter",
+        "name": "author",
         "type": "address"
       },
       {
@@ -1367,7 +1367,7 @@ export const SEEDS_ABI = [
       },
       {
         "internalType": "address",
-        "name": "commenter",
+        "name": "author",
         "type": "address"
       },
       {
@@ -1434,7 +1434,7 @@ export const SEEDS_ABI = [
       },
       {
         "internalType": "address",
-        "name": "_commenter",
+        "name": "_author",
         "type": "address"
       },
       {
