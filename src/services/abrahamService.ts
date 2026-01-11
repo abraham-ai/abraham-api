@@ -4,6 +4,14 @@
  * Handles interactions with AbrahamCovenant and AbrahamAuction contracts on Ethereum Sepolia
  */
 
+// CRITICAL: Load environment variables FIRST before any other code runs
+// This ensures env vars are available during service initialization
+if (process.env.NODE_ENV !== 'production') {
+  const dotenv = await import('dotenv');
+  dotenv.config({ path: '.env' });
+  dotenv.config({ path: '.env.local', override: true });
+}
+
 import {
   createPublicClient,
   createWalletClient,

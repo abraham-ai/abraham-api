@@ -21,7 +21,7 @@
       "schedule": "0 0 * * *"
     },
     {
-      "path": "/api/admin/select-winner?autoElevate=true",
+      "path": "/api/admin/select-winner",
       "schedule": "0 0 * * *"
     }
   ]

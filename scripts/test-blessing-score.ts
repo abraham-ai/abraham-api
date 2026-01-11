@@ -236,12 +236,12 @@ async function main() {
   }) as [bigint[], bigint];
 
   const leadingSeedIds = leaders[0];
-  const score = leaders[1];
+  const leaderScore = leaders[1];
 
   console.log(`   Leading Seed IDs: ${leadingSeedIds.join(', ')}`);
-  console.log(`   Leading Score: ${score}`);
+  console.log(`   Leading Score: ${leaderScore}`);
 
-  if (score > 0n) {
+  if (leaderScore > 0n) {
     console.log(`   ✅ Leader has score > 0`);
   }
 

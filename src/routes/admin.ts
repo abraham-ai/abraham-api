@@ -396,6 +396,7 @@ const selectWinnerHandler = async (c: any) => {
         {
           success: false,
           error: result.error || "Winner selection failed",
+          details: (result as any).details, // Include error details for debugging
           diagnostics: result.diagnostics,
         },
         statusCode
@@ -644,6 +645,7 @@ const selectWinnerHandler = async (c: any) => {
         success: false,
         error: "Failed to complete winner selection flow",
         details: errorMessage,
+        fullError: process.env.NODE_ENV === 'development' ? error : undefined, // Include full error in dev mode
       },
       statusCode
     );
