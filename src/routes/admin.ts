@@ -389,7 +389,6 @@ const selectWinnerHandler = async (c: any) => {
         console.error(`   Time Remaining: ${result.diagnostics.timeRemaining}s`);
         console.error(`   Leader Seed ID: ${result.diagnostics.currentLeader.seedId}`);
         console.error(`   Leader Score: ${result.diagnostics.currentLeader.score}`);
-        console.error(`   Leader Blessings: ${result.diagnostics.currentLeader.blessings}`);
       }
 
       return c.json(

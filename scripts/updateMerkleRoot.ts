@@ -1,22 +1,33 @@
 import { createPublicClient, createWalletClient, http, parseAbi, Address, Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet, sepolia, base, baseSepolia } from "viem/chains";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
 import * as dotenv from "dotenv";
 
+dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 /**
- * Update Merkle Root on The Seeds Contract
+ * Update Merkle Root on MerkleGating or TheSeeds Contract
  *
  * This script reads the generated Merkle tree and updates
- * the ownership root on The Seeds contract.
+ * the ownership root on the appropriate contract.
+ *
+ * For AbrahamSeeds: Updates MerkleGating contract (L2_GATING_CONTRACT)
+ * For TheSeeds (legacy): Updates TheSeeds contract (L2_SEEDS_CONTRACT)
  *
  * Usage:
  *   NETWORK=baseSepolia tsx scripts/updateMerkleRoot.ts
  */
 
-// Contract ABI - only the functions we need
+// Contract ABIs
+const merkleGatingAbi = parseAbi([
+  "function merkleRoot() view returns (bytes32)",
+  "function rootTimestamp() view returns (uint256)",
+  "function updateRoot(bytes32 newRoot) external",
+]);
+
 const theSeedsAbi = parseAbi([
   "function currentOwnershipRoot() view returns (bytes32)",
   "function rootTimestamp() view returns (uint256)",
@@ -44,7 +55,7 @@ const networks = {
 };
 
 async function main() {
-  console.log("\n=== Update Merkle Root on The Seeds ===\n");
+  console.log("\n=== Update Merkle Root ===\n");
 
   // Get network from environment
   const networkName = (process.env.NETWORK || "baseSepolia") as keyof typeof networks;
@@ -57,16 +68,42 @@ async function main() {
   console.log(`Network: ${networkName}`);
   console.log(`Chain ID: ${networkConfig.chain.id}`);
 
-  // Get contract address from environment
-  const contractAddress = process.env.L2_SEEDS_CONTRACT as Address;
-  if (!contractAddress) {
-    throw new Error("L2_SEEDS_CONTRACT not set in environment");
+  // Determine which contract to use
+  // If L2_GATING_CONTRACT is set, use MerkleGating (new contract)
+  // Otherwise fall back to L2_SEEDS_CONTRACT (old contract)
+  const gatingContractAddress = process.env.L2_GATING_CONTRACT as Address | undefined;
+  const seedsContractAddress = process.env.L2_SEEDS_CONTRACT as Address | undefined;
+
+  let contractAddress: Address;
+  let isNewContract: boolean;
+  let contractAbi: any;
+  let getRootFunction: string;
+  let updateRootFunction: string;
+
+  if (gatingContractAddress) {
+    contractAddress = gatingContractAddress;
+    isNewContract = true;
+    contractAbi = merkleGatingAbi;
+    getRootFunction = "merkleRoot";
+    updateRootFunction = "updateRoot";
+    console.log("Contract Type: MerkleGating (new)");
+  } else if (seedsContractAddress) {
+    contractAddress = seedsContractAddress;
+    isNewContract = false;
+    contractAbi = theSeedsAbi;
+    getRootFunction = "currentOwnershipRoot";
+    updateRootFunction = "updateOwnershipRoot";
+    console.log("Contract Type: TheSeeds (legacy)");
+  } else {
+    throw new Error("No contract address set. Set L2_GATING_CONTRACT (new) or L2_SEEDS_CONTRACT (legacy)");
   }
 
+  console.log(`Contract Address: ${contractAddress}`);
+
   // Get private key from environment
-  const privateKeyRaw = process.env.DEPLOYER_PRIVATE_KEY;
+  const privateKeyRaw = process.env.DEPLOYER_PRIVATE_KEY || process.env.PRIVATE_KEY;
   if (!privateKeyRaw) {
-    throw new Error("DEPLOYER_PRIVATE_KEY not set in environment");
+    throw new Error("DEPLOYER_PRIVATE_KEY or PRIVATE_KEY not set in environment");
   }
 
   // Normalize private key (add 0x prefix if missing)
@@ -80,11 +117,14 @@ async function main() {
   const merklePath = process.env.MERKLE_PATH || "./lib/snapshots/firstWorks_merkle.json";
   console.log(`Loading Merkle tree from: ${merklePath}`);
 
+  if (!existsSync(merklePath)) {
+    throw new Error(`Merkle tree file not found: ${merklePath}. Run 'npm run merkle:generate' first.`);
+  }
+
   const merkleData = JSON.parse(readFileSync(merklePath, "utf-8"));
   const merkleRoot = merkleData.root as Hex;
 
   console.log(`Merkle Root: ${merkleRoot}`);
-  console.log(`Contract Address: ${contractAddress}`);
 
   // Create clients
   const publicClient = createPublicClient({
@@ -99,16 +139,26 @@ async function main() {
   });
 
   // Check current root
-  const currentRoot = await publicClient.readContract({
-    address: contractAddress,
-    abi: theSeedsAbi,
-    functionName: "currentOwnershipRoot",
-  });
+  let currentRoot: Hex;
+  try {
+    currentRoot = await publicClient.readContract({
+      address: contractAddress,
+      abi: contractAbi,
+      functionName: getRootFunction,
+    }) as Hex;
+  } catch (error: any) {
+    if (error.message.includes("0x")) {
+      // Contract exists but might be uninitialized
+      currentRoot = "0x0000000000000000000000000000000000000000000000000000000000000000";
+    } else {
+      throw error;
+    }
+  }
 
   console.log(`\nCurrent Root: ${currentRoot}`);
 
   if (currentRoot === merkleRoot) {
-    console.log("\n⚠ Merkle root is already up to date!");
+    console.log("\n✅ Merkle root is already up to date!");
     return;
   }
 
@@ -116,8 +166,8 @@ async function main() {
   console.log("\nUpdating Merkle root...");
   const txHash = await walletClient.writeContract({
     address: contractAddress,
-    abi: theSeedsAbi,
-    functionName: "updateOwnershipRoot",
+    abi: contractAbi,
+    functionName: updateRootFunction,
     args: [merkleRoot],
   });
 
@@ -128,25 +178,31 @@ async function main() {
     hash: txHash,
   });
 
-  console.log(`✓ Root updated in block ${receipt.blockNumber}`);
+  console.log(`✅ Root updated in block ${receipt.blockNumber}`);
 
   // Verify update
   const newRoot = await publicClient.readContract({
     address: contractAddress,
-    abi: theSeedsAbi,
-    functionName: "currentOwnershipRoot",
-  });
+    abi: contractAbi,
+    functionName: getRootFunction,
+  }) as Hex;
 
   const rootTimestamp = await publicClient.readContract({
     address: contractAddress,
-    abi: theSeedsAbi,
+    abi: contractAbi,
     functionName: "rootTimestamp",
-  });
+  }) as bigint;
 
   console.log("\n=== Update Complete ===");
   console.log(`New Root: ${newRoot}`);
   console.log(`Timestamp: ${new Date(Number(rootTimestamp) * 1000).toISOString()}`);
   console.log(`Block Number: ${receipt.blockNumber}`);
+
+  const explorerUrl = networkName === "base" || networkName === "baseSepolia"
+    ? `https://${networkName === "base" ? "" : "sepolia."}basescan.org/tx/${txHash}`
+    : `https://${networkName === "mainnet" ? "" : "sepolia."}etherscan.io/tx/${txHash}`;
+
+  console.log(`Explorer: ${explorerUrl}`);
 }
 
 main()

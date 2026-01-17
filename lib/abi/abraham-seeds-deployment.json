@@ -1,0 +1,18 @@
+{
+  "network": "baseSepolia",
+  "chainId": 84532,
+  "timestamp": "2026-01-17T18:07:39.419Z",
+  "deployer": "0x641f5ffC5F6239A0873Bd00F9975091FB035aAFC",
+  "contracts": {
+    "merkleGating": {
+      "address": "0x46657b69308d90a4756369094c5d78781f3f5979",
+      "blockNumber": "36452475",
+      "txHash": "0x1f0c0daaab67228f630592ea652ffab5bd01a2bd63d67ce4bc126e0f663e4977"
+    },
+    "abrahamSeeds": {
+      "address": "0x0b95d25463b7a937b3df28368456f2c40e95c730",
+      "blockNumber": "36452477",
+      "txHash": "0x2a459c93d12b5a81c1a41e18d09a47f908ec9657b814edc1ec19f102999cdc5a"
+    }
+  }
+}

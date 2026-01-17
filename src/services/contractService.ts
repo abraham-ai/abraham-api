@@ -1,7 +1,8 @@
 /**
  * Smart Contract Interaction Service
  *
- * Handles all interactions with TheSeeds contract on Base Sepolia/Base Mainnet
+ * Handles all interactions with AbrahamSeeds contract on Base Sepolia/Base Mainnet
+ * Updated for the new EdenAgent-based AbrahamSeeds contract
  */
 
 // CRITICAL: Load environment variables FIRST before any other code runs
@@ -17,6 +18,7 @@ import {
   createWalletClient,
   http,
   encodeFunctionData,
+  encodeAbiParameters,
   type Address,
   type Hash,
   type PublicClient,
@@ -31,34 +33,60 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load the ABI from source-tracked file (not artifacts, which is gitignored)
-// This ensures the ABI is available in Vercel deployments
-// The ABI is extracted from artifacts during build with: npm run extract-abi
-const abiPath = join(__dirname, "../../lib/abi/TheSeeds.json");
-const SEEDS_ABI = JSON.parse(readFileSync(abiPath, "utf-8"));
+// Load the ABI from source-tracked file
+// Supports both new AbrahamSeeds and old TheSeeds ABIs
+let SEEDS_ABI: any;
+let IS_NEW_CONTRACT = true;
 
+try {
+  const abiPath = join(__dirname, "../../lib/abi/AbrahamSeeds.json");
+  SEEDS_ABI = JSON.parse(readFileSync(abiPath, "utf-8"));
+  console.log("📄 Loaded AbrahamSeeds ABI (new contract)");
+} catch {
+  try {
+    const oldAbiPath = join(__dirname, "../../lib/abi/TheSeeds.json");
+    SEEDS_ABI = JSON.parse(readFileSync(oldAbiPath, "utf-8"));
+    IS_NEW_CONTRACT = false;
+    console.log("📄 Loaded TheSeeds ABI (legacy contract)");
+  } catch {
+    throw new Error("No contract ABI found. Run 'npm run compile' first.");
+  }
+}
+
+// New Seed interface matching AbrahamSeeds contract
 export interface Seed {
   id: bigint;
   creator: Address;
   ipfsHash: string;
-  blessings: bigint;
+  blessings: bigint;      // reactionCount in new contract
+  score: bigint;          // reactionScore in new contract
+  commandmentCount: bigint;
   createdAt: bigint;
-  isWinner: boolean;
-  isRetracted: boolean;
-  winnerInRound: bigint;
   submittedInRound: bigint;
+  creationRound: bigint;  // selectedInPeriod in new contract
+  isRetracted: boolean;
+  // Legacy compatibility fields
+  isWinner: boolean;
+  winnerInRound: bigint;
 }
 
 export interface Blessing {
   seedId: bigint;
   blesser: Address;
-  actor: Address;
+  score: bigint;
   timestamp: bigint;
-  isDelegated: boolean;
+}
+
+export interface Commandment {
+  id: bigint;
+  seedId: bigint;
+  author: Address;
+  ipfsHash: string;
+  createdAt: bigint;
 }
 
 /**
- * Contract Service for interacting with TheSeeds contract
+ * Contract Service for interacting with AbrahamSeeds contract
  */
 class ContractService {
   private publicClient: PublicClient;
@@ -83,6 +111,7 @@ class ContractService {
     console.log(`   Contract: ${contractAddress}`);
     console.log(`   Relayer Key: ${relayerKey ? "✅ Set" : "❌ Not set"}`);
     console.log(`   Deployment Block: ${deploymentBlock}`);
+    console.log(`   Contract Type: ${IS_NEW_CONTRACT ? "AbrahamSeeds (new)" : "TheSeeds (legacy)"}`);
 
     if (!contractAddress) {
       throw new Error("L2_SEEDS_CONTRACT environment variable not set");
@@ -90,8 +119,6 @@ class ContractService {
 
     this.contractAddress = contractAddress as Address;
     this.deploymentBlock = BigInt(deploymentBlock);
-
-    console.log(`📦 Deployment block set to: ${this.deploymentBlock}`);
 
     // Set up chain
     const chain = network === "base" ? base : baseSepolia;
@@ -121,12 +148,12 @@ class ContractService {
       );
     } else {
       console.warn(
-        "⚠️  RELAYER_PRIVATE_KEY not set - backend-signed blessings disabled"
+        "⚠️  RELAYER_PRIVATE_KEY not set - backend-signed operations disabled"
       );
     }
 
     console.log(
-      `📄 Connected to TheSeeds contract at: ${this.contractAddress}`
+      `📄 Connected to contract at: ${this.contractAddress}`
     );
     console.log(`🌐 Network: ${chain.name}`);
   }
@@ -146,6 +173,21 @@ class ContractService {
   }
 
   /**
+   * Encode merkle proof as bytes for the new contract
+   */
+  private encodeMerkleProof(merkleProof: string[]): `0x${string}` {
+    // The new contract expects the proof as abi.encode(bytes32[])
+    return encodeAbiParameters(
+      [{ type: 'bytes32[]' }],
+      [merkleProof as `0x${string}`[]]
+    );
+  }
+
+  /*//////////////////////////////////////////////////////////////
+                          READ FUNCTIONS
+  //////////////////////////////////////////////////////////////*/
+
+  /**
    * Read: Get seed information
    */
   async getSeed(seedId: number): Promise<Seed> {
@@ -154,21 +196,29 @@ class ContractService {
       abi: SEEDS_ABI,
       functionName: "getSeed",
       args: [BigInt(seedId)],
-    });
+    }) as any;
 
-    return seed as unknown as Seed;
-  }
-
-  /**
-   * Read: Check if user has blessed a seed
-   */
-  async hasBlessed(userAddress: Address, seedId: number): Promise<boolean> {
-    return (await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "hasBlessed",
-      args: [userAddress, BigInt(seedId)],
-    })) as boolean;
+    // Map to unified Seed interface (works with both old and new contracts)
+    if (IS_NEW_CONTRACT) {
+      return {
+        id: seed.id,
+        creator: seed.creator,
+        ipfsHash: seed.ipfsHash,
+        blessings: seed.blessings,
+        score: seed.score,
+        commandmentCount: seed.commandmentCount,
+        createdAt: seed.createdAt,
+        submittedInRound: seed.submittedInRound,
+        creationRound: seed.creationRound,
+        isRetracted: seed.isRetracted,
+        // Legacy compatibility
+        isWinner: seed.creationRound > 0n,
+        winnerInRound: seed.creationRound,
+      };
+    } else {
+      // Legacy TheSeeds format
+      return seed as Seed;
+    }
   }
 
   /**
@@ -178,53 +228,13 @@ class ContractService {
     userAddress: Address,
     delegateAddress: Address
   ): Promise<boolean> {
+    const funcName = IS_NEW_CONTRACT ? "delegateApprovals" : "isDelegate";
     return (await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
-      functionName: "isDelegate",
+      functionName: funcName,
       args: [userAddress, delegateAddress],
     })) as boolean;
-  }
-
-  /**
-   * Read: Get total blessings count
-   */
-  async getTotalBlessings(): Promise<bigint> {
-    return (await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getTotalBlessings",
-      args: [],
-    })) as bigint;
-  }
-
-  /**
-   * Read: Get user's daily blessing count
-   * Returns how many blessings the user has performed today (resets at midnight UTC)
-   */
-  async getUserDailyBlessingCount(userAddress: Address): Promise<bigint> {
-    return (await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getUserDailyBlessingCount",
-      args: [userAddress],
-    })) as bigint;
-  }
-
-  /**
-   * Read: Get remaining blessings for a user
-   * Returns how many more blessings a user can perform today based on NFT count
-   */
-  async getRemainingBlessings(
-    userAddress: Address,
-    nftCount: number
-  ): Promise<bigint> {
-    return (await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getRemainingBlessings",
-      args: [userAddress, BigInt(nftCount)],
-    })) as bigint;
   }
 
   /**
@@ -246,10 +256,11 @@ class ContractService {
    * Read: Get total seed count
    */
   async getSeedCount(): Promise<bigint> {
+    const funcName = IS_NEW_CONTRACT ? "getSeedCount" : "seedCount";
     return (await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
-      functionName: "seedCount",
+      functionName: funcName,
       args: [],
     })) as bigint;
   }
@@ -258,45 +269,35 @@ class ContractService {
    * Read: Get current round number
    */
   async getCurrentRound(): Promise<bigint> {
+    const funcName = IS_NEW_CONTRACT ? "getCurrentRound" : "currentRound";
     return (await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
-      functionName: "currentRound",
+      functionName: funcName,
       args: [],
     })) as bigint;
   }
 
   /**
-   * Read: Get seeds by round number
+   * Read: Get seeds by round number (uses events for efficiency)
    */
   async getSeedsByRound(round: number): Promise<Seed[]> {
-    // Optimized: Build from SeedSubmitted events for this round
+    const eventName = IS_NEW_CONTRACT ? "SeedSubmitted" : "SeedSubmitted";
+
     const events = await this.publicClient.getContractEvents({
       address: this.contractAddress,
       abi: SEEDS_ABI,
-      eventName: "SeedSubmitted",
+      eventName,
       fromBlock: this.deploymentBlock,
       toBlock: "latest",
     });
 
     // Filter events for this round and fetch seed data
     const seedPromises = events
-      .map(
-        (event: any) =>
-          event.args as {
-            seedId: bigint;
-            creator: string;
-            ipfsHash: string;
-            timestamp: bigint;
-          }
-      )
+      .map((event: any) => event.args as { seedId: bigint })
       .map(async (args) => {
         const seed = await this.getSeed(Number(args.seedId));
-        // Check if seed was submitted in this round
-        if (
-          Number(seed.winnerInRound) === 0 ||
-          Number(seed.winnerInRound) > round
-        ) {
+        if (Number(seed.submittedInRound) === round) {
           return seed;
         }
         return null;
@@ -308,7 +309,6 @@ class ContractService {
 
   /**
    * Read: Get seeds from current round
-   * Optimized: Uses getSeedsByRound with current round
    */
   async getCurrentRoundSeeds(): Promise<Seed[]> {
     const currentRound = await this.getCurrentRound();
@@ -319,17 +319,17 @@ class ContractService {
    * Read: Get time remaining until voting period ends
    */
   async getTimeUntilPeriodEnd(): Promise<bigint> {
+    const funcName = IS_NEW_CONTRACT ? "getTimeUntilRoundEnd" : "getTimeUntilPeriodEnd";
     return (await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
-      functionName: "getTimeUntilPeriodEnd",
+      functionName: funcName,
       args: [],
     })) as bigint;
   }
 
   /**
    * Read: Get current leading seed and its blessing score
-   * Note: Calculates from seed data since contract doesn't have this view function
    */
   async getCurrentLeader(): Promise<{ leadingSeedId: bigint; score: bigint }> {
     const leaders = await this.getCurrentLeaders();
@@ -344,57 +344,9 @@ class ContractService {
     return (await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
-      functionName: "seedBlessingScore",
+      functionName: "getSeedBlessingScore",
       args: [BigInt(seedId)],
     })) as bigint;
-  }
-
-  /**
-   * Read: Get seed score for a specific round
-   */
-  async getSeedScoreByRound(round: number, seedId: number): Promise<bigint> {
-    return (await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "seedScoreByRound",
-      args: [BigInt(round), BigInt(seedId)],
-    })) as bigint;
-  }
-
-  /**
-   * Read: Get current round mode (ROUND_BASED or NON_ROUND_BASED)
-   */
-  async getRoundMode(): Promise<number> {
-    return (await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getRoundMode",
-      args: [],
-    })) as number;
-  }
-
-  /**
-   * Read: Get current tie-breaking strategy
-   */
-  async getTieBreakingStrategy(): Promise<number> {
-    return (await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getTieBreakingStrategy",
-      args: [],
-    })) as number;
-  }
-
-  /**
-   * Read: Get current deadlock strategy
-   */
-  async getDeadlockStrategy(): Promise<number> {
-    return (await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getDeadlockStrategy",
-      args: [],
-    })) as number;
   }
 
   /**
@@ -410,33 +362,77 @@ class ContractService {
   }
 
   /**
-   * Read: Get seconds until daily blessing reset
+   * Read: Get remaining blessings for a user
    */
-  async getSecondsUntilDailyReset(): Promise<bigint> {
+  async getRemainingBlessings(
+    userAddress: Address,
+    nftCount: number
+  ): Promise<bigint> {
     return (await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
-      functionName: "getSecondsUntilDailyReset",
+      functionName: "getRemainingBlessings",
+      args: [userAddress, BigInt(nftCount)],
+    })) as bigint;
+  }
+
+  /**
+   * Read: Get blessings per NFT configuration
+   */
+  async getBlessingsPerNFT(): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "blessingsPerNFT",
       args: [],
     })) as bigint;
   }
 
   /**
-   * Read: Get current leaders (multiple in case of tie)
-   * Optimized: Calculates from seed data instead of removed view function
+   * Read: Get voting period duration
+   */
+  async getVotingPeriod(): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "votingPeriod",
+      args: [],
+    })) as bigint;
+  }
+
+  /**
+   * Read: Get commandment count for a seed
+   */
+  async getCommandmentCount(seedId: number): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "getCommandmentCount",
+      args: [BigInt(seedId)],
+    })) as bigint;
+  }
+
+  /**
+   * Read: Get round winner
+   */
+  async getRoundWinner(round: number): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "getRoundWinner",
+      args: [BigInt(round)],
+    })) as bigint;
+  }
+
+  /**
+   * Read: Get current leaders (all tied leaders)
    */
   async getCurrentLeaders(): Promise<{
     leadingSeedIds: bigint[];
     score: bigint;
   }> {
-    // Get current round and total seeds
-    const [currentRound, totalSeeds, roundMode] = await Promise.all([
-      this.getCurrentRound(),
-      this.getSeedCount(),
-      this.getRoundMode(),
-    ]);
-
-    // Find seeds with max score
+    // Get all eligible seeds and find max score
+    const totalSeeds = await this.getSeedCount();
     let maxScore = 0n;
     const leaders: bigint[] = [];
 
@@ -447,7 +443,7 @@ class ContractService {
       // Skip winners and retracted seeds
       if (seed.isWinner || seed.isRetracted) continue;
 
-      const seedScore = BigInt(seed.blessings);
+      const seedScore = seed.score;
 
       if (seedScore > maxScore) {
         maxScore = seedScore;
@@ -462,12 +458,11 @@ class ContractService {
   }
 
   /*//////////////////////////////////////////////////////////////
-                        NFT FUNCTIONS (ERC721)
+                        NFT FUNCTIONS (ERC1155)
   //////////////////////////////////////////////////////////////*/
 
   /**
    * Read: Get token ID for a seed ID
-   * Returns 0 if seed hasn't won yet
    */
   async getTokenIdBySeedId(seedId: number): Promise<bigint> {
     return (await this.publicClient.readContract({
@@ -480,7 +475,6 @@ class ContractService {
 
   /**
    * Read: Get seed ID for a token ID
-   * Reverts if token doesn't exist
    */
   async getSeedIdByTokenId(tokenId: number): Promise<bigint> {
     return (await this.publicClient.readContract({
@@ -492,16 +486,35 @@ class ContractService {
   }
 
   /**
-   * Read: Get token URI for a token ID
-   * Returns IPFS URI pointing to metadata
+   * Read: Get creation edition info
    */
-  async tokenURI(tokenId: number): Promise<string> {
-    return (await this.publicClient.readContract({
+  async getCreationEditionInfo(tokenId: number): Promise<{
+    seedId: bigint;
+    totalMinted: bigint;
+    creatorEditions: bigint;
+    curatorEditions: bigint;
+    curatorDistributed: bigint;
+    publicEditions: bigint;
+    publicSold: bigint;
+    availableForSale: bigint;
+  }> {
+    const result = await this.publicClient.readContract({
       address: this.contractAddress,
       abi: SEEDS_ABI,
-      functionName: "tokenURI",
+      functionName: "getCreationEditionInfo",
       args: [BigInt(tokenId)],
-    })) as string;
+    }) as any;
+
+    return {
+      seedId: result[0],
+      totalMinted: result[1],
+      creatorEditions: result[2],
+      curatorEditions: result[3],
+      curatorDistributed: result[4],
+      publicEditions: result[5],
+      publicSold: result[6],
+      availableForSale: result[7],
+    };
   }
 
   /*//////////////////////////////////////////////////////////////
@@ -509,9 +522,8 @@ class ContractService {
   //////////////////////////////////////////////////////////////*/
 
   /**
-   * Write: Bless a seed on behalf of a user (relayer pattern)
-   * Requires RELAYER_ROLE or user delegation
-   * Now includes on-chain eligibility verification with NFT ownership proof
+   * Write: Bless a seed on behalf of a user (operator pattern)
+   * Requires OPERATOR_ROLE or user delegation
    */
   async blessSeedFor(
     seedId: number,
@@ -531,16 +543,15 @@ class ContractService {
     }
 
     try {
-      // Convert tokenIds to BigInt array and proof to proper format
       const tokenIdsBigInt = tokenIds.map((id) => BigInt(id));
-      const proofFormatted = merkleProof as `0x${string}`[];
+      const proofEncoded = this.encodeMerkleProof(merkleProof);
 
       // Simulate first to catch errors
       await this.publicClient.simulateContract({
         address: this.contractAddress,
         abi: SEEDS_ABI,
         functionName: "blessSeedFor",
-        args: [BigInt(seedId), userAddress, tokenIdsBigInt, proofFormatted],
+        args: [BigInt(seedId), userAddress, tokenIdsBigInt, proofEncoded],
         account: this.relayerAccount,
       });
 
@@ -549,7 +560,7 @@ class ContractService {
         address: this.contractAddress,
         abi: SEEDS_ABI,
         functionName: "blessSeedFor",
-        args: [BigInt(seedId), userAddress, tokenIdsBigInt, proofFormatted],
+        args: [BigInt(seedId), userAddress, tokenIdsBigInt, proofEncoded],
       } as any);
 
       // Wait for confirmation
@@ -564,20 +575,19 @@ class ContractService {
     } catch (error: any) {
       console.error("Error blessing seed:", error);
 
-      // Parse common errors
       let errorMessage = "Failed to submit blessing";
       if (error.message.includes("NotAuthorized")) {
         errorMessage =
           "Backend not authorized - user must approve backend as delegate";
-      } else if (error.message.includes("SeedNotFound")) {
+      } else if (error.message.includes("SessionNotFound")) {
         errorMessage = "Seed does not exist";
-      } else if (error.message.includes("SeedAlreadyWinner")) {
+      } else if (error.message.includes("SessionAlreadySelected")) {
         errorMessage = "Cannot bless a winning seed";
-      } else if (error.message.includes("InvalidMerkleProof")) {
+      } else if (error.message.includes("InvalidGatingProof")) {
         errorMessage = "Invalid NFT ownership proof";
-      } else if (error.message.includes("DailyBlessingLimitReached")) {
+      } else if (error.message.includes("DailyLimitReached")) {
         errorMessage = "Daily blessing limit reached";
-      } else if (error.message.includes("NoVotingPower")) {
+      } else if (error.message.includes("NoTokens")) {
         errorMessage = "No NFTs owned";
       }
 
@@ -589,59 +599,7 @@ class ContractService {
   }
 
   /**
-   * Write: Batch bless multiple seeds (relayer only)
-   */
-  async batchBlessSeedsFor(
-    seedIds: number[],
-    userAddresses: Address[]
-  ): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return {
-        success: false,
-        error: "Relayer not configured",
-      };
-    }
-
-    if (seedIds.length !== userAddresses.length) {
-      return {
-        success: false,
-        error: "Seed IDs and user addresses length mismatch",
-      };
-    }
-
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "batchBlessSeedsFor",
-        args: [seedIds.map((id) => BigInt(id)), userAddresses],
-      } as any);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
-    } catch (error: any) {
-      console.error("Error batch blessing:", error);
-      return {
-        success: false,
-        error: "Failed to batch bless seeds",
-      };
-    }
-  }
-
-  /**
    * Prepare blessing transaction data for client-side signing
-   * Returns the data user needs to sign the transaction themselves
-   * Now includes NFT ownership proof for on-chain verification
    */
   prepareBlessingTransaction(
     seedId: number,
@@ -650,14 +608,14 @@ class ContractService {
     merkleProof: string[]
   ) {
     const tokenIdsBigInt = tokenIds.map((id) => BigInt(id));
-    const proofFormatted = merkleProof as `0x${string}`[];
+    const proofEncoded = this.encodeMerkleProof(merkleProof);
 
     return {
       to: this.contractAddress,
       data: encodeFunctionData({
         abi: SEEDS_ABI,
         functionName: "blessSeed",
-        args: [BigInt(seedId), tokenIdsBigInt, proofFormatted],
+        args: [BigInt(seedId), tokenIdsBigInt, proofEncoded],
       }),
       from: userAddress,
       chainId: this.publicClient.chain?.id,
@@ -684,35 +642,8 @@ class ContractService {
     };
   }
 
-  /**
-   * Prepare commandment transaction for client-side signing
-   * Returns the data user needs to sign the transaction themselves
-   * Now includes NFT ownership proof for on-chain verification
-   */
-  prepareCommandmentTransaction(
-    seedId: number,
-    userAddress: Address,
-    ipfsHash: string,
-    tokenIds: number[],
-    merkleProof: string[]
-  ) {
-    const tokenIdsBigInt = tokenIds.map((id) => BigInt(id));
-    const proofFormatted = merkleProof as `0x${string}`[];
-
-    return {
-      to: this.contractAddress,
-      data: encodeFunctionData({
-        abi: SEEDS_ABI,
-        functionName: "commentOnSeed",
-        args: [BigInt(seedId), ipfsHash, tokenIdsBigInt, proofFormatted],
-      }),
-      from: userAddress,
-      chainId: this.publicClient.chain?.id,
-    };
-  }
-
   /*//////////////////////////////////////////////////////////////
-                        SEED CREATION FUNCTIONS
+                      SEED CREATION FUNCTIONS
   //////////////////////////////////////////////////////////////*/
 
   /**
@@ -732,7 +663,6 @@ class ContractService {
   /**
    * Write: Submit a seed to the blockchain (backend-signed)
    * Requires relayer to have CREATOR_ROLE
-   * Note: Title, description, and image are stored in IPFS metadata
    */
   async submitSeed(ipfsHash: string): Promise<{
     success: boolean;
@@ -776,14 +706,10 @@ class ContractService {
       }
 
       // Get the seed ID from the SeedSubmitted event
-      const logs = receipt.logs;
       let seedId: number | undefined;
-
-      for (const log of logs) {
+      for (const log of receipt.logs) {
         try {
-          // Parse the log to find SeedSubmitted event
           if (log.topics[0] && log.topics[1]) {
-            // SeedSubmitted event has seedId as first indexed parameter
             seedId = Number(BigInt(log.topics[1]));
             break;
           }
@@ -808,7 +734,6 @@ class ContractService {
 
   /**
    * Prepare seed submission transaction for client-side signing
-   * Note: Title, description, and image are stored in IPFS metadata
    */
   prepareSeedSubmissionTransaction(ipfsHash: string, creatorAddress: Address) {
     return {
@@ -825,7 +750,6 @@ class ContractService {
 
   /**
    * Admin: Add a creator (grant CREATOR_ROLE)
-   * Only callable by ADMIN_ROLE
    */
   async addCreator(creatorAddress: Address): Promise<{
     success: boolean;
@@ -864,442 +788,17 @@ class ContractService {
     }
   }
 
-  /**
-   * Admin: Remove a creator (revoke CREATOR_ROLE)
-   * Only callable by ADMIN_ROLE
-   */
-  async removeCreator(creatorAddress: Address): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return {
-        success: false,
-        error: "Wallet client not initialized",
-      };
-    }
-
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "removeCreator",
-        args: [creatorAddress],
-      } as any);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
-    } catch (error: any) {
-      console.error("Error removing creator:", error);
-      return {
-        success: false,
-        error: error.message || "Failed to remove creator",
-      };
-    }
-  }
-
-  /*//////////////////////////////////////////////////////////////
-                    CONFIGURATION UPDATE FUNCTIONS
-  //////////////////////////////////////////////////////////////*/
-
-  /**
-   * Admin: Update voting period (deferred until next winner selection)
-   * @param newPeriod New voting period in seconds (1 hour to 7 days)
-   */
-  async updateVotingPeriod(newPeriod: number): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return {
-        success: false,
-        error: "Wallet client not initialized",
-      };
-    }
-
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "updateVotingPeriod",
-        args: [BigInt(newPeriod)],
-      } as any);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
-    } catch (error: any) {
-      console.error("Error updating voting period:", error);
-      return {
-        success: false,
-        error: error.message || "Failed to update voting period",
-      };
-    }
-  }
-
-  /**
-   * Admin: Update blessings per NFT (deferred until next winner selection)
-   * @param newAmount New blessings per NFT (1 to 100)
-   */
-  async updateBlessingsPerNFT(newAmount: number): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return {
-        success: false,
-        error: "Wallet client not initialized",
-      };
-    }
-
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "updateBlessingsPerNFT",
-        args: [BigInt(newAmount)],
-      } as any);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
-    } catch (error: any) {
-      console.error("Error updating blessings per NFT:", error);
-      return {
-        success: false,
-        error: error.message || "Failed to update blessings per NFT",
-      };
-    }
-  }
-
-  /**
-   * Admin: Update score reset policy
-   * @param enabled Whether to reset scores at round end
-   */
-  async updateScoreResetPolicy(enabled: boolean): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return {
-        success: false,
-        error: "Wallet client not initialized",
-      };
-    }
-
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "updateScoreResetPolicy",
-        args: [enabled],
-      } as any);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
-    } catch (error: any) {
-      console.error("Error updating score reset policy:", error);
-      return {
-        success: false,
-        error: error.message || "Failed to update score reset policy",
-      };
-    }
-  }
-
-  /**
-   * Admin: Update round mode
-   * @param mode 0 = ROUND_BASED, 1 = NON_ROUND_BASED
-   */
-  async updateRoundMode(mode: number): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return {
-        success: false,
-        error: "Wallet client not initialized",
-      };
-    }
-
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "updateRoundMode",
-        args: [mode],
-      } as any);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
-    } catch (error: any) {
-      console.error("Error updating round mode:", error);
-      return {
-        success: false,
-        error: error.message || "Failed to update round mode",
-      };
-    }
-  }
-
-  /**
-   * Admin: Update tie-breaking strategy
-   * @param strategy 0 = LOWEST_SEED_ID, 1 = EARLIEST_SUBMISSION, 2 = PSEUDO_RANDOM
-   */
-  async updateTieBreakingStrategy(strategy: number): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return {
-        success: false,
-        error: "Wallet client not initialized",
-      };
-    }
-
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "updateTieBreakingStrategy",
-        args: [strategy],
-      } as any);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
-    } catch (error: any) {
-      console.error("Error updating tie-breaking strategy:", error);
-      return {
-        success: false,
-        error: error.message || "Failed to update tie-breaking strategy",
-      };
-    }
-  }
-
-  /**
-   * Admin: Update deadlock strategy
-   * @param strategy 0 = REVERT, 1 = SKIP_ROUND
-   */
-  async updateDeadlockStrategy(strategy: number): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return {
-        success: false,
-        error: "Wallet client not initialized",
-      };
-    }
-
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "updateDeadlockStrategy",
-        args: [strategy],
-      } as any);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
-    } catch (error: any) {
-      console.error("Error updating deadlock strategy:", error);
-      return {
-        success: false,
-        error: error.message || "Failed to update deadlock strategy",
-      };
-    }
-  }
-
-  /**
-   * Admin: Set base URI for token metadata
-   * @param baseURI Base URI string (e.g., "https://metadata.example.com/")
-   */
-  async setBaseURI(baseURI: string): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return {
-        success: false,
-        error: "Wallet client not initialized",
-      };
-    }
-
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "setBaseURI",
-        args: [baseURI],
-      } as any);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
-    } catch (error: any) {
-      console.error("Error setting base URI:", error);
-      return {
-        success: false,
-        error: error.message || "Failed to set base URI",
-      };
-    }
-  }
-
-  /*//////////////////////////////////////////////////////////////
-                      WINNER SELECTION FUNCTIONS
-  //////////////////////////////////////////////////////////////*/
-
-  /*//////////////////////////////////////////////////////////////
-                        EVENT FETCHING FUNCTIONS
-  //////////////////////////////////////////////////////////////*/
-
-  /**
-   * Fetch blessing events from the blockchain
-   * Handles RPC block range limits by fetching in batches
-   * @param fromBlock - Starting block number (default: contract deployment block)
-   * @param toBlock - Ending block number (default: 'latest')
-   * @param userAddress - Optional filter for specific user
-   * @param seedId - Optional filter for specific seed
-   */
-  async getBlessingEvents(options?: {
-    fromBlock?: bigint;
-    toBlock?: bigint | "latest";
-    userAddress?: Address;
-    seedId?: number;
-  }): Promise<Blessing[]> {
-    const BATCH_SIZE = 50000n; // Safe batch size below the 100k limit
-    const allBlessings: Blessing[] = [];
-
-    try {
-      // Get the latest block number if toBlock is 'latest'
-      const latestBlock = await this.publicClient.getBlockNumber();
-      const fromBlock = options?.fromBlock || this.deploymentBlock;
-      const toBlock =
-        options?.toBlock === "latest" || !options?.toBlock
-          ? latestBlock
-          : options.toBlock;
-
-      // Fetch in batches to avoid exceeding RPC limits
-      let currentFrom = fromBlock;
-
-      while (currentFrom <= toBlock) {
-        const currentTo =
-          currentFrom + BATCH_SIZE > toBlock
-            ? toBlock
-            : currentFrom + BATCH_SIZE;
-
-        // Build event filter for this batch
-        const filter: any = {
-          address: this.contractAddress,
-          event: {
-            type: "event",
-            name: "BlessingSubmitted",
-            inputs: [
-              { indexed: true, name: "seedId", type: "uint256" },
-              { indexed: true, name: "blesser", type: "address" },
-              { indexed: true, name: "actor", type: "address" },
-              { indexed: false, name: "isDelegated", type: "bool" },
-              { indexed: false, name: "timestamp", type: "uint256" },
-            ],
-          },
-          fromBlock: currentFrom,
-          toBlock: currentTo,
-        };
-
-        // Add topic filters if specified
-        if (options?.seedId !== undefined) {
-          filter.args = { seedId: BigInt(options.seedId) };
-        }
-        if (options?.userAddress) {
-          filter.args = { ...filter.args, blesser: options.userAddress };
-        }
-
-        const logs = await this.publicClient.getLogs(filter);
-
-        // Parse logs into Blessing objects
-        const blessings: Blessing[] = logs.map((log: any) => ({
-          seedId: log.args.seedId,
-          blesser: log.args.blesser,
-          actor: log.args.actor,
-          timestamp: log.args.timestamp,
-          isDelegated: log.args.isDelegated,
-        }));
-
-        allBlessings.push(...blessings);
-
-        // Move to next batch
-        currentFrom = currentTo + 1n;
-      }
-
-      return allBlessings;
-    } catch (error) {
-      console.error("Error fetching blessing events:", error);
-      return [];
-    }
-  }
-
   /*//////////////////////////////////////////////////////////////
                       WINNER SELECTION FUNCTIONS
   //////////////////////////////////////////////////////////////*/
 
   /**
    * Admin: Select daily winner (call contract's selectDailyWinner)
-   * Only callable by relayer/admin account
    */
   async selectDailyWinner(): Promise<{
     success: boolean;
     winningSeedId?: number;
+    tokenId?: number;
     txHash?: Hash;
     error?: string;
     details?: string;
@@ -1307,74 +806,41 @@ class ContractService {
       currentRound: number;
       seedsInRound: number;
       timeRemaining: number;
-      currentLeader: { seedId: number; score: string; blessings: string };
+      currentLeader: { seedId: number; score: string };
     };
   }> {
     if (!this.walletClient || !this.relayerAccount) {
-      console.error("❌ Wallet client not initialized!");
-      console.error("   This usually means RELAYER_PRIVATE_KEY is not set in environment variables");
-      console.error("   Current env check:");
-      console.error(`   - RELAYER_PRIVATE_KEY: ${process.env.RELAYER_PRIVATE_KEY ? "SET" : "NOT SET"}`);
-      console.error(`   - L2_RPC_URL: ${process.env.L2_RPC_URL ? "SET" : "NOT SET"}`);
-
       return {
         success: false,
-        error: "Wallet client not initialized - RELAYER_PRIVATE_KEY environment variable is required",
+        error: "Wallet client not initialized - RELAYER_PRIVATE_KEY required",
       };
     }
 
     try {
-      // ============================================================
-      // PRE-FLIGHT DIAGNOSTICS
-      // ============================================================
       console.log("🔍 Running pre-flight diagnostics...");
 
-      // Check 0: Get round mode to determine which checks to run
-      const roundMode = await this.getRoundMode();
-      const isNonRoundBased = roundMode === 1;
-      console.log(
-        `   Round Mode: ${isNonRoundBased ? "NON_ROUND_BASED" : "ROUND_BASED"}`
-      );
-
-      // Check 1: Get current round (still tracked even in NON_ROUND_BASED)
+      // Check current round
       const currentRound = await this.getCurrentRound();
       console.log(`   Current Round: ${currentRound}`);
 
-      // Check 2: Get eligible seeds count
-      // In NON_ROUND_BASED mode, use getEligibleSeedsCount() instead of getCurrentRoundSeeds()
-      let seedsCount: number;
-      let roundSeeds: Seed[] = [];
+      // Check eligible seeds
+      const eligibleCount = await this.getEligibleSeedsCount();
+      console.log(`   Eligible Seeds: ${eligibleCount}`);
 
-      if (isNonRoundBased) {
-        // NON_ROUND_BASED: Seeds are not grouped by rounds
-        const eligibleCount = await this.getEligibleSeedsCount();
-        seedsCount = Number(eligibleCount);
-        console.log(`   Eligible Seeds: ${seedsCount}`);
-      } else {
-        // ROUND_BASED: Check seeds in current round
-        roundSeeds = await this.getCurrentRoundSeeds();
-        seedsCount = roundSeeds.length;
-        console.log(`   Seeds in Round: ${seedsCount}`);
-      }
-
-      if (seedsCount === 0) {
-        const errorMsg = isNonRoundBased
-          ? "No eligible seeds available for winner selection"
-          : "No seeds submitted in current round";
-
+      if (eligibleCount === 0n) {
         return {
           success: false,
-          error: errorMsg,
+          error: "No eligible seeds available for winner selection",
           diagnostics: {
             currentRound: Number(currentRound),
-            seedsInRound: seedsCount,
+            seedsInRound: 0,
             timeRemaining: 0,
-            currentLeader: { seedId: 0, score: "0", blessings: "0" },
+            currentLeader: { seedId: 0, score: "0" },
           },
         };
       }
 
-      // Check 3: Get time remaining
+      // Check time remaining
       const timeRemaining = await this.getTimeUntilPeriodEnd();
       console.log(`   Time Until Period End: ${timeRemaining}s`);
 
@@ -1384,70 +850,30 @@ class ContractService {
           error: `Voting period not ended (${timeRemaining}s remaining)`,
           diagnostics: {
             currentRound: Number(currentRound),
-            seedsInRound: seedsCount,
+            seedsInRound: Number(eligibleCount),
             timeRemaining: Number(timeRemaining),
-            currentLeader: { seedId: 0, score: "0", blessings: "0" },
+            currentLeader: { seedId: 0, score: "0" },
           },
         };
       }
 
-      // Check 4: Verify eligible seeds in ROUND_BASED mode
-      // In NON_ROUND_BASED mode, we already verified eligibility with getEligibleSeedsCount()
-      if (!isNonRoundBased) {
-        const eligibleSeeds = roundSeeds.filter((seed) => !seed.isWinner);
-        console.log(
-          `   Eligible Seeds (not already winners): ${eligibleSeeds.length}`
-        );
+      console.log("✅ Pre-flight checks passed, proceeding with winner selection...");
 
-        if (eligibleSeeds.length === 0) {
-          return {
-            success: false,
-            error: "All seeds in current round have already won",
-            diagnostics: {
-              currentRound: Number(currentRound),
-              seedsInRound: seedsCount,
-              timeRemaining: 0,
-              currentLeader: {
-                seedId: 0,
-                score: "0",
-                blessings: "0",
-              },
-            },
-          };
-        }
-      }
-
-      console.log(
-        "✅ Pre-flight checks passed, proceeding with winner selection..."
-      );
-
-      // ============================================================
-      // EXECUTE WINNER SELECTION
-      // ============================================================
       // Check relayer balance
-      console.log("💰 Checking relayer account balance...");
       const balance = await this.publicClient.getBalance({
         address: this.relayerAccount.address,
       });
-      console.log(`   Relayer Balance: ${balance} wei (${Number(balance) / 1e18} ETH)`);
-
-      // Warn if balance is low (less than 0.001 ETH)
-      const minBalance = BigInt(1e15); // 0.001 ETH
-      if (balance < minBalance) {
-        console.warn(`⚠️  WARNING: Relayer balance is low (${Number(balance) / 1e18} ETH)`);
-        console.warn(`   Please fund the relayer account: ${this.relayerAccount.address}`);
-      }
+      console.log(`   Relayer Balance: ${Number(balance) / 1e18} ETH`);
 
       if (balance === 0n) {
         return {
           success: false,
-          error: `Relayer account has no balance. Please fund ${this.relayerAccount.address} with ETH for gas.`,
+          error: `Relayer account has no balance. Please fund ${this.relayerAccount.address}`,
         };
       }
 
-      console.log("🔍 Simulating transaction before submission...");
-
-      // Simulate the transaction first to catch errors
+      // Simulate transaction
+      console.log("🔍 Simulating transaction...");
       try {
         await this.publicClient.simulateContract({
           address: this.contractAddress,
@@ -1456,15 +882,13 @@ class ContractService {
           args: [],
           account: this.relayerAccount,
         });
-        console.log("✅ Transaction simulation successful");
+        console.log("✅ Simulation successful");
       } catch (simError: any) {
-        console.error("❌ Transaction simulation failed:", simError);
-        throw new Error(
-          `Transaction simulation failed: ${simError.shortMessage || simError.message || String(simError)}`
-        );
+        throw new Error(`Simulation failed: ${simError.shortMessage || simError.message}`);
       }
 
-      console.log("📤 Submitting transaction to blockchain...");
+      // Submit transaction
+      console.log("📤 Submitting transaction...");
       const hash = await this.walletClient.writeContract({
         address: this.contractAddress,
         abi: SEEDS_ABI,
@@ -1483,146 +907,64 @@ class ContractService {
         };
       }
 
-      // Parse the WinnerSelected event to get the winner ID
+      // Parse events to get winner info
       let winningSeedId: number | undefined;
+      let tokenId: number | undefined;
+
       for (const log of receipt.logs) {
         try {
-          // WinnerSelected event has seedId as second indexed parameter
-          if (log.topics[0] && log.topics[2]) {
+          // CreationMinted event: round, seedId, tokenId
+          if (log.topics[0] && log.topics[1] && log.topics[2]) {
             winningSeedId = Number(BigInt(log.topics[2]));
+            // tokenId is in the data
+            if (log.data && log.data !== '0x') {
+              tokenId = Number(BigInt(log.data));
+            }
             break;
           }
         } catch (e) {
-          // Continue if this log doesn't match
+          // Continue
         }
       }
 
       return {
         success: true,
         winningSeedId,
+        tokenId,
         txHash: hash,
         diagnostics: {
           currentRound: Number(currentRound),
-          seedsInRound: seedsCount,
+          seedsInRound: Number(eligibleCount),
           timeRemaining: 0,
-          currentLeader: {
-            seedId: winningSeedId || 0,
-            score: "N/A",
-            blessings: "N/A",
-          },
+          currentLeader: { seedId: winningSeedId || 0, score: "N/A" },
         },
       };
     } catch (error: any) {
       console.error("Error selecting daily winner:", error);
-      console.error("Full error details:", {
-        message: error.message,
-        shortMessage: error.shortMessage,
-        details: error.details,
-        cause: error.cause,
-        stack: error.stack,
-      });
 
-      // Parse common errors
       let errorMessage = "Failed to select daily winner";
-      let errorDetails = error.message || String(error);
-
-      if (
-        error.message?.includes("VotingPeriodNotEnded") ||
-        error.message?.includes("BlessingPeriodNotEnded")
-      ) {
-        errorMessage =
-          "Blessing period has not ended yet (24 hours not elapsed)";
-      } else if (error.message?.includes("NoValidWinner")) {
-        errorMessage = "No valid winner (contract validation failed)";
-      } else if (error.shortMessage) {
-        // Use viem's shortMessage if available
-        errorDetails = error.shortMessage;
+      if (error.message?.includes("PeriodNotEnded")) {
+        errorMessage = "Voting period has not ended yet";
+      } else if (error.message?.includes("NoValidSession")) {
+        errorMessage = "No valid winner found";
       }
 
       return {
         success: false,
         error: errorMessage,
-        details: errorDetails,
+        details: error.message,
       };
     }
   }
 
-  /**
-   * ======================
-   * COMMANDMENT OPERATIONS
-   * ======================
-   */
+  /*//////////////////////////////////////////////////////////////
+                      COMMANDMENT FUNCTIONS
+  //////////////////////////////////////////////////////////////*/
 
   /**
-   * Read: Get commandments for a seed (from events)
-   * Optimized: Uses event indexing instead of removed view function
+   * Write: Add commandment on behalf of user
    */
-  async getCommandmentsBySeed(seedId: number): Promise<any[]> {
-    return await this.getCommandmentEvents({ seedId });
-  }
-
-  /**
-   * Read: Get user's daily commandment count
-   */
-  async getUserDailyCommandmentCount(userAddress: Address): Promise<bigint> {
-    return (await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getUserDailyCommandmentCount",
-      args: [userAddress],
-    })) as bigint;
-  }
-
-  /**
-   * Read: Get remaining commandments for user
-   */
-  async getRemainingCommandments(
-    userAddress: Address,
-    nftCount: number
-  ): Promise<bigint> {
-    return (await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getRemainingCommandments",
-      args: [userAddress, BigInt(nftCount)],
-    })) as bigint;
-  }
-
-  /**
-   * Read: Get scoring configuration
-   */
-  async getScoringConfig(): Promise<{
-    blessingWeight: bigint;
-    commandmentWeight: bigint;
-    timeDecayMin: bigint;
-    timeDecayBase: bigint;
-    scaleFactorBlessings: bigint;
-    scaleFactorCommandments: bigint;
-  }> {
-    return (await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getScoringConfig",
-      args: [],
-    })) as any;
-  }
-
-  /**
-   * Read: Get contract balance (collected fees)
-   */
-  async getContractBalance(): Promise<bigint> {
-    return (await this.publicClient.readContract({
-      address: this.contractAddress,
-      abi: SEEDS_ABI,
-      functionName: "getContractBalance",
-      args: [],
-    })) as bigint;
-  }
-
-  /**
-   * Write: Submit commandment on behalf of user (relayer function)
-   */
-  async commentOnSeedFor(
+  async addCommandmentFor(
     seedId: number,
     userAddress: Address,
     ipfsHash: string,
@@ -1639,46 +981,31 @@ class ContractService {
     }
 
     try {
-      // Get commandment cost
-      const cost = (await this.publicClient.readContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "commandmentCost",
-        args: [],
-      })) as bigint;
-
       const tokenIdsBigInt = tokenIds.map((id) => BigInt(id));
-      const proofFormatted = merkleProof as `0x${string}`[];
+      const proofEncoded = this.encodeMerkleProof(merkleProof);
 
+      // The new contract uses sendMessage internally via addCommandment
       const hash = await this.walletClient.writeContract({
         address: this.contractAddress,
         abi: SEEDS_ABI,
-        functionName: "commentOnSeedFor",
-        args: [
-          BigInt(seedId),
-          userAddress,
-          ipfsHash,
-          tokenIdsBigInt,
-          proofFormatted,
-        ],
-        value: cost,
+        functionName: "addCommandment",
+        args: [BigInt(seedId), ipfsHash, tokenIdsBigInt, proofEncoded],
       } as any);
 
       const receipt = await this.publicClient.waitForTransactionReceipt({
         hash,
       });
 
-      // Parse CommandmentSubmitted event to get ID
+      // Parse CommandmentSubmitted event
       let commandmentId: number | undefined;
       for (const log of receipt.logs) {
         try {
           if (log.topics[0] && log.topics[1]) {
-            // First indexed parameter is commandmentId
             commandmentId = Number(BigInt(log.topics[1]));
             break;
           }
         } catch (e) {
-          // Skip invalid logs
+          // Skip
         }
       }
 
@@ -1688,20 +1015,198 @@ class ContractService {
         commandmentId,
       };
     } catch (error: any) {
-      console.error("Error submitting commandment:", error);
+      console.error("Error adding commandment:", error);
 
-      let errorMessage = "Failed to submit commandment";
-      if (error.message.includes("DailyCommandmentLimitReached")) {
+      let errorMessage = "Failed to add commandment";
+      if (error.message.includes("DailyLimitReached")) {
         errorMessage = "Daily commandment limit reached";
-      } else if (error.message.includes("InvalidMerkleProof")) {
+      } else if (error.message.includes("InvalidGatingProof")) {
         errorMessage = "Invalid NFT ownership proof";
-      } else if (error.message.includes("InsufficientPayment")) {
-        errorMessage = "Insufficient payment for commandment";
-      } else if (error.message.includes("SeedNotFound")) {
+      } else if (error.message.includes("SessionNotFound")) {
         errorMessage = "Seed not found";
       }
 
       return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Prepare commandment transaction for client-side signing
+   */
+  prepareCommandmentTransaction(
+    seedId: number,
+    userAddress: Address,
+    ipfsHash: string,
+    tokenIds: number[],
+    merkleProof: string[]
+  ) {
+    const tokenIdsBigInt = tokenIds.map((id) => BigInt(id));
+    const proofEncoded = this.encodeMerkleProof(merkleProof);
+
+    return {
+      to: this.contractAddress,
+      data: encodeFunctionData({
+        abi: SEEDS_ABI,
+        functionName: "addCommandment",
+        args: [BigInt(seedId), ipfsHash, tokenIdsBigInt, proofEncoded],
+      }),
+      from: userAddress,
+      chainId: this.publicClient.chain?.id,
+    };
+  }
+
+  /*//////////////////////////////////////////////////////////////
+                        EDITION FUNCTIONS
+  //////////////////////////////////////////////////////////////*/
+
+  /**
+   * Write: Reward priests (curators) with editions
+   */
+  async rewardPriests(
+    tokenId: number,
+    priests: Address[],
+    amounts: number[]
+  ): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    error?: string;
+  }> {
+    if (!this.walletClient || !this.relayerAccount) {
+      return { success: false, error: "Relayer not configured" };
+    }
+
+    try {
+      const amountsBigInt = amounts.map((a) => BigInt(a));
+
+      const hash = await this.walletClient.writeContract({
+        address: this.contractAddress,
+        abi: SEEDS_ABI,
+        functionName: "rewardPriests",
+        args: [BigInt(tokenId), priests, amountsBigInt],
+      } as any);
+
+      const receipt = await this.publicClient.waitForTransactionReceipt({
+        hash,
+      });
+
+      return {
+        success: receipt.status === "success",
+        txHash: hash,
+      };
+    } catch (error: any) {
+      console.error("Error rewarding priests:", error);
+      return {
+        success: false,
+        error: error.message || "Failed to reward priests",
+      };
+    }
+  }
+
+  /**
+   * Prepare edition purchase transaction
+   */
+  preparePurchaseTransaction(
+    tokenId: number,
+    amount: number,
+    userAddress: Address,
+    value: bigint
+  ) {
+    return {
+      to: this.contractAddress,
+      data: encodeFunctionData({
+        abi: SEEDS_ABI,
+        functionName: "purchaseCreation",
+        args: [BigInt(tokenId), BigInt(amount)],
+      }),
+      from: userAddress,
+      value,
+      chainId: this.publicClient.chain?.id,
+    };
+  }
+
+  /**
+   * Read: Get edition price
+   */
+  async getEditionPrice(): Promise<bigint> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "getEditionPrice",
+      args: [],
+    })) as bigint;
+  }
+
+  /*//////////////////////////////////////////////////////////////
+                        EVENT FETCHING
+  //////////////////////////////////////////////////////////////*/
+
+  /**
+   * Fetch blessing events from the blockchain
+   */
+  async getBlessingEvents(options?: {
+    fromBlock?: bigint;
+    toBlock?: bigint | "latest";
+    userAddress?: Address;
+    seedId?: number;
+  }): Promise<Blessing[]> {
+    const BATCH_SIZE = 50000n;
+    const allBlessings: Blessing[] = [];
+
+    try {
+      const latestBlock = await this.publicClient.getBlockNumber();
+      const fromBlock = options?.fromBlock || this.deploymentBlock;
+      const toBlock =
+        options?.toBlock === "latest" || !options?.toBlock
+          ? latestBlock
+          : options.toBlock;
+
+      let currentFrom = fromBlock;
+
+      while (currentFrom <= toBlock) {
+        const currentTo =
+          currentFrom + BATCH_SIZE > toBlock
+            ? toBlock
+            : currentFrom + BATCH_SIZE;
+
+        const filter: any = {
+          address: this.contractAddress,
+          event: {
+            type: "event",
+            name: "BlessingSubmitted",
+            inputs: [
+              { indexed: true, name: "seedId", type: "uint256" },
+              { indexed: true, name: "blesser", type: "address" },
+              { indexed: false, name: "score", type: "uint256" },
+            ],
+          },
+          fromBlock: currentFrom,
+          toBlock: currentTo,
+        };
+
+        if (options?.seedId !== undefined) {
+          filter.args = { seedId: BigInt(options.seedId) };
+        }
+        if (options?.userAddress) {
+          filter.args = { ...filter.args, blesser: options.userAddress };
+        }
+
+        const logs = await this.publicClient.getLogs(filter);
+
+        const blessings: Blessing[] = logs.map((log: any) => ({
+          seedId: log.args.seedId,
+          blesser: log.args.blesser,
+          score: log.args.score,
+          timestamp: 0n, // Not in new event
+        }));
+
+        allBlessings.push(...blessings);
+        currentFrom = currentTo + 1n;
+      }
+
+      return allBlessings;
+    } catch (error) {
+      console.error("Error fetching blessing events:", error);
+      return [];
     }
   }
 
@@ -1713,9 +1218,9 @@ class ContractService {
     toBlock?: bigint | "latest";
     userAddress?: Address;
     seedId?: number;
-  }): Promise<any[]> {
+  }): Promise<Commandment[]> {
     const BATCH_SIZE = 50000n;
-    const allCommandments: any[] = [];
+    const allCommandments: Commandment[] = [];
 
     try {
       const latestBlock = await this.publicClient.getBlockNumber();
@@ -1739,13 +1244,10 @@ class ContractService {
             type: "event",
             name: "CommandmentSubmitted",
             inputs: [
-              { indexed: true, name: "commandmentId", type: "uint256" },
+              { indexed: true, name: "id", type: "uint256" },
               { indexed: true, name: "seedId", type: "uint256" },
               { indexed: true, name: "author", type: "address" },
-              { indexed: false, name: "actor", type: "address" },
-              { indexed: false, name: "isDelegated", type: "bool" },
               { indexed: false, name: "ipfsHash", type: "string" },
-              { indexed: false, name: "timestamp", type: "uint256" },
             ],
           },
           fromBlock: currentFrom,
@@ -1761,21 +1263,18 @@ class ContractService {
 
         const logs = await this.publicClient.getLogs(filter);
 
-        const commandments = logs.map((log: any) => ({
-          commandmentId: log.args.commandmentId,
+        const commandments: Commandment[] = logs.map((log: any) => ({
+          id: log.args.id,
           seedId: log.args.seedId,
           author: log.args.author,
-          actor: log.args.actor,
-          isDelegated: log.args.isDelegated,
           ipfsHash: log.args.ipfsHash,
-          timestamp: log.args.timestamp,
+          createdAt: 0n, // Not in new event
         }));
 
         allCommandments.push(...commandments);
         currentFrom = currentTo + 1n;
       }
 
-      // Return commandments in reverse order (latest first)
       return allCommandments.reverse();
     } catch (error) {
       console.error("Error fetching commandment events:", error);
@@ -1784,180 +1283,164 @@ class ContractService {
   }
 
   /**
-   * Admin: Update commandment cost
+   * Read: Get commandments for a seed
    */
-  async updateCommandmentCost(newCost: bigint): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return { success: false, error: "Wallet client not initialized" };
-    }
-
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "updateCommandmentCost",
-        args: [newCost],
-      } as any);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
-    } catch (error: any) {
-      console.error("Error updating commandment cost:", error);
-      return {
-        success: false,
-        error: error.message || "Failed to update commandment cost",
-      };
-    }
+  async getCommandmentsBySeed(seedId: number): Promise<Commandment[]> {
+    return await this.getCommandmentEvents({ seedId });
   }
 
-  /**
-   * Admin: Update blessing cost
-   */
-  async updateBlessingCost(newCost: bigint): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return { success: false, error: "Wallet client not initialized" };
-    }
+  /*//////////////////////////////////////////////////////////////
+                      LEGACY COMPATIBILITY
+  //////////////////////////////////////////////////////////////*/
 
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "updateBlessingCost",
-        args: [newCost],
-      } as any);
+  // These methods maintain API compatibility with the old contract
 
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
-    } catch (error: any) {
-      console.error("Error updating blessing cost:", error);
-      return {
-        success: false,
-        error: error.message || "Failed to update blessing cost",
-      };
-    }
+  async hasBlessed(userAddress: Address, seedId: number): Promise<boolean> {
+    const count = await this.getBlessingCount(userAddress, seedId);
+    return count > 0n;
   }
 
-  /**
-   * Admin: Update scoring configuration
-   */
-  async updateScoringConfig(config: {
-    blessingWeight: number;
-    commandmentWeight: number;
-    timeDecayMin: number;
-    timeDecayBase: number;
-  }): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return { success: false, error: "Wallet client not initialized" };
-    }
-
-    try {
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "updateScoringConfig",
-        args: [
-          BigInt(config.blessingWeight),
-          BigInt(config.commandmentWeight),
-          BigInt(config.timeDecayMin),
-          BigInt(config.timeDecayBase),
-        ],
-      } as any);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
-    } catch (error: any) {
-      console.error("Error updating scoring config:", error);
-      return {
-        success: false,
-        error: error.message || "Failed to update scoring config",
-      };
-    }
+  async getTotalBlessings(): Promise<bigint> {
+    // Sum up all blessings from events
+    const events = await this.getBlessingEvents();
+    return BigInt(events.length);
   }
 
-  /**
-   * Admin: Withdraw collected fees to treasury
-   */
-  async withdrawFees(): Promise<{
-    success: boolean;
-    txHash?: Hash;
-    amount?: bigint;
-    error?: string;
-  }> {
-    if (!this.walletClient || !this.relayerAccount) {
-      return { success: false, error: "Wallet client not initialized" };
-    }
-
-    try {
-      // Get balance before withdrawal
-      const balance = await this.getContractBalance();
-
-      const hash = await this.walletClient.writeContract({
-        address: this.contractAddress,
-        abi: SEEDS_ABI,
-        functionName: "withdrawFees",
-        args: [],
-      } as any);
-
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-        amount: balance,
-      };
-    } catch (error: any) {
-      console.error("Error withdrawing fees:", error);
-
-      let errorMessage = "Failed to withdraw fees";
-      if (error.message.includes("NoFeesToWithdraw")) {
-        errorMessage = "No fees to withdraw";
-      } else if (error.message.includes("TreasuryNotSet")) {
-        errorMessage = "Treasury address not set";
-      }
-
-      return {
-        success: false,
-        error: errorMessage,
-      };
-    }
+  async getUserDailyBlessingCount(userAddress: Address): Promise<bigint> {
+    // In the new contract, this is tracked differently
+    // We calculate remaining blessings instead
+    return 0n; // Not directly available in new contract
   }
 
-  /**
-   * Admin: Update treasury address
-   */
-  async updateTreasury(newTreasury: Address): Promise<{
+  // Alias for backward compatibility
+  async commentOnSeedFor(
+    seedId: number,
+    userAddress: Address,
+    ipfsHash: string,
+    tokenIds: number[],
+    merkleProof: string[]
+  ) {
+    return this.addCommandmentFor(seedId, userAddress, ipfsHash, tokenIds, merkleProof);
+  }
+
+  // Simplified round mode check (new contract doesn't have round modes)
+  async getRoundMode(): Promise<number> {
+    return 0; // Always ROUND_BASED in new contract
+  }
+
+  /*//////////////////////////////////////////////////////////////
+              LEGACY STUB METHODS (For backward compatibility)
+  //////////////////////////////////////////////////////////////*/
+
+  // These methods don't exist in the new contract but are kept for API compatibility
+  // They return sensible defaults or throw errors indicating they're not supported
+
+  async getDeadlockStrategy(): Promise<number> {
+    return 0; // REVERT - not configurable in new contract
+  }
+
+  async getTieBreakingStrategy(): Promise<number> {
+    return 0; // LOWEST_ID - not configurable in new contract
+  }
+
+  async getSecondsUntilDailyReset(): Promise<bigint> {
+    // Calculate seconds until midnight UTC
+    const now = new Date();
+    const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    return BigInt(Math.floor((midnight.getTime() - now.getTime()) / 1000));
+  }
+
+  async getSeedScoreByRound(round: number, seedId: number): Promise<bigint> {
+    // In new contract, just get the current seed score
+    return this.getSeedBlessingScore(seedId);
+  }
+
+  async getUserDailyCommandmentCount(userAddress: Address): Promise<bigint> {
+    return 0n; // Not tracked in new contract
+  }
+
+  async getRemainingCommandments(userAddress: Address, nftCount: number): Promise<bigint> {
+    // In new contract, commandment limits are handled differently
+    return BigInt(nftCount); // Return 1 per NFT as default
+  }
+
+  async tokenURI(tokenId: number): Promise<string> {
+    return (await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: SEEDS_ABI,
+      functionName: "uri",
+      args: [BigInt(tokenId)],
+    })) as string;
+  }
+
+  // Admin update methods - these throw errors since they're not available in the new contract
+  async updateVotingPeriod(newPeriod: number): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    error?: string;
+  }> {
+    return {
+      success: false,
+      error: "updateVotingPeriod not supported in AbrahamSeeds - use contract constructor or upgrade",
+    };
+  }
+
+  async updateBlessingsPerNFT(newAmount: number): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    error?: string;
+  }> {
+    return {
+      success: false,
+      error: "updateBlessingsPerNFT not supported in AbrahamSeeds - use contract constructor or upgrade",
+    };
+  }
+
+  async updateScoreResetPolicy(enabled: boolean): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    error?: string;
+  }> {
+    return {
+      success: false,
+      error: "updateScoreResetPolicy not supported in AbrahamSeeds",
+    };
+  }
+
+  async updateRoundMode(mode: number): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    error?: string;
+  }> {
+    return {
+      success: false,
+      error: "updateRoundMode not supported in AbrahamSeeds - always ROUND_BASED",
+    };
+  }
+
+  async updateTieBreakingStrategy(strategy: number): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    error?: string;
+  }> {
+    return {
+      success: false,
+      error: "updateTieBreakingStrategy not supported in AbrahamSeeds",
+    };
+  }
+
+  async updateDeadlockStrategy(strategy: number): Promise<{
+    success: boolean;
+    txHash?: Hash;
+    error?: string;
+  }> {
+    return {
+      success: false,
+      error: "updateDeadlockStrategy not supported in AbrahamSeeds",
+    };
+  }
+
+  async setBaseURI(baseURI: string): Promise<{
     success: boolean;
     txHash?: Hash;
     error?: string;
@@ -1970,24 +1453,14 @@ class ContractService {
       const hash = await this.walletClient.writeContract({
         address: this.contractAddress,
         abi: SEEDS_ABI,
-        functionName: "updateTreasury",
-        args: [newTreasury],
+        functionName: "setURI",
+        args: [baseURI],
       } as any);
 
-      const receipt = await this.publicClient.waitForTransactionReceipt({
-        hash,
-      });
-
-      return {
-        success: receipt.status === "success",
-        txHash: hash,
-      };
+      const receipt = await this.publicClient.waitForTransactionReceipt({ hash });
+      return { success: receipt.status === "success", txHash: hash };
     } catch (error: any) {
-      console.error("Error updating treasury:", error);
-      return {
-        success: false,
-        error: error.message || "Failed to update treasury",
-      };
+      return { success: false, error: error.message || "Failed to set base URI" };
     }
   }
 }
