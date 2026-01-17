@@ -595,6 +595,142 @@ seeds.get("/minted", async (c) => {
 });
 
 /**
+ * GET /seeds/count
+ * Get total number of seeds
+ * NOTE: This route must be defined BEFORE /:seedId to prevent route conflicts
+ */
+seeds.get("/count", async (c) => {
+  try {
+    const count = await contractService.getSeedCount();
+
+    return c.json({
+      success: true,
+      data: {
+        count: Number(count),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching seed count:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch seed count",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /seeds/stats
+ * Get voting period status, current leader, and time remaining
+ * NOTE: This route must be defined BEFORE /:seedId to prevent route conflicts
+ */
+seeds.get("/stats", async (c) => {
+  try {
+    const currentRound = await contractService.getCurrentRound();
+    const timeRemaining = await contractService.getTimeUntilPeriodEnd();
+    const leader = await contractService.getCurrentLeader();
+    const roundSeeds = await contractService.getCurrentRoundSeeds();
+
+    let leaderSeed = null;
+    if (leader.leadingSeedId > 0n) {
+      try {
+        const seed = await contractService.getSeed(Number(leader.leadingSeedId));
+        leaderSeed = {
+          id: Number(seed.id),
+          creator: seed.creator,
+          ipfsHash: seed.ipfsHash,
+          blessings: Number(seed.blessings),
+          createdAt: Number(seed.createdAt),
+          isWinner: seed.isWinner,
+          isRetracted: seed.isRetracted,
+          winnerInRound: Number(seed.winnerInRound),
+          submittedInRound: Number(seed.submittedInRound),
+        };
+      } catch (error) {
+        console.error(`Error fetching leader seed details:`, error);
+      }
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        currentRound: Number(currentRound),
+        timeUntilPeriodEnd: Number(timeRemaining),
+        periodEnded: timeRemaining === 0n,
+        currentLeader: {
+          seedId: Number(leader.leadingSeedId),
+          score: leader.score.toString(),
+          seed: leaderSeed,
+        },
+        seedsInRound: roundSeeds.length,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching voting stats:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch voting stats",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
+ * GET /seeds/config
+ * Get contract configuration (round mode, strategies, etc.)
+ * NOTE: This route must be defined BEFORE /:seedId to prevent route conflicts
+ */
+seeds.get("/config", async (c) => {
+  try {
+    const roundMode = await contractService.getRoundMode();
+    const tieBreakingStrategy = await contractService.getTieBreakingStrategy();
+    const deadlockStrategy = await contractService.getDeadlockStrategy();
+    const eligibleSeedsCount = await contractService.getEligibleSeedsCount();
+    const secondsUntilReset = await contractService.getSecondsUntilDailyReset();
+
+    const roundModeNames = ["ROUND_BASED", "NON_ROUND_BASED"];
+    const tieBreakingNames = ["LOWEST_SEED_ID", "EARLIEST_SUBMISSION", "PSEUDO_RANDOM"];
+    const deadlockNames = ["REVERT", "SKIP_ROUND"];
+
+    return c.json({
+      success: true,
+      data: {
+        roundMode: {
+          value: roundMode,
+          name: roundModeNames[roundMode] || "UNKNOWN",
+        },
+        tieBreakingStrategy: {
+          value: tieBreakingStrategy,
+          name: tieBreakingNames[tieBreakingStrategy] || "UNKNOWN",
+        },
+        deadlockStrategy: {
+          value: deadlockStrategy,
+          name: deadlockNames[deadlockStrategy] || "UNKNOWN",
+        },
+        eligibleSeedsCount: Number(eligibleSeedsCount),
+        secondsUntilBlessingReset: Number(secondsUntilReset),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching contract config:", error);
+    return c.json(
+      {
+        success: false,
+        error: "Failed to fetch contract configuration",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      500
+    );
+  }
+});
+
+/**
  * GET /seeds/:seedId
  * Get details of a specific seed with its IPFS metadata
  */
@@ -751,115 +887,6 @@ seeds.get("/:seedId/score", async (c) => {
       {
         success: false,
         error: "Failed to fetch seed blessing score",
-        details: error instanceof Error ? error.message : String(error),
-      },
-      500
-    );
-  }
-});
-
-/**
- * GET /seeds/count
- * Get total number of seeds
- */
-seeds.get("/count", async (c) => {
-  try {
-    const count = await contractService.getSeedCount();
-
-    return c.json({
-      success: true,
-      data: {
-        count: Number(count),
-      },
-    });
-  } catch (error) {
-    console.error("Error fetching seed count:", error);
-    return c.json(
-      {
-        success: false,
-        error: "Failed to fetch seed count",
-        details: error instanceof Error ? error.message : String(error),
-      },
-      500
-    );
-  }
-});
-
-/**
- * GET /seeds/stats
- * Get voting period status, current leader, and time remaining
- *
- * Response:
- * {
- *   "success": true,
- *   "data": {
- *     "currentRound": number,
- *     "timeUntilPeriodEnd": number,  // seconds
- *     "periodEnded": boolean,
- *     "currentLeader": {
- *       "seedId": number,
- *       "score": string,
- *       "seed": {...}
- *     },
- *     "seedsInRound": number
- *   }
- * }
- */
-seeds.get("/stats", async (c) => {
-  try {
-    // Get current round
-    const currentRound = await contractService.getCurrentRound();
-
-    // Get time until period end
-    const timeRemaining = await contractService.getTimeUntilPeriodEnd();
-
-    // Get current leader
-    const leader = await contractService.getCurrentLeader();
-
-    // Get seeds in current round
-    const roundSeeds = await contractService.getCurrentRoundSeeds();
-
-    // Fetch leader seed details if there is a leader
-    let leaderSeed = null;
-    if (leader.leadingSeedId > 0n) {
-      try {
-        const seed = await contractService.getSeed(Number(leader.leadingSeedId));
-        leaderSeed = {
-          id: Number(seed.id),
-          creator: seed.creator,
-          ipfsHash: seed.ipfsHash,
-          blessings: Number(seed.blessings),
-          createdAt: Number(seed.createdAt),
-          isWinner: seed.isWinner,
-          isRetracted: seed.isRetracted,
-          winnerInRound: Number(seed.winnerInRound),
-          submittedInRound: Number(seed.submittedInRound),
-        };
-      } catch (error) {
-        console.error(`Error fetching leader seed details:`, error);
-      }
-    }
-
-    return c.json({
-      success: true,
-      data: {
-        currentRound: Number(currentRound),
-        timeUntilPeriodEnd: Number(timeRemaining),
-        periodEnded: timeRemaining === 0n,
-        currentLeader: {
-          seedId: Number(leader.leadingSeedId),
-          score: leader.score.toString(),
-          seed: leaderSeed,
-        },
-        seedsInRound: roundSeeds.length,
-      },
-    });
-  } catch (error) {
-    console.error("Error fetching voting stats:", error);
-    return c.json(
-      {
-        success: false,
-        error: "Failed to fetch voting stats",
         details: error instanceof Error ? error.message : String(error),
       },
       500
@@ -1286,55 +1313,6 @@ seeds.get("/:seedId/score/round/:roundNumber", async (c) => {
       {
         success: false,
         error: "Failed to fetch seed score for round",
-        details: error instanceof Error ? error.message : String(error),
-      },
-      500
-    );
-  }
-});
-
-/**
- * GET /seeds/config
- * Get contract configuration (round mode, strategies, etc.)
- */
-seeds.get("/config", async (c) => {
-  try {
-    const roundMode = await contractService.getRoundMode();
-    const tieBreakingStrategy = await contractService.getTieBreakingStrategy();
-    const deadlockStrategy = await contractService.getDeadlockStrategy();
-    const eligibleSeedsCount = await contractService.getEligibleSeedsCount();
-    const secondsUntilReset = await contractService.getSecondsUntilDailyReset();
-
-    // Map enums to readable names
-    const roundModeNames = ["ROUND_BASED", "NON_ROUND_BASED"];
-    const tieBreakingNames = ["LOWEST_SEED_ID", "EARLIEST_SUBMISSION", "PSEUDO_RANDOM"];
-    const deadlockNames = ["REVERT", "SKIP_ROUND"];
-
-    return c.json({
-      success: true,
-      data: {
-        roundMode: {
-          value: roundMode,
-          name: roundModeNames[roundMode] || "UNKNOWN",
-        },
-        tieBreakingStrategy: {
-          value: tieBreakingStrategy,
-          name: tieBreakingNames[tieBreakingStrategy] || "UNKNOWN",
-        },
-        deadlockStrategy: {
-          value: deadlockStrategy,
-          name: deadlockNames[deadlockStrategy] || "UNKNOWN",
-        },
-        eligibleSeedsCount: Number(eligibleSeedsCount),
-        secondsUntilBlessingReset: Number(secondsUntilReset),
-      },
-    });
-  } catch (error) {
-    console.error("Error fetching contract config:", error);
-    return c.json(
-      {
-        success: false,
-        error: "Failed to fetch contract configuration",
         details: error instanceof Error ? error.message : String(error),
       },
       500
