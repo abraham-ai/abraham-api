@@ -16,17 +16,39 @@ export default defineConfig({
     hardhatVerify,
   ],
 
+  // Include both root contracts folder and src subfolder
+  paths: {
+    sources: "./contracts",
+  },
+
   solidity: {
-    version: "0.8.28",
-    settings: {
-      optimizer: {
-        enabled: true,
-        runs: 1, // Optimize for smallest deployment size
+    compilers: [
+      {
+        version: "0.8.28",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 1, // Optimize for smallest deployment size
+          },
+          metadata: {
+            bytecodeHash: "none" // Don't include metadata hash to save space
+          }
+        },
       },
-      metadata: {
-        bytecodeHash: "none" // Don't include metadata hash to save space
-      }
-    },
+      {
+        version: "0.8.23",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 1, // Minimize contract size
+          },
+          viaIR: true, // Enable IR optimization for smaller code
+          metadata: {
+            bytecodeHash: "none"
+          }
+        },
+      },
+    ],
   },
 
   networks: {

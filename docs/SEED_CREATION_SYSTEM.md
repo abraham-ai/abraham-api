@@ -6,40 +6,39 @@ The Seed Creation System allows authorized creators to submit artwork proposals 
 
 ## Architecture
 
-### Contract Layer (TheSeeds.sol)
+### Contract Layer (AbrahamSeeds.sol)
 
-**New Features Added:**
-- ✅ `CREATOR_ROLE` - Role-based access control for seed creation
-- ✅ `onlyRole(CREATOR_ROLE)` modifier on `submitSeed()` function
-- ✅ `addCreator()` / `removeCreator()` admin functions
-- ✅ `CreatorAdded` / `CreatorRemoved` events
+**Features:**
+- `CREATOR_ROLE` - Role-based access control for seed creation
+- `onlyRole(CREATOR_ROLE)` modifier on `submitSeed()` function
+- `addCreator()` / `removeCreator()` admin functions
 
 **Key Functions:**
 ```solidity
 // Only addresses with CREATOR_ROLE can call this
-function submitSeed(
-    string memory _ipfsHash,
-    string memory _title,
-    string memory _description
-) external whenNotPaused onlyRole(CREATOR_ROLE) returns (uint256)
+function submitSeed(string calldata ipfsHash)
+    external
+    whenNotPaused
+    onlyRole(CREATOR_ROLE)
+    returns (uint256)
 
 // Admin functions
-function addCreator(address _creator) external onlyRole(ADMIN_ROLE)
-function removeCreator(address _creator) external onlyRole(ADMIN_ROLE)
+function addCreator(address creator) external onlyRole(DEFAULT_ADMIN_ROLE)
+function removeCreator(address creator) external onlyRole(DEFAULT_ADMIN_ROLE)
 ```
 
 ### Service Layer (contractService.ts)
 
-**New Methods:**
+**Methods:**
 ```typescript
 // Check if address has CREATOR_ROLE
 async hasCreatorRole(address: Address): Promise<boolean>
 
 // Submit seed (backend-signed)
-async submitSeed(ipfsHash: string, title: string, description: string)
+async submitSeed(ipfsHash: string): Promise<{ seedId, txHash }>
 
 // Prepare transaction for client-side signing
-prepareSeedSubmissionTransaction(ipfsHash, title, description, creatorAddress)
+prepareSeedSubmissionTransaction(ipfsHash: string, creatorAddress: Address)
 
 // Admin: Grant/revoke CREATOR_ROLE
 async addCreator(creatorAddress: Address)
@@ -53,6 +52,8 @@ async removeCreator(creatorAddress: Address)
 - `POST /api/seeds/prepare` - Prepare transaction (client-signed)
 - `GET /api/seeds/:seedId` - Get seed details with IPFS metadata
 - `GET /api/seeds/count` - Get total seed count
+- `GET /api/seeds/stats` - Get seed statistics
+- `GET /api/seeds/config` - Get contract configuration
 - `GET /api/seeds/creator/:address/check` - Check if address has CREATOR_ROLE
 
 ## Two Creation Modes
@@ -76,7 +77,20 @@ Client → API (with admin key) → Backend signs → Blockchain
 curl -X POST http://localhost:3000/api/seeds \
   -H "Authorization: Bearer PRIVY_TOKEN" \
   -H "X-Admin-Key: secret-admin-key" \
-  -d '{"ipfsHash": "QmX...", "title": "My Seed"}'
+  -H "Content-Type: application/json" \
+  -d '{"ipfsHash": "ipfs://QmX..."}'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "seedId": 42,
+    "txHash": "0x...",
+    "blockExplorer": "https://sepolia.basescan.org/tx/0x..."
+  }
+}
 ```
 
 ### 2. Client-Signed
@@ -94,249 +108,209 @@ Client → API (get tx data) → Client signs → Blockchain
 
 **Example:**
 ```typescript
-// 1. Get transaction data
-const { transaction } = await fetch('/api/seeds/prepare', {...});
+// 1. Get transaction data from API
+const response = await fetch('/api/seeds/prepare', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${privyToken}`
+  },
+  body: JSON.stringify({ ipfsHash: 'ipfs://QmX...' })
+});
 
-// 2. Sign with user's wallet
-const hash = await walletClient.sendTransaction(transaction);
-```
+const { data } = await response.json();
 
-## Security Features
+// 2. Check if user has CREATOR_ROLE
+if (!data.hasCreatorRole) {
+  alert('You need CREATOR_ROLE to create seeds. Contact an admin.');
+  return;
+}
 
-### Access Control
-- ✅ Only `CREATOR_ROLE` holders can create seeds
-- ✅ Only `ADMIN_ROLE` holders can grant/revoke `CREATOR_ROLE`
-- ✅ Backend endpoint requires admin key authentication
-- ✅ Contract uses OpenZeppelin AccessControl pattern
+// 3. Sign and send transaction with user's wallet
+const hash = await walletClient.sendTransaction({
+  to: data.transaction.to,
+  data: data.transaction.data
+});
 
-### Authorization Flow
-```
-1. Admin deploys contract (gets ADMIN_ROLE)
-2. Admin grants CREATOR_ROLE to authorized wallets
-   - Via addCreator() function
-   - Backend wallet + creator wallets
-3. Creators can now submit seeds
-   - Either via backend (with admin key)
-   - Or directly from their wallet
+// 4. Wait for confirmation
+const receipt = await publicClient.waitForTransactionReceipt({ hash });
+console.log('Seed created in block:', receipt.blockNumber);
 ```
 
 ## Granting CREATOR_ROLE
 
-### Option 1: Hardhat Console
+### Using NPM Script
+
+```bash
+npm run grant-creator:base-sepolia -- --address 0xNewCreatorAddress
+```
+
+### Using Hardhat Console
+
 ```bash
 npx hardhat console --network baseSepolia
 ```
 
 ```javascript
-const TheSeeds = await ethers.getContractAt("TheSeeds", CONTRACT_ADDRESS);
-await TheSeeds.addCreator("0xCREATOR_ADDRESS");
+const contract = await ethers.getContractAt(
+  "AbrahamSeeds",
+  "0x0b95d25463b7a937b3df28368456f2c40e95c730"
+);
 
-// Verify
-const CREATOR_ROLE = ethers.utils.keccak256(ethers.utils.toUtf8Bytes("CREATOR_ROLE"));
-await TheSeeds.hasRole(CREATOR_ROLE, "0xCREATOR_ADDRESS"); // true
+// Grant CREATOR_ROLE
+await contract.addCreator("0xNewCreatorAddress");
+
+// Verify the role was granted
+const CREATOR_ROLE = await contract.CREATOR_ROLE();
+const hasRole = await contract.hasRole(CREATOR_ROLE, "0xNewCreatorAddress");
+console.log("Has CREATOR_ROLE:", hasRole);
 ```
 
-### Option 2: Cast (Foundry)
-```bash
-cast send CONTRACT_ADDRESS \
-  "addCreator(address)" \
-  0xCREATOR_ADDRESS \
-  --rpc-url https://sepolia.base.org \
-  --private-key ADMIN_PRIVATE_KEY
-```
-
-### Option 3: API (if backend has ADMIN_ROLE)
-```typescript
-await contractService.addCreator("0xCREATOR_ADDRESS");
-```
-
-## Environment Variables
-
-Add to `.env.local`:
-
-```bash
-# Contract Configuration
-CONTRACT_ADDRESS=0x878baad70577cf114a3c60fd01b5a036fd0c4bc8
-NETWORK=baseSepolia  # or "base" for mainnet
-
-# Backend Wallet (must have CREATOR_ROLE)
-RELAYER_PRIVATE_KEY=0x...
-
-# Admin Authentication
-ADMIN_KEY=your-secret-admin-key
-
-# RPC URLs
-BASE_SEPOLIA_RPC=https://sepolia.base.org
-BASE_MAINNET_RPC=https://mainnet.base.org
-```
-
-## Integration Example
-
-### React Component with wagmi
+### Using Viem
 
 ```typescript
-import { useWalletClient } from 'wagmi';
-import { usePrivy } from '@privy-io/react-auth';
+import { createWalletClient, http } from 'viem';
+import { baseSepolia } from 'viem/chains';
+import { privateKeyToAccount } from 'viem/accounts';
 
-function CreateSeedForm() {
-  const { getAccessToken } = usePrivy();
-  const { data: walletClient } = useWalletClient();
-  const [mode, setMode] = useState<'backend' | 'client'>('client');
+const account = privateKeyToAccount(`0x${ADMIN_PRIVATE_KEY}`);
+const client = createWalletClient({
+  account,
+  chain: baseSepolia,
+  transport: http(RPC_URL)
+});
 
-  async function createSeed(ipfsHash: string, title: string, description: string) {
-    const token = await getAccessToken();
+// Grant CREATOR_ROLE
+const hash = await client.writeContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'addCreator',
+  args: ['0xNewCreatorAddress']
+});
 
-    if (mode === 'backend') {
-      // Backend-signed (gasless)
-      const response = await fetch('/api/seeds', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'X-Admin-Key': adminKey,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ ipfsHash, title, description })
-      });
+await publicClient.waitForTransactionReceipt({ hash });
+console.log('CREATOR_ROLE granted!');
+```
 
-      const { data } = await response.json();
-      console.log('Seed created:', data.seedId);
-    } else {
-      // Client-signed
-      const response = await fetch('/api/seeds/prepare', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ ipfsHash, title, description })
-      });
+## IPFS Metadata Format
 
-      const { data } = await response.json();
+Seeds store an IPFS hash pointing to JSON metadata:
 
-      if (!data.hasCreatorRole) {
-        alert('You need CREATOR_ROLE to create seeds');
-        return;
-      }
-
-      const hash = await walletClient.sendTransaction({
-        to: data.transaction.to,
-        data: data.transaction.data,
-      });
-
-      console.log('Seed created:', hash);
+```json
+{
+  "name": "Seed Title",
+  "description": "Description of the artwork proposal",
+  "image": "ipfs://QmImageHash...",
+  "attributes": [
+    {
+      "trait_type": "Style",
+      "value": "Abstract"
     }
-  }
-
-  return (
-    <form onSubmit={(e) => {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-      createSeed(
-        formData.get('ipfsHash'),
-        formData.get('title'),
-        formData.get('description')
-      );
-    }}>
-      <input name="ipfsHash" placeholder="IPFS Hash" required />
-      <input name="title" placeholder="Title" required />
-      <textarea name="description" placeholder="Description" />
-
-      <select value={mode} onChange={(e) => setMode(e.target.value)}>
-        <option value="client">Sign with my wallet</option>
-        <option value="backend">Gasless (admin key required)</option>
-      </select>
-
-      <button type="submit">Create Seed</button>
-    </form>
-  );
+  ]
 }
 ```
 
-## Testing
+## API Response Examples
 
-### 1. Check if address has CREATOR_ROLE
-```bash
-curl http://localhost:3000/api/seeds/creator/0xYOUR_ADDRESS/check
-```
+### GET /api/seeds/:seedId
 
-### 2. Create seed (backend-signed)
-```bash
-curl -X POST http://localhost:3000/api/seeds \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "X-Admin-Key: your-admin-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ipfsHash": "QmTest123",
-    "title": "Test Seed",
-    "description": "Testing seed creation"
-  }'
-```
-
-### 3. Get seed details (with IPFS metadata)
-```bash
-curl http://localhost:3000/api/seeds/0
-```
-
-**Response:**
 ```json
 {
   "success": true,
   "data": {
-    "id": 0,
+    "id": 42,
     "creator": "0x...",
-    "ipfsHash": "QmTest123",
+    "ipfsHash": "ipfs://Qm...",
     "blessings": 10,
-    "createdAt": 1729785600,
-    "isWinner": false,
-    "winnerInRound": 0,
-    "submittedInRound": 1,
-    "metadata": {
-      "name": "Test Seed",
-      "description": "Testing seed creation",
-      "image": "ipfs://QmImage...",
-      "attributes": []
-    },
-    "metadataError": null
+    "score": 316227,
+    "commandmentCount": 3,
+    "createdAt": 1699564800,
+    "submittedInRound": 5,
+    "creationRound": 0,
+    "isRetracted": false
   }
 }
 ```
 
-**Note:** The endpoint automatically fetches metadata from IPFS. If the fetch fails, `metadata` will be `null` and `metadataError` will contain the error message.
+### GET /api/seeds/count
 
-### 4. Get total seed count
-```bash
-curl http://localhost:3000/api/seeds/count
+```json
+{
+  "success": true,
+  "data": {
+    "count": 100
+  }
+}
 ```
 
-## Troubleshooting
+### GET /api/seeds/stats
 
-### "Relayer does not have CREATOR_ROLE"
-**Solution**: Grant CREATOR_ROLE to your backend wallet
-```bash
-npx hardhat console --network baseSepolia
-const TheSeeds = await ethers.getContractAt("TheSeeds", CONTRACT_ADDRESS);
-await TheSeeds.addCreator(BACKEND_WALLET_ADDRESS);
+```json
+{
+  "success": true,
+  "data": {
+    "totalSeeds": 100,
+    "eligibleSeeds": 85,
+    "currentRound": 15,
+    "timeUntilRoundEnd": 43200
+  }
+}
 ```
 
-### "Unauthorized - Invalid admin key"
-**Solution**: Check that `X-Admin-Key` header matches `ADMIN_KEY` in `.env.local`
+### GET /api/seeds/config
 
-### "You don't have CREATOR_ROLE"
-**Solution**: Get CREATOR_ROLE granted to your wallet by an admin
+```json
+{
+  "success": true,
+  "data": {
+    "roundMode": { "value": 0, "name": "ROUND_BASED" },
+    "tieBreakingStrategy": { "value": 0, "name": "LOWEST_SEED_ID" },
+    "eligibleSeedsCount": 85,
+    "blessingsPerNFT": 1,
+    "votingPeriod": 86400
+  }
+}
+```
 
-### Transaction fails with "AccessControl: account is missing role"
-**Solution**: Ensure the signer has CREATOR_ROLE on the contract
+## Error Handling
 
-## Next Steps
+### Common Errors
 
-1. **Deploy to Production**: Update `CONTRACT_ADDRESS` and `NETWORK` for Base Mainnet
-2. **Add Batch Creation**: Create multiple seeds in one transaction
-3. **Add IPFS Integration**: Auto-upload artwork to IPFS
-4. **Add Curation**: Implement seed approval workflow before going onchain
-5. **Add Analytics**: Track seed creation metrics
+**401 - Invalid Admin Key**
+```json
+{
+  "success": false,
+  "error": "Unauthorized - Invalid admin key"
+}
+```
 
-## Related Documentation
+**403 - No CREATOR_ROLE**
+```json
+{
+  "success": false,
+  "error": "Relayer does not have CREATOR_ROLE"
+}
+```
 
-- [Contract Source](../contracts/TheSeeds.sol)
-- [API Reference](../README.md#seed-endpoints)
-- [Blessing System](./BLESSING_SYSTEM.md)
+**503 - Backend Not Configured**
+```json
+{
+  "success": false,
+  "error": "Backend seed creation service not configured",
+  "message": "RELAYER_PRIVATE_KEY not set - use /seeds/prepare endpoint"
+}
+```
+
+## Security Considerations
+
+1. **Role-Based Access**: Only wallets with `CREATOR_ROLE` can submit seeds
+2. **Admin Key Protection**: Backend-signed mode requires secret admin key
+3. **Input Validation**: IPFS hash format validated before submission
+4. **Rate Limiting**: Consider implementing rate limiting for seed creation
+5. **Wallet Separation**: Use separate wallets for admin and relayer roles
+
+## See Also
+
+- [Blessing System](./BLESSING_SYSTEM.md) - Voting on seeds
+- [API Reference](./API_REFERENCE.md) - Full API documentation
+- [Deployment Guide](./DEPLOYMENT_GUIDE.md) - Contract deployment

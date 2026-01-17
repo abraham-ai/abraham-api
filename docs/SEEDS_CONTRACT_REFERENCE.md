@@ -1,19 +1,21 @@
-# The Seeds Contract - Complete Function Reference
+# AbrahamSeeds Contract - Complete Function Reference
 
-This document provides a comprehensive reference for all functions in [TheSeeds.sol](../contracts/TheSeeds.sol) smart contract with code examples for each function.
+This document provides a comprehensive reference for all functions in the [AbrahamSeeds.sol](../contracts/src/agents/abraham/AbrahamSeeds.sol) smart contract and its base contract [EdenAgent.sol](../contracts/src/core/EdenAgent.sol), with code examples for each function.
 
 ## Table of Contents
 
 - [Contract Overview](#contract-overview)
 - [Core Concepts](#core-concepts)
-- [Enums & Constants](#enums--constants)
+- [Structs & Types](#structs--types)
 - [Seed Management Functions](#seed-management-functions)
 - [Blessing Functions](#blessing-functions)
+- [Commandment Functions](#commandment-functions)
 - [Winner Selection Functions](#winner-selection-functions)
+- [Edition Functions](#edition-functions)
 - [Query Functions (Read-Only)](#query-functions-read-only)
 - [Configuration Functions (Admin)](#configuration-functions-admin)
 - [Role Management Functions (Admin)](#role-management-functions-admin)
-- [NFT Functions (ERC721)](#nft-functions-erc721)
+- [Delegation Functions](#delegation-functions)
 - [Events](#events)
 - [Code Examples](#code-examples)
 
@@ -21,99 +23,149 @@ This document provides a comprehensive reference for all functions in [TheSeeds.
 
 ## Contract Overview
 
-**TheSeeds** is an ERC721 NFT contract that manages a daily competition system where users can submit "seeds" (artwork proposals) and vote on them through "blessings". The contract features:
+**AbrahamSeeds** is an ERC1155-based NFT contract that extends the **EdenAgent** base contract. It manages a daily competition system where users submit "seeds" (artwork proposals) and vote on them through "blessings". The contract features:
 
-- **Square root anti-whale scoring** - Prevents whales from dominating by using sqrt of per-user blessings
-- **Time decay mechanism** - Earlier blessings in a round count slightly more than later ones
-- **Round-based competitions** - Daily rounds with configurable periods
-- **NFT-gated voting** - Only FirstWorks NFT holders can bless seeds
-- **Role-based access control** - ADMIN, CREATOR, and RELAYER roles
-- **Merkle proof verification** - On-chain verification of NFT ownership
-- **Configurable strategies** - Tie-breaking, deadlock handling, round modes
+- **ERC1155 Editions** - Winners receive ERC1155 NFTs with multiple editions (creator, curator, public)
+- **Quadratic (sqrt) scoring** - Prevents whales from dominating using sqrt of per-user blessings
+- **Period-based competitions** - Configurable voting periods with automatic winner selection
+- **Cross-chain NFT-gated voting** - Only FirstWorks NFT holders can bless (verified via Merkle proofs)
+- **Role-based access control** - ADMIN, CREATOR, and OPERATOR roles
+- **Modular gating** - Pluggable MerkleGating module for ownership verification
+- **Commandments** - Messages/comments on seeds
 
-**Deployed Networks:**
-- Base Sepolia (testnet)
-- Base (mainnet)
+**Architecture:**
+```
+AbrahamSeeds (Abraham-specific wrapper)
+    └── EdenAgent (Core functionality)
+           ├── AccessControl (Role management)
+           ├── ERC1155 (NFT standard)
+           ├── ERC1155Supply (Supply tracking)
+           └── ReentrancyGuard (Security)
+```
+
+**Deployed Contracts:**
+
+| Network | Contract | Address |
+|---------|----------|---------|
+| Base Sepolia | AbrahamSeeds | `0x0b95d25463b7a937b3df28368456f2c40e95c730` |
+| Base Sepolia | MerkleGating | `0x46657b69308d90a4756369094c5d78781f3f5979` |
 
 ---
 
 ## Core Concepts
 
-### Seeds
+### Seeds (Sessions)
+
 A **Seed** is a proposal for artwork, stored on-chain with IPFS metadata. Seeds have:
 - Unique ID (auto-incremented)
 - Creator address
 - IPFS hash (containing title, description, image)
 - Blessing count (raw count)
 - Blessing score (sqrt-scaled anti-whale score)
-- Winner status
-- Round submission tracking
+- Commandment count (messages)
+- Submission round tracking
+- Creation round (when/if selected as winner)
 
-### Blessings
+### Blessings (Reactions)
+
 **Blessings** are votes on seeds. The blessing system features:
 - NFT-gated: Only FirstWorks NFT holders can bless
-- Daily limit: 1 blessing per NFT owned per 24 hours
-- Time decay: Blessings cast earlier in a round have slightly higher weight
-- Anti-whale: Uses sqrt(blessings_per_user) to prevent single-user dominance
-- Merkle proof verification: On-chain verification prevents cheating
+- Daily limit: 1 blessing per NFT owned per 24 hours (configurable)
+- Anti-whale: Uses sqrt(blessings_per_user) for scoring
+- Merkle proof verification: Cross-chain ownership verification
 
 ### Scoring Formula
+
 ```
 For each user's blessings on a seed:
-  user_score = sqrt(user_blessing_count) * time_decay_factor
+  previous_score = sqrt(previous_blessing_count * SCALE)
+  new_score = sqrt((previous_blessing_count + 1) * SCALE)
+  delta = new_score - previous_score
 
-Total seed score = sum of all user_scores
+Total seed score = sum of all deltas (quadratic scoring)
 
-Time decay factor:
-  - Start of round: 1000 (100%)
-  - End of round: 10 (1%)
-  - Formula: (hours_remaining² / total_hours²) * 1000
+SCALE = 1e6 (for precision)
 ```
 
-### Rounds
+### Periods (Rounds)
+
 - **Duration**: Configurable (default 24 hours)
 - **Winner selection**: Highest scoring seed wins
-- **NFT minting**: Winner gets an ERC721 token
-- **New round**: Automatically starts after winner selection
+- **NFT minting**: Winner gets ERC1155 editions
+- **New period**: Automatically starts after winner selection
+
+### Editions
+
+When a seed wins, ERC1155 editions are minted:
+- **Creator editions**: Sent directly to seed creator
+- **Curator editions**: Distributed by operator to top blessers
+- **Public editions**: Available for purchase
 
 ---
 
-## Enums & Constants
+## Structs & Types
 
-### RoundMode
+### Seed (AbrahamSeeds)
+
 ```solidity
-enum RoundMode {
-    ROUND_BASED,      // 0: Only seeds from current round compete
-    NON_ROUND_BASED   // 1: All eligible seeds compete globally
+struct Seed {
+    uint256 id;              // Unique seed identifier
+    address creator;          // Address that submitted the seed
+    string ipfsHash;          // IPFS hash of seed metadata
+    uint256 blessings;        // Raw blessing count
+    uint256 score;            // Quadratic blessing score
+    uint256 commandmentCount; // Number of commandments (messages)
+    uint256 createdAt;        // Timestamp of creation
+    uint256 submittedInRound; // Round when submitted
+    uint256 creationRound;    // Round when selected (0 if not winner)
+    bool isRetracted;         // Whether seed was retracted
 }
 ```
 
-### TieBreakingStrategy
+### Session (EdenAgent base)
+
 ```solidity
-enum TieBreakingStrategy {
-    LOWEST_SEED_ID,        // 0: First submitted wins
-    EARLIEST_SUBMISSION,   // 1: Earliest timestamp wins
-    PSEUDO_RANDOM          // 2: Block-based randomness
+struct Session {
+    uint256 id;
+    address creator;
+    string contentHash;
+    uint256 reactionCount;    // Raw count
+    uint256 reactionScore;    // Quadratic score
+    uint256 messageCount;
+    uint256 createdAt;
+    uint256 submittedInPeriod;
+    uint256 selectedInPeriod; // 0 if not selected
+    bool isRetracted;
 }
 ```
 
-### DeadlockStrategy
+### Config
+
 ```solidity
-enum DeadlockStrategy {
-    REVERT,      // 0: Transaction fails if no valid winner
-    SKIP_ROUND   // 1: Skip to next round if no valid winner
+struct Config {
+    uint256 periodDuration;    // Duration of each voting period (default: 1 day)
+    uint256 reactionsPerToken; // Blessings allowed per NFT per day (default: 1)
+    uint256 messagesPerToken;  // Messages allowed per NFT per day (default: 1)
+    uint256 editionPrice;      // Price per public edition (default: 0)
 }
 ```
 
-### Constants
-```solidity
-uint256 public constant MAX_SEEDS_PER_ROUND = 1000;
-uint256 public constant MAX_TOTAL_SEEDS = 100000;
-uint256 public constant SCORE_SCALE_FACTOR = 1e6;
+### EditionAlloc
 
-bytes32 public constant ADMIN_ROLE = DEFAULT_ADMIN_ROLE;
+```solidity
+struct EditionAlloc {
+    uint256 creatorAmount;  // Editions minted to creator
+    uint256 curatorAmount;  // Editions for top curators
+    uint256 publicAmount;   // Editions available for purchase
+}
+```
+
+### Roles
+
+```solidity
+bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
 bytes32 public constant CREATOR_ROLE = keccak256("CREATOR_ROLE");
-bytes32 public constant RELAYER_ROLE = keccak256("RELAYER_ROLE");
+// DEFAULT_ADMIN_ROLE from AccessControl
 ```
 
 ---
@@ -121,11 +173,12 @@ bytes32 public constant RELAYER_ROLE = keccak256("RELAYER_ROLE");
 ## Seed Management Functions
 
 ### submitSeed
+
 Submit a new seed to the current round.
 
 **Signature:**
 ```solidity
-function submitSeed(string memory _ipfsHash)
+function submitSeed(string calldata ipfsHash)
     external
     whenNotPaused
     onlyRole(CREATOR_ROLE)
@@ -135,38 +188,39 @@ function submitSeed(string memory _ipfsHash)
 **Access:** CREATOR_ROLE required
 
 **Parameters:**
-- `_ipfsHash` - IPFS hash containing seed metadata (title, description, image)
+- `ipfsHash` - IPFS hash containing seed metadata
 
 **Returns:** Seed ID (uint256)
 
 **Validation:**
-- IPFS hash must be valid format (46 or 59 chars, starts with Qm or b)
-- Total seeds < MAX_TOTAL_SEEDS (100,000)
-- Round seeds < MAX_SEEDS_PER_ROUND (1,000)
+- IPFS hash must be 10-100 characters
 - Contract not paused
 
 **Events Emitted:**
 ```solidity
-event SeedSubmitted(uint256 indexed seedId, address indexed creator, string ipfsHash, uint256 timestamp);
+event SeedSubmitted(uint256 indexed seedId, address indexed creator, string ipfsHash, uint256 round);
+event SessionSubmitted(uint256 indexed sessionId, address indexed creator, string contentHash, uint256 period);
 ```
 
 **Example Usage:**
 ```typescript
-import { theSeedsABI } from './abi/TheSeeds';
+import { abrahamSeedsABI } from './abi/AbrahamSeeds';
 
 // Submit a seed
 const tx = await walletClient.writeContract({
   address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
+  abi: abrahamSeedsABI,
   functionName: 'submitSeed',
-  args: ['QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG'] // IPFS hash
+  args: ['ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG']
 });
 
 const receipt = await publicClient.waitForTransactionReceipt({ hash: tx });
 
-// Get seed ID from event
-const log = receipt.logs.find(log => log.topics[0] === SEED_SUBMITTED_EVENT);
-const seedId = Number(log.topics[1]);
+// Get seed ID from event logs
+const seedSubmittedLog = receipt.logs.find(log =>
+  log.topics[0] === '0x...' // SeedSubmitted event signature
+);
+const seedId = Number(seedSubmittedLog.topics[1]);
 
 console.log(`Seed ${seedId} submitted!`);
 ```
@@ -174,27 +228,28 @@ console.log(`Seed ${seedId} submitted!`);
 ---
 
 ### retractSeed
+
 Retract a seed (creator only, cannot retract winners).
 
 **Signature:**
 ```solidity
-function retractSeed(uint256 _seedId) external
+function retractSeed(uint256 seedId) external
 ```
 
 **Access:** Seed creator only
 
 **Parameters:**
-- `_seedId` - ID of seed to retract
+- `seedId` - ID of seed to retract
 
 **Requirements:**
 - Caller must be seed creator
 - Seed must exist
-- Seed must not be a winner
+- Seed must not have been selected as winner
 - Seed must not already be retracted
 
 **Events Emitted:**
 ```solidity
-event SeedRetracted(uint256 indexed seedId, address indexed creator);
+event SessionRetracted(uint256 indexed seedId, address indexed creator);
 ```
 
 **Example Usage:**
@@ -202,9 +257,9 @@ event SeedRetracted(uint256 indexed seedId, address indexed creator);
 // Retract your seed
 const tx = await walletClient.writeContract({
   address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
+  abi: abrahamSeedsABI,
   functionName: 'retractSeed',
-  args: [42] // seed ID
+  args: [42n] // seed ID
 });
 
 await publicClient.waitForTransactionReceipt({ hash: tx });
@@ -214,43 +269,28 @@ console.log('Seed retracted');
 ---
 
 ### getSeed
+
 Get complete seed information.
 
 **Signature:**
 ```solidity
-function getSeed(uint256 _seedId)
-    external
-    view
-    returns (Seed memory)
+function getSeed(uint256 seedId) external view returns (Seed memory)
 ```
 
 **Access:** Public (read-only)
 
 **Parameters:**
-- `_seedId` - Seed ID to query
+- `seedId` - Seed ID to query
 
 **Returns:** Seed struct
-```solidity
-struct Seed {
-    uint256 id;
-    address creator;
-    string ipfsHash;
-    uint256 blessings;        // Raw blessing count
-    uint256 createdAt;
-    bool isWinner;
-    bool isRetracted;
-    uint256 winnerInRound;    // Round number when won (0 if not winner)
-    uint256 submittedInRound; // Round number when submitted
-}
-```
 
 **Example Usage:**
 ```typescript
 const seed = await publicClient.readContract({
   address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
+  abi: abrahamSeedsABI,
   functionName: 'getSeed',
-  args: [42]
+  args: [42n]
 });
 
 console.log({
@@ -258,8 +298,12 @@ console.log({
   creator: seed.creator,
   ipfsHash: seed.ipfsHash,
   blessings: Number(seed.blessings),
-  isWinner: seed.isWinner,
-  winnerInRound: Number(seed.winnerInRound)
+  score: Number(seed.score),
+  commandmentCount: Number(seed.commandmentCount),
+  createdAt: Number(seed.createdAt),
+  submittedInRound: Number(seed.submittedInRound),
+  creationRound: Number(seed.creationRound),
+  isRetracted: seed.isRetracted
 });
 ```
 
@@ -268,53 +312,49 @@ console.log({
 ## Blessing Functions
 
 ### blessSeed
+
 Bless a seed with your own NFTs (user signs transaction).
 
 **Signature:**
 ```solidity
 function blessSeed(
-    uint256 _seedId,
-    uint256[] memory _tokenIds,
-    bytes32[] memory _merkleProof
-) external whenNotPaused nonReentrant
+    uint256 seedId,
+    uint256[] calldata tokenIds,
+    bytes calldata proof
+) external payable
 ```
 
-**Access:** Public (requires NFT ownership)
+**Access:** Public (requires NFT ownership proof)
 
 **Parameters:**
-- `_seedId` - ID of seed to bless
-- `_tokenIds` - Array of FirstWorks NFT token IDs you own
-- `_merkleProof` - Merkle proof of ownership
+- `seedId` - ID of seed to bless
+- `tokenIds` - Array of FirstWorks NFT token IDs you own
+- `proof` - Merkle proof of ownership (encoded)
 
 **Requirements:**
-- Must own the NFTs (verified via merkle proof)
+- Must own the NFTs (verified via MerkleGating)
 - Seed must exist and not be winner/retracted
-- Voting period must not have ended
-- Must not exceed daily blessing limit (1 per NFT per day)
-- No duplicate token IDs in array
+- Voting period must be active
+- Must not exceed daily blessing limit
 
 **Events Emitted:**
 ```solidity
-event BlessingSubmitted(uint256 indexed seedId, address indexed blesser, address indexed actor, bool isDelegated, uint256 timestamp);
-event SeedScoreUpdated(uint256 indexed seedId, address indexed blesser, uint256 previousScore, uint256 newScore);
+event BlessingSubmitted(uint256 indexed seedId, address indexed blesser, uint256 score);
+event ReactionSubmitted(uint256 indexed sessionId, address indexed reactor, uint256 newScore);
 ```
 
 **Example Usage:**
 ```typescript
-// Get your NFT token IDs and merkle proof
-const tokenIds = [1, 5, 10]; // Your FirstWorks NFT IDs
-const merkleProof = ['0x...', '0x...']; // From API or merkle tree
+// Get your NFT token IDs and merkle proof from API
+const tokenIds = [1n, 5n, 10n];
+const merkleProof = '0x...'; // Encoded proof from merkle tree
 
 // Bless a seed
 const tx = await walletClient.writeContract({
   address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
+  abi: abrahamSeedsABI,
   functionName: 'blessSeed',
-  args: [
-    42,           // seed ID
-    tokenIds,     // your NFT IDs
-    merkleProof   // proof of ownership
-  ]
+  args: [42n, tokenIds, merkleProof]
 });
 
 await publicClient.waitForTransactionReceipt({ hash: tx });
@@ -324,45 +364,46 @@ console.log('Blessing submitted!');
 ---
 
 ### blessSeedFor
+
 Bless a seed on behalf of another user (relayer/delegate).
 
 **Signature:**
 ```solidity
 function blessSeedFor(
-    uint256 _seedId,
-    address _blesser,
-    uint256[] memory _tokenIds,
-    bytes32[] memory _merkleProof
-) external whenNotPaused nonReentrant
+    uint256 seedId,
+    address blesser,
+    uint256[] calldata tokenIds,
+    bytes calldata proof
+) external payable
 ```
 
-**Access:** RELAYER_ROLE or approved delegate
+**Access:** OPERATOR_ROLE or approved delegate
 
 **Parameters:**
-- `_seedId` - ID of seed to bless
-- `_blesser` - Address of the user blessing
-- `_tokenIds` - Array of NFT token IDs owned by _blesser
-- `_merkleProof` - Merkle proof of _blesser's ownership
+- `seedId` - ID of seed to bless
+- `blesser` - Address of the user blessing
+- `tokenIds` - Array of NFT token IDs owned by blesser
+- `proof` - Merkle proof of blesser's ownership
 
 **Requirements:**
-- Caller must have RELAYER_ROLE OR be approved delegate for _blesser
-- _blesser must own the NFTs (verified via merkle proof)
+- Caller must have OPERATOR_ROLE OR be approved delegate for blesser
+- Blesser must own the NFTs (verified via MerkleGating)
 - Same requirements as blessSeed
 
-**Events Emitted:** Same as blessSeed (with isDelegated = true)
+**Events Emitted:** Same as blessSeed
 
 **Example Usage:**
 ```typescript
 // Backend relayer blessing on behalf of user (gasless)
 const tx = await relayerWallet.writeContract({
   address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
+  abi: abrahamSeedsABI,
   functionName: 'blessSeedFor',
   args: [
     seedId,
-    userAddress,  // who is blessing
-    tokenIds,     // their NFTs
-    merkleProof   // proof they own NFTs
+    userAddress,
+    tokenIds,
+    merkleProof
   ]
 });
 
@@ -371,63 +412,814 @@ await publicClient.waitForTransactionReceipt({ hash: tx });
 
 ---
 
-### batchBlessSeedsFor
-Batch bless multiple seeds (relayer only, optimized gas).
+## Commandment Functions
+
+### addCommandment
+
+Add a commandment (message) to a seed.
 
 **Signature:**
 ```solidity
-function batchBlessSeedsFor(
-    uint256[] calldata _seedIds,
-    address[] calldata _blessers,
-    uint256[][] calldata _tokenIdsArray,
-    bytes32[][] calldata _merkleProofs
-) external whenNotPaused nonReentrant onlyRole(RELAYER_ROLE)
+function addCommandment(
+    uint256 seedId,
+    string calldata ipfsHash,
+    uint256[] calldata tokenIds,
+    bytes calldata proof
+) external payable
 ```
 
-**Access:** RELAYER_ROLE only
+**Access:** Public (requires NFT ownership proof)
 
 **Parameters:**
-- `_seedIds` - Array of seed IDs
-- `_blessers` - Array of blesser addresses (parallel to _seedIds)
-- `_tokenIdsArray` - 2D array of token IDs (one array per blesser)
-- `_merkleProofs` - 2D array of proofs (one array per blesser)
+- `seedId` - ID of seed to comment on
+- `ipfsHash` - IPFS hash of commandment content
+- `tokenIds` - Array of NFT token IDs for verification
+- `proof` - Merkle proof of ownership
 
 **Requirements:**
-- All arrays must have same length
-- Caller must have RELAYER_ROLE
-- Skips invalid blessings instead of reverting
+- Must own NFTs (verified via MerkleGating)
+- Seed must exist
+- Must not exceed daily message limit
+- IPFS hash must be valid (10-100 chars)
+
+**Events Emitted:**
+```solidity
+event CommandmentSubmitted(uint256 indexed id, uint256 indexed seedId, address indexed author, string ipfsHash);
+event MessageSubmitted(uint256 indexed messageId, uint256 indexed sessionId, address indexed sender, string contentHash);
+```
 
 **Example Usage:**
 ```typescript
-// Batch bless for efficiency
-const tx = await relayerWallet.writeContract({
+const tx = await walletClient.writeContract({
   address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'batchBlessSeedsFor',
+  abi: abrahamSeedsABI,
+  functionName: 'addCommandment',
   args: [
-    [1, 2, 3],                    // seed IDs
-    [user1, user2, user3],        // blessers
-    [[1], [2, 3], [4]],          // token IDs per user
-    [proof1, proof2, proof3]      // proofs
+    seedId,
+    'ipfs://QmCommandmentContent...',
+    tokenIds,
+    merkleProof
   ]
 });
+
+await publicClient.waitForTransactionReceipt({ hash: tx });
+console.log('Commandment added!');
 ```
 
 ---
 
-### approveDelegate
-Approve or revoke a delegate to bless on your behalf.
+## Winner Selection Functions
+
+### selectDailyWinner
+
+Select the winner of the current round and start new round.
 
 **Signature:**
 ```solidity
-function approveDelegate(address _delegate, bool _approved) external
+function selectDailyWinner() external returns (uint256 seedId)
+```
+
+**Access:** Public (but typically called by backend/operator)
+
+**Requirements:**
+- Voting period must have ended
+- At least one eligible seed with score > 0
+
+**Side Effects:**
+- Marks winning seed as selected
+- Mints ERC1155 editions (creator, curator, public)
+- Increments period number
+- Starts new voting period
+- Removes winner from eligible seeds
+
+**Returns:** Winning seed ID
+
+**Events Emitted:**
+```solidity
+event CreationMinted(uint256 indexed round, uint256 indexed seedId, uint256 tokenId);
+event RoundStarted(uint256 indexed round);
+event SessionSelected(uint256 indexed period, uint256 indexed sessionId, uint256 score);
+event EditionMinted(uint256 indexed sessionId, uint256 indexed tokenId, uint256 supply);
+event PeriodStarted(uint256 indexed period);
+```
+
+**Example Usage:**
+```typescript
+// Usually called by backend cron job
+const tx = await operatorWallet.writeContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'selectDailyWinner'
+});
+
+const receipt = await publicClient.waitForTransactionReceipt({ hash: tx });
+
+// Parse winning seed ID from events
+const creationMintedLog = receipt.logs.find(log =>
+  log.topics[0] === '0x...' // CreationMinted event signature
+);
+const winningSeedId = Number(creationMintedLog.topics[2]);
+
+console.log(`Winner: Seed ${winningSeedId}`);
+```
+
+---
+
+## Edition Functions
+
+### rewardPriests
+
+Distribute curator editions to top blessers (priests).
+
+**Signature:**
+```solidity
+function rewardPriests(
+    uint256 tokenId,
+    address[] calldata priests,
+    uint256[] calldata amounts
+) external
+```
+
+**Access:** OPERATOR_ROLE (via distributeCuratorEditions)
+
+**Parameters:**
+- `tokenId` - ERC1155 token ID of the winning creation
+- `priests` - Array of curator addresses to reward
+- `amounts` - Array of edition amounts for each curator
+
+**Requirements:**
+- Arrays must have same length
+- Total must not exceed curator allocation
+- Contract must have enough editions
+
+**Events Emitted:**
+```solidity
+event PriestsRewarded(uint256 indexed tokenId, address[] priests, uint256[] amounts);
+event CuratorEditionsDistributed(uint256 indexed tokenId, address[] curators, uint256[] amounts);
+```
+
+**Example Usage:**
+```typescript
+// Distribute curator editions to top 3 blessers
+const tx = await operatorWallet.writeContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'rewardPriests',
+  args: [
+    tokenId,
+    [curator1, curator2, curator3],
+    [1n, 1n, 1n]
+  ]
+});
+
+await publicClient.waitForTransactionReceipt({ hash: tx });
+```
+
+---
+
+### purchaseCreation
+
+Purchase public editions of a creation.
+
+**Signature:**
+```solidity
+function purchaseCreation(uint256 tokenId, uint256 amount) external payable
 ```
 
 **Access:** Public
 
 **Parameters:**
-- `_delegate` - Address to approve/revoke
-- `_approved` - true to approve, false to revoke
+- `tokenId` - ERC1155 token ID to purchase
+- `amount` - Number of editions to purchase
+
+**Requirements:**
+- Must send correct payment (editionPrice * amount)
+- Enough public editions must be available
+
+**Value Split:**
+- 50% to creator
+- 50% to treasury
+
+**Events Emitted:**
+```solidity
+event EditionPurchased(uint256 indexed tokenId, address indexed buyer, uint256 amount, uint256 price);
+```
+
+**Example Usage:**
+```typescript
+const price = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getEditionPrice'
+});
+
+const tx = await walletClient.writeContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'purchaseCreation',
+  args: [tokenId, 1n],
+  value: price
+});
+
+await publicClient.waitForTransactionReceipt({ hash: tx });
+console.log('Edition purchased!');
+```
+
+---
+
+### getCreationEditionInfo
+
+Get edition information for a creation.
+
+**Signature:**
+```solidity
+function getCreationEditionInfo(uint256 tokenId) external view returns (
+    uint256 seedId,
+    uint256 totalMinted,
+    uint256 creatorEditions,
+    uint256 curatorEditions,
+    uint256 curatorDistributed,
+    uint256 publicEditions,
+    uint256 publicSold,
+    uint256 availableForSale
+)
+```
+
+**Example Usage:**
+```typescript
+const info = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getCreationEditionInfo',
+  args: [tokenId]
+});
+
+console.log({
+  seedId: Number(info.seedId),
+  totalMinted: Number(info.totalMinted),
+  creatorEditions: Number(info.creatorEditions),
+  curatorEditions: Number(info.curatorEditions),
+  curatorDistributed: Number(info.curatorDistributed),
+  publicEditions: Number(info.publicEditions),
+  publicSold: Number(info.publicSold),
+  availableForSale: Number(info.availableForSale)
+});
+```
+
+---
+
+## Query Functions (Read-Only)
+
+### getSeedCount
+
+Get total number of seeds created.
+
+**Signature:**
+```solidity
+function getSeedCount() external view returns (uint256)
+```
+
+**Example:**
+```typescript
+const count = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getSeedCount'
+});
+console.log(`Total seeds: ${count}`);
+```
+
+---
+
+### getCurrentRound
+
+Get current round number.
+
+**Signature:**
+```solidity
+function getCurrentRound() external view returns (uint256)
+```
+
+**Example:**
+```typescript
+const round = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getCurrentRound'
+});
+console.log(`Round ${round}`);
+```
+
+---
+
+### getTimeUntilRoundEnd
+
+Get seconds remaining in current voting period.
+
+**Signature:**
+```solidity
+function getTimeUntilRoundEnd() external view returns (uint256)
+```
+
+**Returns:** Seconds remaining (0 if period ended)
+
+**Example:**
+```typescript
+const remaining = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getTimeUntilRoundEnd'
+});
+
+const hours = Number(remaining) / 3600;
+console.log(`${hours.toFixed(1)} hours until winner selection`);
+```
+
+---
+
+### getSeedBlessingScore
+
+Get blessing score for a specific seed.
+
+**Signature:**
+```solidity
+function getSeedBlessingScore(uint256 seedId) external view returns (uint256)
+```
+
+**Returns:** Blessing score (quadratic scaled)
+
+**Example:**
+```typescript
+const score = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getSeedBlessingScore',
+  args: [42n]
+});
+
+console.log(`Seed 42 score: ${score}`);
+```
+
+---
+
+### getBlessingCount
+
+Get how many times a user has blessed a specific seed.
+
+**Signature:**
+```solidity
+function getBlessingCount(address user, uint256 seedId) external view returns (uint256)
+```
+
+**Example:**
+```typescript
+const count = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getBlessingCount',
+  args: [userAddress, 42n]
+});
+
+console.log(`User blessed seed 42 ${count} times`);
+```
+
+---
+
+### getRemainingBlessings
+
+Get how many blessings a user has left today.
+
+**Signature:**
+```solidity
+function getRemainingBlessings(address user, uint256 tokenCount) external view returns (uint256)
+```
+
+**Parameters:**
+- `user` - User address
+- `tokenCount` - Number of FirstWorks NFTs owned
+
+**Returns:** Remaining blessings
+
+**Example:**
+```typescript
+const nftCount = 3n;
+const remaining = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getRemainingBlessings',
+  args: [userAddress, nftCount]
+});
+
+console.log(`${remaining} of ${nftCount} blessings left today`);
+```
+
+---
+
+### canBlessToday
+
+Check if user can bless today (has remaining blessings).
+
+**Signature:**
+```solidity
+function canBlessToday(address user, uint256 tokenCount) external view returns (bool)
+```
+
+**Example:**
+```typescript
+const canBless = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'canBlessToday',
+  args: [userAddress, 3n]
+});
+
+console.log(`Can bless: ${canBless}`);
+```
+
+---
+
+### getEligibleSeedsCount
+
+Get count of eligible seeds (non-winner, non-retracted).
+
+**Signature:**
+```solidity
+function getEligibleSeedsCount() external view returns (uint256)
+```
+
+**Example:**
+```typescript
+const count = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getEligibleSeedsCount'
+});
+
+console.log(`${count} eligible seeds`);
+```
+
+---
+
+### getCommandmentCount
+
+Get number of commandments for a seed.
+
+**Signature:**
+```solidity
+function getCommandmentCount(uint256 seedId) external view returns (uint256)
+```
+
+**Example:**
+```typescript
+const count = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getCommandmentCount',
+  args: [42n]
+});
+
+console.log(`Seed 42 has ${count} commandments`);
+```
+
+---
+
+### getRoundWinner
+
+Get the winning seed ID for a specific round.
+
+**Signature:**
+```solidity
+function getRoundWinner(uint256 round) external view returns (uint256)
+```
+
+**Example:**
+```typescript
+const winnerId = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getRoundWinner',
+  args: [5n]
+});
+
+console.log(`Round 5 winner: Seed ${winnerId}`);
+```
+
+---
+
+### getTokenIdBySeedId
+
+Get NFT token ID for a winning seed.
+
+**Signature:**
+```solidity
+function getTokenIdBySeedId(uint256 seedId) external view returns (uint256)
+```
+
+**Returns:** Token ID (0 if seed hasn't won)
+
+**Example:**
+```typescript
+const tokenId = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getTokenIdBySeedId',
+  args: [42n]
+});
+
+if (tokenId === 0n) {
+  console.log('Seed has not won yet');
+} else {
+  console.log(`Seed 42 NFT token ID: ${tokenId}`);
+}
+```
+
+---
+
+### getSeedIdByTokenId
+
+Get seed ID for an NFT token.
+
+**Signature:**
+```solidity
+function getSeedIdByTokenId(uint256 tokenId) external view returns (uint256)
+```
+
+**Example:**
+```typescript
+const seedId = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getSeedIdByTokenId',
+  args: [1n]
+});
+
+console.log(`Token 1 is for seed ${seedId}`);
+```
+
+---
+
+### blessingsPerNFT
+
+Get blessings allowed per NFT per day.
+
+**Signature:**
+```solidity
+function blessingsPerNFT() external view returns (uint256)
+```
+
+**Example:**
+```typescript
+const perNFT = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'blessingsPerNFT'
+});
+
+console.log(`${perNFT} blessing(s) per NFT per day`);
+```
+
+---
+
+### votingPeriod
+
+Get voting period duration in seconds.
+
+**Signature:**
+```solidity
+function votingPeriod() external view returns (uint256)
+```
+
+**Example:**
+```typescript
+const period = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'votingPeriod'
+});
+
+console.log(`Voting period: ${Number(period) / 3600} hours`);
+```
+
+---
+
+### getEditionPrice
+
+Get price per public edition.
+
+**Signature:**
+```solidity
+function getEditionPrice() external view returns (uint256)
+```
+
+**Example:**
+```typescript
+const price = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getEditionPrice'
+});
+
+console.log(`Edition price: ${formatEther(price)} ETH`);
+```
+
+---
+
+### getEditionAllocation
+
+Get edition allocation configuration.
+
+**Signature:**
+```solidity
+function getEditionAllocation() external view returns (
+    uint256 creator,
+    uint256 curator,
+    uint256 public_
+)
+```
+
+**Example:**
+```typescript
+const [creator, curator, public_] = await publicClient.readContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: abrahamSeedsABI,
+  functionName: 'getEditionAllocation'
+});
+
+console.log(`Creator: ${creator}, Curator: ${curator}, Public: ${public_}`);
+```
+
+---
+
+## Configuration Functions (Admin)
+
+### setConfig
+
+Update contract configuration.
+
+**Signature:**
+```solidity
+function setConfig(Config calldata newConfig) external onlyRole(DEFAULT_ADMIN_ROLE)
+```
+
+**Access:** DEFAULT_ADMIN_ROLE only
+
+**Parameters:**
+- `newConfig` - New Config struct
+
+**Example:**
+```typescript
+const tx = await adminWallet.writeContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: edenAgentABI,
+  functionName: 'setConfig',
+  args: [{
+    periodDuration: 86400n,      // 1 day
+    reactionsPerToken: 1n,       // 1 blessing per NFT
+    messagesPerToken: 1n,        // 1 message per NFT
+    editionPrice: 0n             // Free editions
+  }]
+});
+
+await publicClient.waitForTransactionReceipt({ hash: tx });
+```
+
+---
+
+### setEditionAlloc
+
+Update edition allocation.
+
+**Signature:**
+```solidity
+function setEditionAlloc(EditionAlloc calldata newAlloc) external onlyRole(DEFAULT_ADMIN_ROLE)
+```
+
+**Example:**
+```typescript
+const tx = await adminWallet.writeContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: edenAgentABI,
+  functionName: 'setEditionAlloc',
+  args: [{
+    creatorAmount: 1n,
+    curatorAmount: 5n,
+    publicAmount: 10n
+  }]
+});
+```
+
+---
+
+### setGatingModule
+
+Update the gating module.
+
+**Signature:**
+```solidity
+function setGatingModule(address module) external onlyRole(DEFAULT_ADMIN_ROLE)
+```
+
+**Example:**
+```typescript
+const tx = await adminWallet.writeContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: edenAgentABI,
+  functionName: 'setGatingModule',
+  args: [newGatingModuleAddress]
+});
+```
+
+---
+
+### pause / unpause
+
+Pause or unpause the contract.
+
+**Signature:**
+```solidity
+function pause() external onlyRole(DEFAULT_ADMIN_ROLE);
+function unpause() external onlyRole(DEFAULT_ADMIN_ROLE);
+```
+
+**Example:**
+```typescript
+// Pause contract (emergency stop)
+const tx = await adminWallet.writeContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: edenAgentABI,
+  functionName: 'pause'
+});
+
+// Unpause
+const tx2 = await adminWallet.writeContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: edenAgentABI,
+  functionName: 'unpause'
+});
+```
+
+---
+
+## Role Management Functions (Admin)
+
+### addCreator
+
+Grant CREATOR_ROLE to an address.
+
+**Signature:**
+```solidity
+function addCreator(address creator) external onlyRole(DEFAULT_ADMIN_ROLE)
+```
+
+**Example:**
+```typescript
+const tx = await adminWallet.writeContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: edenAgentABI,
+  functionName: 'addCreator',
+  args: [newCreatorAddress]
+});
+```
+
+---
+
+### addOperator
+
+Grant OPERATOR_ROLE to an address.
+
+**Signature:**
+```solidity
+function addOperator(address operator) external onlyRole(DEFAULT_ADMIN_ROLE)
+```
+
+**Example:**
+```typescript
+const tx = await adminWallet.writeContract({
+  address: SEEDS_CONTRACT_ADDRESS,
+  abi: edenAgentABI,
+  functionName: 'addOperator',
+  args: [newOperatorAddress]
+});
+```
+
+---
+
+## Delegation Functions
+
+### approveDelegate
+
+Approve or revoke a delegate to bless on your behalf.
+
+**Signature:**
+```solidity
+function approveDelegate(address delegate, bool approved) external
+```
+
+**Access:** Public
+
+**Parameters:**
+- `delegate` - Address to approve/revoke
+- `approved` - true to approve, false to revoke
 
 **Events Emitted:**
 ```solidity
@@ -441,7 +1233,7 @@ const BACKEND_RELAYER = '0x...';
 
 const tx = await walletClient.writeContract({
   address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
+  abi: edenAgentABI,
   functionName: 'approveDelegate',
   args: [BACKEND_RELAYER, true]
 });
@@ -452,1058 +1244,32 @@ console.log('Backend approved for gasless blessings!');
 
 ---
 
-## Winner Selection Functions
-
-### selectDailyWinner
-Select the winner of the current round and start new round.
-
-**Signature:**
-```solidity
-function selectDailyWinner()
-    external
-    whenNotPaused
-    nonReentrant
-    returns (uint256)
-```
-
-**Access:** Public (but typically called by backend/admin)
-
-**Requirements:**
-- Voting period must have ended
-- At least one eligible seed with score > 0
-- Uses configured tie-breaking and deadlock strategies
-
-**Side Effects:**
-- Marks winning seed as winner
-- Mints ERC721 NFT to contract (held until elevated)
-- Increments round number
-- Starts new voting period
-- Applies deferred config updates
-- Removes winner from eligible seeds
-
-**Returns:** Winning seed ID
-
-**Events Emitted:**
-```solidity
-event WinnerSelected(uint256 indexed round, uint256 indexed seedId, string ipfsHash, uint256 blessings, uint256 score);
-event SeedNFTMinted(uint256 indexed tokenId, uint256 indexed seedId, address indexed creator, uint256 round);
-event BlessingPeriodStarted(uint256 indexed round, uint256 startTime);
-```
-
-**Example Usage:**
-```typescript
-// Usually called by backend cron job
-const tx = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'selectDailyWinner',
-  args: []
-});
-
-const receipt = await publicClient.waitForTransactionReceipt({ hash: tx });
-
-// Parse winning seed ID from event
-const winnerEvent = receipt.logs.find(log =>
-  log.topics[0] === WINNER_SELECTED_EVENT
-);
-const winningSeedId = Number(winnerEvent.topics[2]);
-
-console.log(`Winner: Seed ${winningSeedId}`);
-```
-
----
-
-## Query Functions (Read-Only)
-
-### seedCount
-Get total number of seeds created.
-
-**Signature:**
-```solidity
-function seedCount() external view returns (uint256)
-```
-
-**Example:**
-```typescript
-const count = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'seedCount'
-});
-console.log(`Total seeds: ${count}`);
-```
-
----
-
-### currentRound
-Get current round number.
-
-**Signature:**
-```solidity
-function currentRound() external view returns (uint256)
-```
-
-**Example:**
-```typescript
-const round = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'currentRound'
-});
-console.log(`Round ${round}`);
-```
-
----
-
-### getSeedsByRound
-Get all seeds from a specific round.
-
-**Signature:**
-```solidity
-function getSeedsByRound(uint256 _round)
-    external
-    view
-    returns (Seed[] memory)
-```
-
-**Parameters:**
-- `_round` - Round number
-
-**Returns:** Array of Seed structs
-
-**Example:**
-```typescript
-const seeds = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getSeedsByRound',
-  args: [5] // round 5
-});
-
-console.log(`Round 5 had ${seeds.length} seeds`);
-```
-
----
-
-### getCurrentRoundSeeds
-Get all seeds from the current round.
-
-**Signature:**
-```solidity
-function getCurrentRoundSeeds() external view returns (Seed[] memory)
-```
-
-**Example:**
-```typescript
-const seeds = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getCurrentRoundSeeds'
-});
-
-console.log(`Current round: ${seeds.length} seeds competing`);
-```
-
----
-
-### getTimeUntilPeriodEnd
-Get seconds remaining in current voting period.
-
-**Signature:**
-```solidity
-function getTimeUntilPeriodEnd() external view returns (uint256)
-```
-
-**Returns:** Seconds remaining (0 if period ended)
-
-**Example:**
-```typescript
-const remaining = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getTimeUntilPeriodEnd'
-});
-
-const hours = Number(remaining) / 3600;
-console.log(`${hours.toFixed(1)} hours until winner selection`);
-```
-
----
-
-### getCurrentLeader
-Get current leading seed (single, breaks ties).
-
-**Signature:**
-```solidity
-function getCurrentLeader()
-    external
-    view
-    returns (uint256 leadingSeedId, uint256 score)
-```
-
-**Returns:**
-- `leadingSeedId` - ID of leading seed (0 if none)
-- `score` - Blessing score of leader
-
-**Example:**
-```typescript
-const [leaderId, score] = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getCurrentLeader'
-});
-
-console.log(`Leader: Seed ${leaderId} with score ${score}`);
-```
-
----
-
-### getCurrentLeaders
-Get all current leaders (multiple if tied).
-
-**Signature:**
-```solidity
-function getCurrentLeaders()
-    external
-    view
-    returns (uint256[] memory leadingSeedIds, uint256 score)
-```
-
-**Returns:**
-- `leadingSeedIds` - Array of tied leader IDs
-- `score` - Score of leaders
-
-**Example:**
-```typescript
-const [leaders, score] = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getCurrentLeaders'
-});
-
-if (leaders.length > 1) {
-  console.log(`${leaders.length}-way tie at score ${score}`);
-} else {
-  console.log(`Leader: Seed ${leaders[0]}`);
-}
-```
-
----
-
-### seedBlessingScore
-Get blessing score for a specific seed.
-
-**Signature:**
-```solidity
-function seedBlessingScore(uint256 _seedId)
-    external
-    view
-    returns (uint256)
-```
-
-**Parameters:**
-- `_seedId` - Seed ID
-
-**Returns:** Blessing score (scaled by SCORE_SCALE_FACTOR = 1e6)
-
-**Example:**
-```typescript
-const score = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'seedBlessingScore',
-  args: [42]
-});
-
-// Score is scaled by 1e6, so divide for human-readable
-const readableScore = Number(score) / 1e6;
-console.log(`Seed 42 score: ${readableScore.toFixed(2)}`);
-```
-
----
-
-### seedScoreByRound
-Get seed's score in a specific round.
-
-**Signature:**
-```solidity
-function seedScoreByRound(uint256 _round, uint256 _seedId)
-    external
-    view
-    returns (uint256)
-```
-
-**Parameters:**
-- `_round` - Round number
-- `_seedId` - Seed ID
-
-**Returns:** Score in that round
-
-**Example:**
-```typescript
-const score = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'seedScoreByRound',
-  args: [3, 10] // round 3, seed 10
-});
-```
-
----
-
-### getBlessingCount
-Get how many times a user has blessed a specific seed (all-time).
-
-**Signature:**
-```solidity
-function getBlessingCount(address _user, uint256 _seedId)
-    external
-    view
-    returns (uint256)
-```
-
-**Example:**
-```typescript
-const count = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getBlessingCount',
-  args: [userAddress, 42]
-});
-
-console.log(`User blessed seed 42 ${count} times`);
-```
-
----
-
-### isDelegate
-Check if an address is an approved delegate for a user.
-
-**Signature:**
-```solidity
-function isDelegate(address _user, address _delegate)
-    external
-    view
-    returns (bool)
-```
-
-**Example:**
-```typescript
-const isApproved = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'isDelegate',
-  args: [userAddress, backendRelayer]
-});
-
-console.log(`Backend approved: ${isApproved}`);
-```
-
----
-
-### getUserDailyBlessingCount
-Get how many blessings a user has performed today.
-
-**Signature:**
-```solidity
-function getUserDailyBlessingCount(address _user)
-    external
-    view
-    returns (uint256)
-```
-
-**Returns:** Blessings used today
-
-**Example:**
-```typescript
-const used = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getUserDailyBlessingCount',
-  args: [userAddress]
-});
-
-console.log(`Used ${used} blessings today`);
-```
-
----
-
-### getRemainingBlessings
-Get how many blessings a user has left today.
-
-**Signature:**
-```solidity
-function getRemainingBlessings(address _user, uint256 _nftCount)
-    external
-    view
-    returns (uint256)
-```
-
-**Parameters:**
-- `_user` - User address
-- `_nftCount` - Number of FirstWorks NFTs owned
-
-**Returns:** Remaining blessings
-
-**Example:**
-```typescript
-const nftCount = 3;
-const remaining = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getRemainingBlessings',
-  args: [userAddress, nftCount]
-});
-
-console.log(`${remaining} of ${nftCount} blessings left today`);
-```
-
----
-
-### canBlessToday
-Check if user can bless today (has remaining blessings).
-
-**Signature:**
-```solidity
-function canBlessToday(address _user, uint256 _nftCount)
-    external
-    view
-    returns (bool)
-```
-
-**Example:**
-```typescript
-const canBless = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'canBlessToday',
-  args: [userAddress, 3]
-});
-
-console.log(`Can bless: ${canBless}`);
-```
-
----
-
-### getSecondsUntilDailyReset
-Get seconds until daily blessing limit resets.
-
-**Signature:**
-```solidity
-function getSecondsUntilDailyReset() external view returns (uint256)
-```
-
-**Returns:** Seconds until midnight UTC
-
-**Example:**
-```typescript
-const seconds = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getSecondsUntilDailyReset'
-});
-
-const hours = Number(seconds) / 3600;
-console.log(`Blessing limit resets in ${hours.toFixed(1)} hours`);
-```
-
----
-
-### getEligibleSeedsCount
-Get count of eligible seeds (non-winner, non-retracted).
-
-**Signature:**
-```solidity
-function getEligibleSeedsCount() external view returns (uint256)
-```
-
-**Example:**
-```typescript
-const count = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getEligibleSeedsCount'
-});
-
-console.log(`${count} eligible seeds`);
-```
-
----
-
-### Configuration Getters
-
-```solidity
-function getRoundMode() external view returns (RoundMode);
-function getTieBreakingStrategy() external view returns (TieBreakingStrategy);
-function getDeadlockStrategy() external view returns (DeadlockStrategy);
-```
-
-**Example:**
-```typescript
-const mode = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getRoundMode'
-});
-// 0 = ROUND_BASED, 1 = NON_ROUND_BASED
-```
-
----
-
-## Configuration Functions (Admin)
-
-### updateVotingPeriod
-Update voting period (takes effect after next winner selection).
-
-**Signature:**
-```solidity
-function updateVotingPeriod(uint256 _newVotingPeriod)
-    external
-    onlyRole(ADMIN_ROLE)
-```
-
-**Access:** ADMIN_ROLE only
-
-**Parameters:**
-- `_newVotingPeriod` - New period in seconds (1 hour to 7 days)
-
-**Requirements:**
-- Must be between 3600 (1 hour) and 604800 (7 days)
-
-**Events Emitted:**
-```solidity
-event VotingPeriodUpdated(uint256 previousPeriod, uint256 newPeriod);
-```
-
-**Example:**
-```typescript
-// Set voting period to 12 hours
-const tx = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'updateVotingPeriod',
-  args: [12 * 3600] // 12 hours in seconds
-});
-
-await publicClient.waitForTransactionReceipt({ hash: tx });
-console.log('Voting period updated (takes effect next round)');
-```
-
----
-
-### updateBlessingsPerNFT
-Update how many blessings each NFT grants per day.
-
-**Signature:**
-```solidity
-function updateBlessingsPerNFT(uint256 _newBlessingsPerNFT)
-    external
-    onlyRole(ADMIN_ROLE)
-```
-
-**Parameters:**
-- `_newBlessingsPerNFT` - New amount (1 to 100)
-
-**Example:**
-```typescript
-// Give 2 blessings per NFT instead of 1
-const tx = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'updateBlessingsPerNFT',
-  args: [2]
-});
-```
-
----
-
-### updateScoreResetPolicy
-Set whether scores reset each round.
-
-**Signature:**
-```solidity
-function updateScoreResetPolicy(bool _enabled)
-    external
-    onlyRole(ADMIN_ROLE)
-```
-
-**Parameters:**
-- `_enabled` - true = reset scores each round, false = cumulative
-
-**Example:**
-```typescript
-// Enable round-based score reset
-const tx = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'updateScoreResetPolicy',
-  args: [true]
-});
-```
-
----
-
-### updateRoundMode
-Set round mode (round-based vs global competition).
-
-**Signature:**
-```solidity
-function updateRoundMode(RoundMode _newRoundMode)
-    external
-    onlyRole(ADMIN_ROLE)
-```
-
-**Parameters:**
-- `_newRoundMode` - 0 = ROUND_BASED, 1 = NON_ROUND_BASED
-
-**Example:**
-```typescript
-// Set to NON_ROUND_BASED (all seeds compete)
-const tx = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'updateRoundMode',
-  args: [1] // 1 = NON_ROUND_BASED
-});
-```
-
----
-
-### updateTieBreakingStrategy
-Set tie-breaking strategy.
-
-**Signature:**
-```solidity
-function updateTieBreakingStrategy(TieBreakingStrategy _newStrategy)
-    external
-    onlyRole(ADMIN_ROLE)
-```
-
-**Parameters:**
-- `_newStrategy` - 0 = LOWEST_SEED_ID, 1 = EARLIEST_SUBMISSION, 2 = PSEUDO_RANDOM
-
-**Example:**
-```typescript
-// Use pseudo-random tie breaking
-const tx = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'updateTieBreakingStrategy',
-  args: [2] // 2 = PSEUDO_RANDOM
-});
-```
-
----
-
-### updateDeadlockStrategy
-Set deadlock handling strategy.
-
-**Signature:**
-```solidity
-function updateDeadlockStrategy(DeadlockStrategy _newStrategy)
-    external
-    onlyRole(ADMIN_ROLE)
-```
-
-**Parameters:**
-- `_newStrategy` - 0 = REVERT, 1 = SKIP_ROUND
-
-**Example:**
-```typescript
-// Skip round instead of reverting
-const tx = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'updateDeadlockStrategy',
-  args: [1] // 1 = SKIP_ROUND
-});
-```
-
----
-
-### updateOwnershipRoot
-Update Merkle root for NFT ownership verification.
-
-**Signature:**
-```solidity
-function updateOwnershipRoot(bytes32 _newRoot)
-    external
-    onlyRole(ADMIN_ROLE)
-```
-
-**Parameters:**
-- `_newRoot` - New Merkle root
-
-**Requirements:**
-- Root cannot be zero bytes
-
-**Events Emitted:**
-```solidity
-event OwnershipRootUpdated(bytes32 indexed newRoot, uint256 timestamp, uint256 blockNumber);
-```
-
-**Example:**
-```typescript
-// Update merkle root (usually from snapshot)
-const newRoot = '0x1234...'; // From merkle tree generation
-
-const tx = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'updateOwnershipRoot',
-  args: [newRoot]
-});
-
-await publicClient.waitForTransactionReceipt({ hash: tx });
-console.log('Merkle root updated');
-```
-
----
-
-### pause / unpause
-Pause or unpause the contract.
-
-**Signature:**
-```solidity
-function pause() external onlyRole(ADMIN_ROLE);
-function unpause() external onlyRole(ADMIN_ROLE);
-```
-
-**Example:**
-```typescript
-// Pause contract (emergency stop)
-const tx = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'pause'
-});
-
-// Unpause
-const tx2 = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'unpause'
-});
-```
-
----
-
-## Role Management Functions (Admin)
-
-### addCreator / removeCreator
-Grant or revoke CREATOR_ROLE.
-
-**Signature:**
-```solidity
-function addCreator(address _creator) external onlyRole(ADMIN_ROLE);
-function removeCreator(address _creator) external onlyRole(ADMIN_ROLE);
-```
-
-**Example:**
-```typescript
-// Grant creator role to artist
-const tx = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'addCreator',
-  args: ['0x...artistAddress']
-});
-
-// Revoke
-const tx2 = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'removeCreator',
-  args: ['0x...artistAddress']
-});
-```
-
----
-
-### addRelayer / removeRelayer
-Grant or revoke RELAYER_ROLE.
-
-**Signature:**
-```solidity
-function addRelayer(address _relayer) external onlyRole(ADMIN_ROLE);
-function removeRelayer(address _relayer) external onlyRole(ADMIN_ROLE);
-```
-
-**Example:**
-```typescript
-// Grant relayer role to backend
-const tx = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'addRelayer',
-  args: ['0x...backendAddress']
-});
-```
-
----
-
-## NFT Functions (ERC721)
-
-The contract is ERC721 compliant. When a seed wins, an NFT is minted.
-
-### getTokenIdBySeedId
-Get NFT token ID for a winning seed.
-
-**Signature:**
-```solidity
-function getTokenIdBySeedId(uint256 seedId)
-    external
-    view
-    returns (uint256)
-```
-
-**Returns:** Token ID (0 if seed hasn't won)
-
-**Example:**
-```typescript
-const tokenId = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getTokenIdBySeedId',
-  args: [42]
-});
-
-if (tokenId === 0n) {
-  console.log('Seed has not won yet');
-} else {
-  console.log(`Seed 42 NFT token ID: ${tokenId}`);
-}
-```
-
----
-
-### getSeedIdByTokenId
-Get seed ID for an NFT token.
-
-**Signature:**
-```solidity
-function getSeedIdByTokenId(uint256 tokenId)
-    external
-    view
-    returns (uint256)
-```
-
-**Returns:** Seed ID
-
-**Example:**
-```typescript
-const seedId = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getSeedIdByTokenId',
-  args: [1] // token ID
-});
-
-console.log(`Token 1 is for seed ${seedId}`);
-```
-
----
-
-### tokenURI
-Get metadata URI for an NFT token.
-
-**Signature:**
-```solidity
-function tokenURI(uint256 tokenId)
-    public
-    view
-    override
-    returns (string memory)
-```
-
-**Returns:** URI (IPFS or custom base URI + IPFS hash)
-
-**Example:**
-```typescript
-const uri = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'tokenURI',
-  args: [1]
-});
-
-console.log(`Token 1 URI: ${uri}`);
-// e.g., "ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG"
-```
-
----
-
-### setBaseURI
-Set custom base URI for token metadata.
-
-**Signature:**
-```solidity
-function setBaseURI(string memory baseURI_)
-    external
-    onlyRole(ADMIN_ROLE)
-```
-
-**Example:**
-```typescript
-// Use custom IPFS gateway
-const tx = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'setBaseURI',
-  args: ['https://gateway.pinata.cloud/ipfs/']
-});
-
-// Clear base URI (use default ipfs://)
-const tx2 = await adminWallet.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'setBaseURI',
-  args: ['']
-});
-```
-
----
-
 ## Events
 
-### SeedSubmitted
+### AbrahamSeeds Events
+
 ```solidity
-event SeedSubmitted(
-    uint256 indexed seedId,
-    address indexed creator,
-    string ipfsHash,
-    uint256 timestamp
-);
+event SeedSubmitted(uint256 indexed seedId, address indexed creator, string ipfsHash, uint256 round);
+event BlessingSubmitted(uint256 indexed seedId, address indexed blesser, uint256 score);
+event CommandmentSubmitted(uint256 indexed id, uint256 indexed seedId, address indexed author, string ipfsHash);
+event CreationMinted(uint256 indexed round, uint256 indexed seedId, uint256 tokenId);
+event RoundStarted(uint256 indexed round);
+event PriestsRewarded(uint256 indexed tokenId, address[] priests, uint256[] amounts);
 ```
 
-### BlessingSubmitted
-```solidity
-event BlessingSubmitted(
-    uint256 indexed seedId,
-    address indexed blesser,
-    address indexed actor,
-    bool isDelegated,
-    uint256 timestamp
-);
-```
+### EdenAgent Events
 
-### SeedScoreUpdated
 ```solidity
-event SeedScoreUpdated(
-    uint256 indexed seedId,
-    address indexed blesser,
-    uint256 previousScore,
-    uint256 newScore
-);
-```
-
-### WinnerSelected
-```solidity
-event WinnerSelected(
-    uint256 indexed round,
-    uint256 indexed seedId,
-    string ipfsHash,
-    uint256 blessings,
-    uint256 score
-);
-```
-
-### SeedNFTMinted
-```solidity
-event SeedNFTMinted(
-    uint256 indexed tokenId,
-    uint256 indexed seedId,
-    address indexed creator,
-    uint256 round
-);
-```
-
-### BlessingPeriodStarted
-```solidity
-event BlessingPeriodStarted(
-    uint256 indexed round,
-    uint256 startTime
-);
-```
-
-### SeedRetracted
-```solidity
-event SeedRetracted(
-    uint256 indexed seedId,
-    address indexed creator
-);
-```
-
-### DelegateApproval
-```solidity
-event DelegateApproval(
-    address indexed user,
-    address indexed delegate,
-    bool approved
-);
-```
-
-### OwnershipRootUpdated
-```solidity
-event OwnershipRootUpdated(
-    bytes32 indexed newRoot,
-    uint256 timestamp,
-    uint256 blockNumber
-);
-```
-
-### VotingPeriodUpdated
-```solidity
-event VotingPeriodUpdated(
-    uint256 previousPeriod,
-    uint256 newPeriod
-);
-```
-
-### BlessingsPerNFTUpdated
-```solidity
-event BlessingsPerNFTUpdated(
-    uint256 previousAmount,
-    uint256 newAmount
-);
-```
-
-### RoundModeUpdated
-```solidity
-event RoundModeUpdated(
-    RoundMode previousMode,
-    RoundMode newMode
-);
-```
-
-### TieBreakingStrategyUpdated
-```solidity
-event TieBreakingStrategyUpdated(
-    TieBreakingStrategy previousStrategy,
-    TieBreakingStrategy newStrategy
-);
-```
-
-### DeadlockStrategyUpdated
-```solidity
-event DeadlockStrategyUpdated(
-    DeadlockStrategy previousStrategy,
-    DeadlockStrategy newStrategy
-);
-```
-
-### RoundSkipped
-```solidity
-event RoundSkipped(
-    uint256 indexed round,
-    uint256 timestamp
-);
-```
-
-### ContractPaused / ContractUnpaused
-```solidity
-event ContractPaused(address indexed by);
-event ContractUnpaused(address indexed by);
+event SessionSubmitted(uint256 indexed sessionId, address indexed creator, string contentHash, uint256 period);
+event SessionRetracted(uint256 indexed sessionId, address indexed creator);
+event ReactionSubmitted(uint256 indexed sessionId, address indexed reactor, uint256 newScore);
+event MessageSubmitted(uint256 indexed messageId, uint256 indexed sessionId, address indexed sender, string contentHash);
+event SessionSelected(uint256 indexed period, uint256 indexed sessionId, uint256 score);
+event EditionMinted(uint256 indexed sessionId, uint256 indexed tokenId, uint256 supply);
+event EditionPurchased(uint256 indexed tokenId, address indexed buyer, uint256 amount, uint256 price);
+event CuratorEditionsDistributed(uint256 indexed tokenId, address[] curators, uint256[] amounts);
+event PeriodStarted(uint256 indexed period);
+event DelegateApproval(address indexed user, address indexed delegate, bool approved);
 ```
 
 ---
@@ -1511,21 +1277,25 @@ event ContractUnpaused(address indexed by);
 ## Code Examples
 
 ### Complete Seed Submission Flow
+
 ```typescript
 import { createPublicClient, createWalletClient, http } from 'viem';
-import { base } from 'viem/chains';
+import { baseSepolia } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
+import abrahamSeedsABI from './abi/AbrahamSeeds.json';
+
+const SEEDS_CONTRACT = '0x0b95d25463b7a937b3df28368456f2c40e95c730';
 
 // Setup clients
 const publicClient = createPublicClient({
-  chain: base,
+  chain: baseSepolia,
   transport: http(process.env.RPC_URL)
 });
 
 const account = privateKeyToAccount('0x...');
 const walletClient = createWalletClient({
   account,
-  chain: base,
+  chain: baseSepolia,
   transport: http(process.env.RPC_URL)
 });
 
@@ -1533,225 +1303,118 @@ const walletClient = createWalletClient({
 const metadata = {
   name: "My Amazing Seed",
   description: "A revolutionary art concept",
-  image: "ipfs://QmImage...",
-  attributes: [
-    { trait_type: "Style", value: "Abstract" },
-    { trait_type: "Theme", value: "Nature" }
-  ]
+  image: "ipfs://QmImage..."
 };
 
-// Upload metadata to IPFS (using Pinata, Infura, or other)
-const ipfsHash = await uploadToIPFS(metadata); // Returns: QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG
+// Upload to IPFS (using Pinata or similar)
+const ipfsHash = await uploadToIPFS(metadata);
 
-// 2. Check if you have CREATOR_ROLE
-const CREATOR_ROLE = '0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7';
-const hasRole = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'hasRole',
-  args: [CREATOR_ROLE, account.address]
+// 2. Submit seed
+const hash = await walletClient.writeContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'submitSeed',
+  args: [`ipfs://${ipfsHash}`]
 });
 
-if (!hasRole) {
-  throw new Error('You do not have CREATOR_ROLE');
+const receipt = await publicClient.waitForTransactionReceipt({ hash });
+console.log('Seed submitted!');
+
+// 3. Get seed info
+const seedCount = await publicClient.readContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'getSeedCount'
+});
+
+const seedId = Number(seedCount) - 1;
+const seed = await publicClient.readContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'getSeed',
+  args: [BigInt(seedId)]
+});
+
+console.log(`Seed ${seedId} created:`, seed);
+```
+
+---
+
+### Complete Blessing Flow
+
+```typescript
+// 1. Get user's NFT data and merkle proof
+const response = await fetch(`${API_URL}/blessings/eligibility`, {
+  headers: { Authorization: `Bearer ${token}` }
+});
+const { data } = await response.json();
+
+if (!data.eligible) {
+  throw new Error(`Not eligible: ${data.remainingBlessings} blessings remaining`);
 }
 
-// 3. Submit seed
+// 2. Get merkle proof for user
+const proofResponse = await fetch(`${API_URL}/merkle/proof/${userAddress}`);
+const { proof, tokenIds } = await proofResponse.json();
+
+// 3. Encode proof for contract
+const encodedProof = encodeAbiParameters(
+  [{ type: 'bytes32[]' }],
+  [proof]
+);
+
+// 4. Bless the seed
 const hash = await walletClient.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'submitSeed',
-  args: [ipfsHash]
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'blessSeed',
+  args: [seedId, tokenIds.map(BigInt), encodedProof]
 });
 
-// 4. Wait for confirmation and get seed ID
 const receipt = await publicClient.waitForTransactionReceipt({ hash });
-const seedSubmittedLog = receipt.logs.find(log => {
-  // Find SeedSubmitted event
-  return log.topics[0] === '0x...SEED_SUBMITTED_EVENT_HASH';
-});
+console.log('Blessed!');
 
-const seedId = Number(seedSubmittedLog.topics[1]);
-console.log(`✅ Seed ${seedId} submitted!`);
-
-// 5. Fetch complete seed info
+// 5. Check updated seed score
 const seed = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
   functionName: 'getSeed',
   args: [seedId]
 });
 
-console.log({
-  id: Number(seed.id),
-  creator: seed.creator,
-  ipfsHash: seed.ipfsHash,
-  round: Number(seed.submittedInRound),
-  blessings: Number(seed.blessings)
-});
-```
-
----
-
-### Complete Blessing Flow (User-Signed)
-```typescript
-import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
-
-// 1. Get your NFT ownership data
-const userAddress = account.address.toLowerCase();
-
-// Fetch from API or generate locally
-const response = await fetch(`${API_URL}/blessings/firstworks/snapshot`);
-const snapshot = await response.json();
-
-const tokenIds = snapshot.data.holderIndex[userAddress] || [];
-
-if (tokenIds.length === 0) {
-  throw new Error('You do not own any FirstWorks NFTs');
-}
-
-// 2. Load merkle tree and generate proof
-const merkleData = await fetch(`${API_URL}/merkle-tree`).then(r => r.json());
-const proof = merkleData.proofs[userAddress] || [];
-
-console.log(`You own ${tokenIds.length} NFTs, generating proof...`);
-
-// 3. Check remaining blessings
-const usedToday = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getUserDailyBlessingCount',
-  args: [account.address]
-});
-
-const maxBlessings = tokenIds.length * 1; // 1 blessing per NFT
-const remaining = maxBlessings - Number(usedToday);
-
-console.log(`Remaining blessings today: ${remaining}/${maxBlessings}`);
-
-if (remaining === 0) {
-  throw new Error('No blessings remaining today');
-}
-
-// 4. Check if voting period is active
-const timeRemaining = await publicClient.readContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'getTimeUntilPeriodEnd'
-});
-
-if (timeRemaining === 0n) {
-  throw new Error('Voting period has ended');
-}
-
-// 5. Bless the seed
-const seedId = 42;
-
-const hash = await walletClient.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'blessSeed',
-  args: [
-    seedId,
-    tokenIds,
-    proof
-  ]
-});
-
-console.log(`Blessing transaction submitted: ${hash}`);
-
-const receipt = await publicClient.waitForTransactionReceipt({ hash });
-
-if (receipt.status === 'success') {
-  console.log(`✅ Blessed seed ${seedId}!`);
-
-  // Get updated seed info
-  const seed = await publicClient.readContract({
-    address: SEEDS_CONTRACT_ADDRESS,
-    abi: theSeedsABI,
-    functionName: 'getSeed',
-    args: [seedId]
-  });
-
-  console.log(`Seed now has ${seed.blessings} blessings`);
-}
-```
-
----
-
-### Gasless Blessing Flow (Backend-Signed)
-```typescript
-// Frontend: Approve backend as delegate (one-time setup)
-const BACKEND_RELAYER = '0x...'; // Backend wallet address
-
-// Step 1: Approve delegate
-const approveHash = await walletClient.writeContract({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  functionName: 'approveDelegate',
-  args: [BACKEND_RELAYER, true]
-});
-
-await publicClient.waitForTransactionReceipt({ hash: approveHash });
-console.log('✅ Backend approved for gasless blessings');
-
-// Step 2: Call API to perform gasless blessing
-const response = await fetch(`${API_URL}/blessings`, {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${privyAuthToken}`
-  },
-  body: JSON.stringify({
-    seedId: 42
-  })
-});
-
-const result = await response.json();
-
-if (result.success) {
-  console.log(`✅ Gasless blessing successful!`);
-  console.log(`TX: ${result.data.txHash}`);
-  console.log(`Remaining: ${result.data.remainingBlessings}`);
-}
+console.log(`Seed now has ${seed.blessings} blessings, score: ${seed.score}`);
 ```
 
 ---
 
 ### Query Current Competition State
+
 ```typescript
-// Get comprehensive round info
 async function getRoundInfo() {
   const [
     currentRound,
     timeRemaining,
-    seeds,
-    [leaderIds, leaderScore],
+    seedCount,
     eligibleCount
   ] = await Promise.all([
     publicClient.readContract({
-      address: SEEDS_CONTRACT_ADDRESS,
-      abi: theSeedsABI,
-      functionName: 'currentRound'
+      address: SEEDS_CONTRACT,
+      abi: abrahamSeedsABI,
+      functionName: 'getCurrentRound'
     }),
     publicClient.readContract({
-      address: SEEDS_CONTRACT_ADDRESS,
-      abi: theSeedsABI,
-      functionName: 'getTimeUntilPeriodEnd'
+      address: SEEDS_CONTRACT,
+      abi: abrahamSeedsABI,
+      functionName: 'getTimeUntilRoundEnd'
     }),
     publicClient.readContract({
-      address: SEEDS_CONTRACT_ADDRESS,
-      abi: theSeedsABI,
-      functionName: 'getCurrentRoundSeeds'
+      address: SEEDS_CONTRACT,
+      abi: abrahamSeedsABI,
+      functionName: 'getSeedCount'
     }),
     publicClient.readContract({
-      address: SEEDS_CONTRACT_ADDRESS,
-      abi: theSeedsABI,
-      functionName: 'getCurrentLeaders'
-    }),
-    publicClient.readContract({
-      address: SEEDS_CONTRACT_ADDRESS,
-      abi: theSeedsABI,
+      address: SEEDS_CONTRACT,
+      abi: abrahamSeedsABI,
       functionName: 'getEligibleSeedsCount'
     })
   ]);
@@ -1761,185 +1424,90 @@ async function getRoundInfo() {
   return {
     round: Number(currentRound),
     timeRemaining: `${hoursRemaining.toFixed(1)} hours`,
-    seedCount: seeds.length,
-    leaders: leaderIds.map(id => Number(id)),
-    leaderScore: Number(leaderScore) / 1e6, // Unscale
-    eligibleCount: Number(eligibleCount),
+    totalSeeds: Number(seedCount),
+    eligibleSeeds: Number(eligibleCount),
     votingEnded: timeRemaining === 0n
   };
 }
 
-// Usage
 const info = await getRoundInfo();
 console.log(`
 Round ${info.round}
-Seeds: ${info.seedCount}
-Leaders: ${info.leaders.join(', ')}
-Score: ${info.leaderScore.toFixed(2)}
+Total Seeds: ${info.totalSeeds}
+Eligible: ${info.eligibleSeeds}
 Time: ${info.timeRemaining}
 `);
 ```
 
 ---
 
-### Admin: Select Winner and Handle Errors
-```typescript
-async function selectWinnerWithDiagnostics() {
-  // 1. Run pre-flight checks
-  const [round, seeds, timeRemaining, [leaderIds, score]] = await Promise.all([
-    publicClient.readContract({
-      address: SEEDS_CONTRACT_ADDRESS,
-      abi: theSeedsABI,
-      functionName: 'currentRound'
-    }),
-    publicClient.readContract({
-      address: SEEDS_CONTRACT_ADDRESS,
-      abi: theSeedsABI,
-      functionName: 'getCurrentRoundSeeds'
-    }),
-    publicClient.readContract({
-      address: SEEDS_CONTRACT_ADDRESS,
-      abi: theSeedsABI,
-      functionName: 'getTimeUntilPeriodEnd'
-    }),
-    publicClient.readContract({
-      address: SEEDS_CONTRACT_ADDRESS,
-      abi: theSeedsABI,
-      functionName: 'getCurrentLeaders'
-    })
-  ]);
-
-  console.log('Pre-flight Diagnostics:');
-  console.log(`  Round: ${round}`);
-  console.log(`  Seeds: ${seeds.length}`);
-  console.log(`  Time Remaining: ${timeRemaining}s`);
-  console.log(`  Leaders: ${leaderIds.map(id => Number(id))}`);
-  console.log(`  Score: ${score}`);
-
-  // 2. Check for issues
-  if (timeRemaining > 0n) {
-    throw new Error(`Voting period not ended (${timeRemaining}s remaining)`);
-  }
-
-  if (seeds.length === 0) {
-    throw new Error('No seeds in current round');
-  }
-
-  if (score === 0n) {
-    throw new Error('No seed has blessing score > 0');
-  }
-
-  const eligibleSeeds = seeds.filter(s => !s.isWinner && !s.isRetracted);
-  if (eligibleSeeds.length === 0) {
-    throw new Error('All seeds already won');
-  }
-
-  console.log('✅ Pre-flight checks passed');
-
-  // 3. Select winner
-  try {
-    const hash = await walletClient.writeContract({
-      address: SEEDS_CONTRACT_ADDRESS,
-      abi: theSeedsABI,
-      functionName: 'selectDailyWinner'
-    });
-
-    console.log(`Winner selection TX: ${hash}`);
-
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
-
-    // Parse winner from events
-    const winnerLog = receipt.logs.find(log =>
-      log.topics[0] === WINNER_SELECTED_EVENT_HASH
-    );
-
-    const winningSeedId = Number(winnerLog.topics[2]);
-
-    console.log(`✅ Winner selected: Seed ${winningSeedId}`);
-
-    return {
-      success: true,
-      seedId: winningSeedId,
-      txHash: hash,
-      round: Number(round)
-    };
-  } catch (error) {
-    console.error('Winner selection failed:', error);
-
-    // Parse specific errors
-    if (error.message.includes('NoValidWinner')) {
-      throw new Error('Contract could not find a valid winner');
-    } else if (error.message.includes('VotingPeriodNotEnded')) {
-      throw new Error('Voting period not ended yet');
-    }
-
-    throw error;
-  }
-}
-
-// Usage
-try {
-  const result = await selectWinnerWithDiagnostics();
-  console.log(`Winner selected in round ${result.round}: Seed ${result.seedId}`);
-} catch (error) {
-  console.error('Failed to select winner:', error.message);
-}
-```
-
----
-
 ### Listening to Events
-```typescript
-import { parseAbiItem } from 'viem';
 
+```typescript
 // Watch for new seed submissions
-const unwatchSeeds = publicClient.watchContractEvent({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
+publicClient.watchContractEvent({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
   eventName: 'SeedSubmitted',
   onLogs: logs => {
     for (const log of logs) {
-      const { seedId, creator, ipfsHash } = log.args;
-      console.log(`New seed ${seedId} by ${creator}`);
-      console.log(`IPFS: ${ipfsHash}`);
+      const { seedId, creator, ipfsHash, round } = log.args;
+      console.log(`New seed ${seedId} by ${creator} in round ${round}`);
     }
   }
 });
 
 // Watch for blessings
-const unwatchBlessings = publicClient.watchContractEvent({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
+publicClient.watchContractEvent({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
   eventName: 'BlessingSubmitted',
   onLogs: logs => {
     for (const log of logs) {
-      const { seedId, blesser, actor, isDelegated } = log.args;
-      console.log(`${blesser} blessed seed ${seedId}`);
-      if (isDelegated) {
-        console.log(`  (via delegate ${actor})`);
-      }
+      const { seedId, blesser, score } = log.args;
+      console.log(`${blesser} blessed seed ${seedId}, new score: ${score}`);
     }
   }
 });
 
-// Watch for winners
-const unwatchWinners = publicClient.watchContractEvent({
-  address: SEEDS_CONTRACT_ADDRESS,
-  abi: theSeedsABI,
-  eventName: 'WinnerSelected',
+// Watch for creations (winners)
+publicClient.watchContractEvent({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  eventName: 'CreationMinted',
   onLogs: logs => {
     for (const log of logs) {
-      const { round, seedId, score, blessings } = log.args;
-      console.log(`🏆 Round ${round} winner: Seed ${seedId}`);
-      console.log(`   Blessings: ${blessings}, Score: ${score}`);
+      const { round, seedId, tokenId } = log.args;
+      console.log(`Round ${round} winner: Seed ${seedId}, Token ${tokenId}`);
     }
   }
 });
+```
 
-// Clean up when done
-// unwatchSeeds();
-// unwatchBlessings();
-// unwatchWinners();
+---
+
+## Error Handling
+
+The contract uses custom errors for gas-efficient error handling:
+
+```solidity
+error Paused();                  // Contract is paused
+error InvalidContentHash();      // Invalid IPFS hash format
+error SessionNotFound();         // Seed doesn't exist
+error SessionAlreadySelected();  // Seed already won
+error SessionIsRetracted();      // Seed was retracted
+error NotSessionCreator();       // Caller is not seed creator
+error AlreadyRetracted();        // Seed already retracted
+error InvalidGatingProof();      // Merkle proof invalid
+error NoTokens();                // No NFTs provided
+error DailyLimitReached();       // Daily blessing limit exceeded
+error PeriodNotEnded();          // Voting period still active
+error NoValidSession();          // No valid winner found
+error NotAuthorized();           // Not operator or delegate
+error InvalidPayment();          // Wrong payment amount
+error EditionNotAvailable();     // Edition sold out
+error CuratorLimitExceeded();    // Exceeded curator allocation
+error ArrayLengthMismatch();     // Arrays have different lengths
 ```
 
 ---
@@ -1948,14 +1516,13 @@ const unwatchWinners = publicClient.watchContractEvent({
 
 - [Main README](../README.md) - Project overview and architecture
 - [API Reference](./API_REFERENCE.md) - REST API endpoints
-- [Smart Contract Guide](../SMART_CONTRACT_GUIDE.md) - High-level contract overview
-- [Sqrt Scoring Explained](../SQRT_SCORING_EXPLAINED.md) - Anti-whale mechanism details
-- [Auto Elevation Guide](../AUTO_ELEVATION_GUIDE.md) - Winner elevation flow
+- [Deployment Guide](./DEPLOYMENT_GUIDE.md) - Contract deployment instructions
+- [Smart Contract Summary](../SMART_CONTRACT_SUMMARY.md) - High-level contract overview
 
 ---
 
 ## Support
 
 For issues or questions:
-- GitHub Issues: https://github.com/yourusername/abraham-api/issues
-- Contract on Base: [View on BaseScan](https://basescan.org/address/SEEDS_CONTRACT_ADDRESS)
+- GitHub Issues: https://github.com/your-org/abraham-api/issues
+- Contract on Base Sepolia: [View on BaseScan](https://sepolia.basescan.org/address/0x0b95d25463b7a937b3df28368456f2c40e95c730)

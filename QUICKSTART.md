@@ -2,61 +2,94 @@
 
 ## What We've Built
 
-A complete NFT-based blessing system with:
+A complete NFT-based blessing and governance system with:
+
+### Core Services
 
 1. **Privy Authentication Middleware** ([src/middleware/auth.ts](src/middleware/auth.ts))
-
    - Verifies Privy JWT tokens
    - Extracts wallet addresses from authenticated users
 
 2. **NFT Snapshot Generator** ([lib/snapshots/firstWorksSnapshot.ts](lib/snapshots/firstWorksSnapshot.ts))
-
-   - Fetches all FirstWorks NFT ownership data
+   - Fetches all FirstWorks NFT ownership data from L1 Ethereum
    - Saves to `lib/snapshots/latest.json`
    - Should be run daily via cron
 
-3. **Blessing Service** ([src/services/blessingService.ts](src/services/blessingService.ts))
+3. **Merkle Tree Generator** ([lib/snapshots/merkleTreeGenerator.ts](lib/snapshots/merkleTreeGenerator.ts))
+   - Creates cryptographic proofs for each NFT holder
+   - Enables cross-chain ownership verification on L2
 
-   - Tracks blessings per user
-   - Enforces: N NFTs = N blessings per 24 hours
-   - Resets at midnight UTC daily
+4. **Contract Service** ([src/services/contractService.ts](src/services/contractService.ts))
+   - Interacts with AbrahamSeeds contract on Base
+   - Handles seed submission, blessings, and winner selection
 
-4. **Blessing API Routes** ([src/routes/blessings.ts](src/routes/blessings.ts))
-   - `GET /api/blessings/eligibility` - Check if user can bless
-   - `GET /api/blessings/stats` - Get user stats
-   - `POST /api/blessings` - Perform a blessing
-   - `POST /api/blessings/reload-snapshot` - Reload snapshot
+### Smart Contracts
 
-## Next Steps
+1. **AbrahamSeeds** (L2 Base) - Main governance contract
+   - Seed submission and curation
+   - Blessing (voting) system with Merkle proof verification
+   - Daily winner selection
+   - ERC1155 NFT minting for winners
+
+2. **MerkleGating** (L2 Base) - Cross-chain verification module
+   - Verifies L1 NFT ownership via Merkle proofs
+   - Enables gasless blessings with proof verification
+
+### API Routes
+
+- **Seeds**: `GET/POST /api/seeds/*` - Seed management and queries
+- **Blessings**: `GET/POST /api/blessings/*` - Blessing eligibility and submission
+- **Commandments**: `GET/POST /api/commandments/*` - Comments on seeds
+- **Leaderboard**: `GET /api/leaderboard/*` - User rankings
+- **Admin**: `GET/POST /api/admin/*` - Admin operations and cron jobs
+
+## Quick Start
 
 ### 1. Set Up Environment Variables
 
 ```bash
-cp .env.example .env
+cp .env.example .env.local
 ```
 
-Edit `.env` and add:
+Edit `.env.local`:
 
 ```env
+# Privy Authentication
 PRIVY_APP_ID=your_privy_app_id
 PRIVY_APP_SECRET=your_privy_app_secret
-CONTRACT_ADDRESS=0x8F814c7C75C5E9e0EDe0336F535604B1915C1985
-MAINNET_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
+
+# FirstWorks NFT Contract (L1 Ethereum)
+FIRSTWORKS_CONTRACT_ADDRESS=0x9734c959A5FEC7BaD8b0b560AD94F9740B90Efd8
+FIRSTWORKS_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
+
+# AbrahamSeeds Contract (L2 Base Sepolia)
+L2_SEEDS_CONTRACT=0x0b95d25463b7a937b3df28368456f2c40e95c730
+L2_GATING_CONTRACT=0x46657b69308d90a4756369094c5d78781f3f5979
+L2_SEEDS_DEPLOYMENT_BLOCK=36452477
+NETWORK=baseSepolia
+
+# RPC URLs
+BASE_SEPOLIA_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_KEY
+MAINNET_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
+
+# Private Keys (for backend relayer)
+RELAYER_PRIVATE_KEY=your_relayer_private_key
+
+# Admin & API Keys
+ADMIN_KEY=your_admin_key
+CRON_SECRET=your_cron_secret
+ALCHEMY_API_KEY=your_alchemy_key
 ```
 
-### 2. Generate Initial NFT Snapshot
-
-**IMPORTANT:** You must run this before starting the API:
+### 2. Generate Initial Snapshot & Merkle Tree
 
 ```bash
+# Fetch NFT ownership from L1
 npm run snapshot:generate
+
+# Generate Merkle tree for proofs
+npm run merkle:generate
 ```
-
-This will:
-
-- Fetch all NFT ownership from the FirstWorks contract
-- Save to `lib/snapshots/latest.json`
-- Take a few minutes to complete
 
 ### 3. Start the Server
 
@@ -71,201 +104,213 @@ npm start
 ### 4. Test the API
 
 ```bash
-# Health check (no auth required)
+# Health check
 curl http://localhost:3000
 
-# Check eligibility (requires Privy token)
-curl http://localhost:3000/api/blessings/eligibility \
-  -H "Authorization: Bearer YOUR_PRIVY_TOKEN"
+# Get seed count
+curl http://localhost:3000/api/seeds/count
 
-# Perform a blessing (requires Privy token)
-curl http://localhost:3000/api/blessings \
-  -X POST \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_PRIVY_TOKEN" \
-  -d '{"targetId": "post_123"}'
+# Get current voting stats
+curl http://localhost:3000/api/seeds/stats
 
-# Get all blessings (no auth required)
-curl http://localhost:3000/api/blessings/all
+# Get contract config
+curl http://localhost:3000/api/seeds/config
 
-# Get blessings for a specific target (no auth required)
-curl http://localhost:3000/api/blessings/target/post_123
+# Get seed by ID
+curl http://localhost:3000/api/seeds/0
 
-# Get blessings by a specific wallet (no auth required)
-curl http://localhost:3000/api/blessings/wallet/0x1234...
+# Get leaderboard
+curl http://localhost:3000/api/leaderboard
 
-# Get FirstWorks NFT snapshot (no auth required)
-curl http://localhost:3000/api/blessings/firstworks/snapshot
+# Get snapshot status
+curl http://localhost:3000/api/admin/snapshot-status
 ```
 
-## Client Integration Example
+## Smart Contract Development
 
-### React + Privy
-
-```typescript
-import { usePrivy } from "@privy-io/react-auth";
-
-function BlessingButton({ targetId }: { targetId: string }) {
-  const { getAccessToken } = usePrivy();
-
-  async function handleBless() {
-    const token = await getAccessToken();
-
-    const response = await fetch("https://your-api.com/api/blessings", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ targetId }),
-    });
-
-    const result = await response.json();
-
-    if (result.success) {
-      alert(`Blessed! ${result.data.remainingBlessings} remaining`);
-    } else {
-      alert(`Error: ${result.error}`);
-    }
-  }
-
-  return <button onClick={handleBless}>Bless</button>;
-}
-```
-
-## Important Configuration
-
-### Change Blessings Per NFT
-
-Edit [src/services/blessingService.ts:19](src/services/blessingService.ts#L19):
-
-```typescript
-const BLESSINGS_PER_NFT = 1; // Change this value
-```
-
-### Schedule Daily Snapshot Generation
-
-Add to crontab (runs daily at 1 AM):
+### Compile Contracts
 
 ```bash
-crontab -e
-# Add this line:
-0 1 * * * cd /path/to/abraham-api && npm run snapshot:generate
+npm run compile
 ```
 
-## Production Considerations
+### Deploy to Base Sepolia (Testnet)
 
-1. **Storage**: Currently uses in-memory storage. For production:
+```bash
+npm run deploy:abraham-seeds:base-sepolia
+```
 
-   - Use Redis for distributed caching
-   - Use PostgreSQL/MongoDB for persistent storage
+This deploys:
+1. MerkleGating module
+2. AbrahamSeeds contract
+3. Grants CREATOR_ROLE and OPERATOR_ROLE
+4. Updates Merkle root
+5. Creates a test seed
 
-2. **Admin Authentication**: The `/reload-snapshot` endpoint should have admin auth
+### Deploy to Base Mainnet
 
-3. **Rate Limiting**: Add rate limiting middleware to prevent abuse
+```bash
+npm run deploy:abraham-seeds:base
+```
 
-4. **CORS**: Update CORS settings in [src/index.ts:8-12](src/index.ts#L8-L12) to whitelist your domains
+### Update Merkle Root
 
-5. **Monitoring**: Add logging and error tracking (Sentry, DataDog, etc.)
+After generating a new snapshot, update the on-chain Merkle root:
+
+```bash
+npm run update-root
+```
+
+### Run Contract Tests
+
+```bash
+npm run test:contracts
+```
+
+## Architecture Overview
+
+```
++-------------------------------------------------------------+
+|                    Ethereum L1 (Mainnet)                     |
++-------------------------------------------------------------+
+|                                                              |
+|  Abraham's First Works (Already Deployed)                   |
+|  Address: 0x9734c959A5FEC7BaD8b0b560AD94F9740B90Efd8        |
+|  - 2,044 NFTs - ownership = blessing power on L2            |
+|                                                              |
++-------------------------------------------------------------+
+                            |
+                            | Daily Snapshot -> Merkle Tree
+                            v
++-------------------------------------------------------------+
+|                       Base L2                                |
++-------------------------------------------------------------+
+|                                                              |
+|  MerkleGating Module                                        |
+|  Address: 0x46657b69308d90a4756369094c5d78781f3f5979        |
+|  - Stores Merkle root for ownership verification            |
+|                                                              |
+|  AbrahamSeeds Contract                                       |
+|  Address: 0x0b95d25463b7a937b3df28368456f2c40e95c730        |
+|  - Seed submission (IPFS hash)                              |
+|  - Blessing/voting (with Merkle proof verification)         |
+|  - Commandments (comments on seeds)                          |
+|  - Daily winner selection                                    |
+|  - ERC1155 NFT minting for winners                          |
+|                                                              |
++-------------------------------------------------------------+
+```
+
+## NPM Scripts Reference
+
+### API
+| Script | Description |
+|--------|-------------|
+| `npm run dev` | Start dev server with hot reload |
+| `npm start` | Start production server |
+| `npm run snapshot:generate` | Generate FirstWorks NFT snapshot |
+| `npm run merkle:generate` | Generate Merkle tree from snapshot |
+| `npm run update-snapshot` | Full update: snapshot + merkle + contract |
+
+### Smart Contracts
+| Script | Description |
+|--------|-------------|
+| `npm run compile` | Compile Solidity contracts |
+| `npm run deploy:abraham-seeds:base-sepolia` | Deploy to Base testnet |
+| `npm run deploy:abraham-seeds:base` | Deploy to Base mainnet |
+| `npm run update-root` | Update Merkle root on contract |
+| `npm run test:contracts` | Run contract tests |
+| `npm run grant-creator:base-sepolia` | Grant CREATOR_ROLE |
 
 ## File Structure
 
 ```
 abraham-api/
-├── lib/
-│   ├── abi/
-│   │   └── firstWorks.ts              # NFT contract ABI
-│   └── snapshots/
-│       ├── firstWorksSnapshot.ts      # Snapshot generator
-│       └── latest.json                # Generated snapshot (gitignored)
-├── src/
-│   ├── middleware/
-│   │   └── auth.ts                    # Privy authentication
-│   ├── routes/
-│   │   └── blessings.ts               # Blessing endpoints
-│   ├── services/
-│   │   └── blessingService.ts         # Blessing logic
-│   ├── index.ts                       # Hono app
-│   └── server.ts                      # Server entry
-├── .env.example                       # Environment template
-├── .gitignore
-├── package.json
-├── README.md                          # Overview
-├── SETUP.md                           # Detailed documentation
-└── QUICKSTART.md                      # This file
++-- contracts/
+|   +-- src/
+|       +-- agents/abraham/AbrahamSeeds.sol   # Main governance contract
+|       +-- modules/gating/MerkleGating.sol   # Cross-chain gating module
+|       +-- core/EdenAgent.sol                # Base agent contract
++-- lib/
+|   +-- abi/
+|   |   +-- AbrahamSeeds.json                 # Contract ABI
+|   |   +-- MerkleGating.json                 # Gating module ABI
+|   |   +-- firstWorks.ts                     # FirstWorks NFT ABI
+|   +-- snapshots/
+|       +-- firstWorksSnapshot.ts             # Snapshot generator
+|       +-- merkleTreeGenerator.ts            # Merkle tree generator
+|       +-- latest.json                       # Generated snapshot
+|       +-- firstWorks_merkle.json            # Merkle tree & proofs
++-- src/
+|   +-- middleware/
+|   |   +-- auth.ts                           # Privy authentication
+|   +-- routes/
+|   |   +-- seeds.ts                          # Seed endpoints
+|   |   +-- blessings.ts                      # Blessing endpoints
+|   |   +-- commandments.ts                   # Comment endpoints
+|   |   +-- leaderboard.ts                    # Leaderboard endpoints
+|   |   +-- admin.ts                          # Admin endpoints
+|   +-- services/
+|   |   +-- contractService.ts                # Contract interactions
+|   |   +-- blessingService.ts                # Blessing logic
+|   |   +-- commandmentService.ts             # Commandment logic
+|   |   +-- leaderboardService.ts             # Leaderboard logic
+|   +-- index.ts                              # Hono app
+|   +-- server.ts                             # Server entry
++-- deploy/
+|   +-- deploy_abraham_seeds.ts               # Deployment script
++-- scripts/
+|   +-- updateMerkleRoot.ts                   # Update Merkle root
+|   +-- updateSnapshot.ts                     # Full snapshot update
++-- .env.local                                # Environment variables
++-- hardhat.config.ts                         # Hardhat configuration
++-- package.json
+```
+
+## Daily Operations (Cron Jobs)
+
+Set up automated daily operations via Vercel cron:
+
+```json
+{
+  "crons": [
+    {
+      "path": "/api/admin/update-snapshot",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/admin/select-winner?autoElevate=true",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
 ```
 
 ## Troubleshooting
 
 ### "No snapshot found" Error
-
 - Run `npm run snapshot:generate` first
-- Verify RPC URL is correct in `.env`
+- Verify RPC URL is correct in `.env.local`
 
 ### "Invalid authentication token" Error
-
-- Check Privy credentials in `.env`
+- Check Privy credentials in `.env.local`
 - Ensure client is sending valid Privy JWT
 
-### "Wallet address not found" Error
+### "Contract not initialized" Error
+- Verify L2_SEEDS_CONTRACT is set correctly
+- Check BASE_SEPOLIA_RPC_URL is valid
 
-- User needs to connect wallet in Privy first
+### "Merkle proof verification failed" Error
+- Regenerate Merkle tree: `npm run merkle:generate`
+- Update contract root: `npm run update-root`
 
-## Need Help?
+## Resources
 
-See [SETUP.md](./SETUP.md) for detailed documentation including:
-
-- API endpoint specifications
-- Deployment guides (Vercel, Docker)
-- Advanced configuration options
-- Client integration examples
-
----
-
-## Smart Contract Development
-
-This project now includes **The Seeds** - an L2 governance contract for decentralized artwork curation.
-
-### Quick Start with Smart Contracts
-
-1. **Compile contracts**:
-   ```bash
-   npm run compile
-   ```
-
-2. **Generate Merkle tree** (for voting proofs):
-   ```bash
-   npm run merkle:generate
-   ```
-
-3. **Deploy to Base Sepolia** (testnet):
-   ```bash
-   npm run deploy:base-sepolia
-   ```
-
-4. **Update Merkle root on contract**:
-   ```bash
-   npm run update-root -- --network baseSepolia
-   ```
-
-5. **Run contract tests**:
-   ```bash
-   npm run test:contracts
-   ```
-
-### What The Seeds Does
-
-- **Seed Submission**: Artists submit artwork proposals (Seeds)
-- **Voting**: FirstWorks NFT holders vote for Seeds
-- **Daily Winner**: Highest voted Seed wins each day
-- **L1 Minting**: Winner gets minted on Ethereum L1
-
-### Resources
-
-- [Smart Contract Guide](./SMART_CONTRACT_GUIDE.md) - Complete integration guide
-- [Architecture Overview](./ARCHITECTURE.md) - System design and cross-chain flow
-- [The Seeds Contract](./contracts/TheSeeds.sol) - Source code
+- [Smart Contract Summary](./SMART_CONTRACT_SUMMARY.md) - Contract architecture
+- [API Reference](./docs/API_REFERENCE.md) - Complete API documentation
+- [Deployment Guide](./docs/DEPLOYMENT_GUIDE.md) - Deployment instructions
+- [Blessing System](./docs/BLESSING_SYSTEM.md) - How blessings work
 
 ---
 
-**Ready to go!** Run `npm run snapshot:generate` then `npm run dev` to start.
+**Ready to go!** Run `npm run snapshot:generate && npm run merkle:generate` then `npm run dev` to start.

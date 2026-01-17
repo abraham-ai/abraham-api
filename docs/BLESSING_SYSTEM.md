@@ -1,288 +1,379 @@
-# TheSeeds Blessing System
+# AbrahamSeeds Blessing System
 
 ## Overview
 
-TheSeeds contract includes a secure blessing system with **on-chain eligibility enforcement**. Users can show support for Seeds (artwork proposals) based on their FirstWorks NFT ownership, with all eligibility rules verified directly by the smart contract.
+The AbrahamSeeds contract includes a secure blessing system with **on-chain eligibility enforcement**. Users can show support for Seeds (artwork proposals) based on their FirstWorks NFT ownership, with all eligibility rules verified directly by the smart contract using Merkle proofs.
 
 ## Key Features
 
-### 1. **On-Chain Eligibility Verification**
-- NFT ownership verified via Merkle proofs
-- Daily blessing limits enforced by the contract
-- No reliance on off-chain systems for eligibility
+### 1. **Cross-Chain NFT Verification**
+- FirstWorks NFT ownership (L1 Ethereum) verified via Merkle proofs on L2 (Base)
+- Daily snapshots capture current NFT ownership
+- Proofs generated from Merkle tree of ownership data
 
 ### 2. **FirstWorks NFT-Based Blessings**
-- Own N NFTs = N blessings per day
-- `BLESSINGS_PER_NFT = 1` (one blessing per NFT owned)
-- Automatic 24-hour period resets (based on `block.timestamp / 1 days`)
+- Own N NFTs = N blessings per day (configurable)
+- Default: `blessingsPerNFT = 1` (one blessing per NFT owned)
+- Automatic period resets based on voting period configuration
 
-### 3. **Delegation System**
-Users can approve delegates (e.g., backend server, smart wallets) to bless on their behalf, enabling:
-- Gasless transactions through meta-transactions
-- Backend-verified blessing submissions
-- Smart wallet integration
+### 3. **Quadratic (Square Root) Scoring**
+- Prevents whale dominance: Score = √(user_blessings)
+- 100 blessings = score 10, not 100
+- Encourages broader participation over large holdings
 
-### 4. **Relayer Role**
-Backend servers with `RELAYER_ROLE` can submit verified blessings on behalf of users without requiring individual user delegation.
+### 4. **Delegation System**
+Users can approve delegates (e.g., backend server) to bless on their behalf, enabling:
+- Gasless transactions through backend relaying
+- Better UX without wallet interaction
+- Optional: users can still bless directly
+
+### 5. **Operator Role**
+Backend servers with `OPERATOR_ROLE` can submit verified blessings on behalf of users.
 
 ## Architecture
 
+### Contract Hierarchy
+
+```
+AbrahamSeeds (ERC1155)
+    └── EdenAgent (Base)
+           ├── AccessControl (Roles)
+           ├── Pausable
+           └── ReentrancyGuard
+    └── MerkleGating (Module)
+           └── Merkle Proof Verification
+```
+
 ### Roles
 
-- **ADMIN_ROLE**: Admin functions (add/remove relayers/creators, update Merkle root, pause/unpause)
-- **RELAYER_ROLE**: Backend servers that can submit blessings on behalf of verified users
-- **CREATOR_ROLE**: Authorized addresses that can submit seeds
+| Role | Description |
+|------|-------------|
+| `DEFAULT_ADMIN_ROLE` | Full admin control, grant/revoke roles |
+| `OPERATOR_ROLE` | Submit blessings on behalf of users, select winners |
+| `CREATOR_ROLE` | Submit seeds |
 
 ### Security Features
 
-1. **On-Chain NFT Verification**: Merkle proofs verify FirstWorks ownership on-chain
+1. **Merkle Proof Verification**: NFT ownership verified on-chain via MerkleGating module
 2. **Daily Blessing Limits**: Contract enforces N blessings per day (N = NFTs owned)
-3. **Access Control**: Uses OpenZeppelin's `AccessControl` for role-based permissions
+3. **Access Control**: OpenZeppelin's `AccessControl` for role-based permissions
 4. **Reentrancy Protection**: `ReentrancyGuard` on all state-changing functions
-5. **Multiple Blessings Allowed**: Users can bless the same seed multiple times (subject to daily limits)
-6. **Authorization Checks**: Validates that only authorized parties can submit delegated blessings
+5. **Authorization Checks**: Validates that only authorized parties can submit delegated blessings
 
 ## Contract Functions
 
 ### User Functions
 
-#### `blessSeed(uint256 _seedId, uint256[] _tokenIds, bytes32[] _merkleProof)`
+#### `blessSeed(uint256 seedId, uint256[] tokenIds, bytes proof)`
+
 Directly bless a seed with NFT ownership proof.
 
 ```solidity
 function blessSeed(
-    uint256 _seedId,
-    uint256[] memory _tokenIds,
-    bytes32[] memory _merkleProof
-) external whenNotPaused nonReentrant
+    uint256 seedId,
+    uint256[] calldata tokenIds,
+    bytes calldata proof
+) external payable
 ```
 
 **Requirements:**
 - Must own FirstWorks NFTs (verified via Merkle proof)
 - Must not have reached daily blessing limit
+- Seed must exist and not be winner/retracted
 
 **Example:**
-```javascript
-// User owns token IDs [42, 123, 456]
-const tokenIds = [42, 123, 456];
-const merkleProof = getMerkleProof(userAddress, tokenIds);
+```typescript
+import { encodeAbiParameters } from 'viem';
 
-await theSeedsContract.blessSeed(seedId, tokenIds, merkleProof);
+// User owns token IDs [42, 123, 456]
+const tokenIds = [42n, 123n, 456n];
+const merkleProof = ['0xabc...', '0xdef...']; // From API
+
+// Encode proof for contract
+const encodedProof = encodeAbiParameters(
+  [{ type: 'bytes32[]' }],
+  [merkleProof]
+);
+
+await walletClient.writeContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'blessSeed',
+  args: [seedId, tokenIds, encodedProof]
+});
 ```
 
-#### `approveDelegate(address _delegate, bool _approved)`
+#### `approveDelegate(address delegate, bool approved)`
+
 Approve or revoke a delegate's permission to bless on your behalf.
 
 ```solidity
-function approveDelegate(address _delegate, bool _approved) external
+function approveDelegate(address delegate, bool approved) external
 ```
 
 **Example:**
-```javascript
+```typescript
 // Approve backend server as delegate
-await theSeedsContract.approveDelegate(backendServerAddress, true);
+await walletClient.writeContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'approveDelegate',
+  args: [backendServerAddress, true]
+});
 
 // Revoke delegate
-await theSeedsContract.approveDelegate(backendServerAddress, false);
+await walletClient.writeContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'approveDelegate',
+  args: [backendServerAddress, false]
+});
 ```
 
-### Relayer Functions
+### Operator Functions
 
-#### `blessSeedFor(uint256 _seedId, address _blesser, uint256[] _tokenIds, bytes32[] _merkleProof)`
+#### `blessSeedFor(uint256 seedId, address blesser, uint256[] tokenIds, bytes proof)`
+
 Submit a blessing on behalf of a user with NFT proof verification.
 
 ```solidity
 function blessSeedFor(
-    uint256 _seedId,
-    address _blesser,
-    uint256[] memory _tokenIds,
-    bytes32[] memory _merkleProof
-) external whenNotPaused nonReentrant
+    uint256 seedId,
+    address blesser,
+    uint256[] calldata tokenIds,
+    bytes calldata proof
+) external payable
 ```
 
-**Authorization:** Caller must either:
-- Have been approved as a delegate by the blesser, OR
-- Have the `RELAYER_ROLE`
+**Requirements:**
+- Caller must have `OPERATOR_ROLE` OR be approved delegate for `blesser`
+- User must own FirstWorks NFTs (verified via Merkle proof)
+- User must not have reached daily blessing limit
 
-**On-Chain Checks:**
-- Verifies NFT ownership via Merkle proof
-- Checks daily blessing limit (N NFTs = N blessings/day)
+**Example (Backend):**
+```typescript
+// Backend relayer blessing on behalf of user
+await operatorWallet.writeContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'blessSeedFor',
+  args: [seedId, userAddress, tokenIds, encodedProof]
+});
+```
+
+### Query Functions
+
+#### `getBlessingCount(address user, uint256 seedId)`
+
+Get how many times a user has blessed a specific seed.
+
+```typescript
+const count = await publicClient.readContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'getBlessingCount',
+  args: [userAddress, seedId]
+});
+```
+
+#### `getRemainingBlessings(address user, uint256 tokenCount)`
+
+Get remaining blessings for a user today.
+
+```typescript
+const remaining = await publicClient.readContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'getRemainingBlessings',
+  args: [userAddress, nftCount]
+});
+```
+
+#### `canBlessToday(address user, uint256 tokenCount)`
+
+Check if user can bless today.
+
+```typescript
+const canBless = await publicClient.readContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'canBlessToday',
+  args: [userAddress, nftCount]
+});
+```
+
+## Scoring System
+
+### Quadratic (Square Root) Scoring
+
+The blessing system uses square root scoring to prevent whale dominance:
+
+```
+User Score = √(user_blessing_count) × SCALE
+
+SCALE = 1e6 (for precision)
+```
+
+### Score Calculation
+
+For each blessing:
+1. Get user's current blessing count for this seed
+2. Calculate score delta: `√(n+1) - √(n)` (scaled)
+3. Add delta to seed's total score
 
 **Example:**
-```javascript
-// Backend server submits blessing for user
-const tokenIds = getUserTokenIds(userAddress);
-const merkleProof = getMerkleProof(userAddress, tokenIds);
+```
+User has blessed seed 3 times, blesses again:
+- Previous score contribution: √3 = 1.732
+- New score contribution: √4 = 2.0
+- Delta added: 2.0 - 1.732 = 0.268
 
-await theSeedsContract.blessSeedFor(
-    seedId,
-    userAddress,
-    tokenIds,
-    merkleProof
-);
+Total Seed Score = Σ (√blessings_from_each_user)
 ```
 
-#### `batchBlessSeedsFor(uint256[] _seedIds, address[] _blessers, uint256[][] _tokenIdsArray, bytes32[][] _merkleProofs)`
-Batch submit multiple blessings with NFT proof verification.
+### Why Square Root?
 
-```solidity
-function batchBlessSeedsFor(
-    uint256[] calldata _seedIds,
-    address[] calldata _blessers,
-    uint256[][] calldata _tokenIdsArray,
-    bytes32[][] calldata _merkleProofs
-) external whenNotPaused nonReentrant onlyRole(RELAYER_ROLE)
+| Blessings | Linear Score | Sqrt Score |
+|-----------|--------------|------------|
+| 1 | 1 | 1.0 |
+| 4 | 4 | 2.0 |
+| 9 | 9 | 3.0 |
+| 100 | 100 | 10.0 |
+| 10000 | 10000 | 100.0 |
+
+A whale with 10,000 NFTs blessing 10,000 times only gets score 100, not 10,000.
+
+## API Endpoints
+
+### Check Eligibility
+
+```http
+GET /api/blessings/eligibility
+Authorization: Bearer <privy_token>
 ```
 
-**Example:**
-```javascript
-await theSeedsContract.batchBlessSeedsFor(
-    [seedId1, seedId2, seedId3],
-    [user1, user2, user3],
-    [tokenIds1, tokenIds2, tokenIds3],
-    [proof1, proof2, proof3]
-);
-```
-
-### Admin Functions
-
-#### `updateOwnershipRoot(bytes32 _newRoot)`
-Update the Merkle root for FirstWorks NFT ownership verification.
-
-```solidity
-function updateOwnershipRoot(bytes32 _newRoot) external onlyRole(ADMIN_ROLE)
-```
-
-**When to use:** After generating a new FirstWorks snapshot and Merkle tree.
-
-#### `addRelayer(address _relayer)`
-Add a relayer (backend server).
-
-```solidity
-function addRelayer(address _relayer) external onlyRole(ADMIN_ROLE)
-```
-
-#### `removeRelayer(address _relayer)`
-Remove a relayer.
-
-```solidity
-function removeRelayer(address _relayer) external onlyRole(ADMIN_ROLE)
-```
-
-### View Functions
-
-#### `getUserDailyBlessingCount(address _user)`
-Get number of blessings a user has used today.
-
-```solidity
-function getUserDailyBlessingCount(address _user)
-    external view returns (uint256)
-```
-
-#### `getRemainingBlessings(address _user, uint256 _nftCount)`
-Calculate remaining blessings for today based on NFT count.
-
-```solidity
-function getRemainingBlessings(address _user, uint256 _nftCount)
-    external view returns (uint256)
-```
-
-#### `canBlessToday(address _user, uint256 _nftCount)`
-Check if user has remaining blessings today.
-
-```solidity
-function canBlessToday(address _user, uint256 _nftCount)
-    external view returns (bool)
-```
-
-#### `getSeedBlessings(uint256 _seedId)`
-Get all blessings for a specific seed.
-
-```solidity
-function getSeedBlessings(uint256 _seedId)
-    external view returns (Blessing[] memory)
-```
-
-#### `getUserBlessings(address _user)`
-Get all blessings given by a specific user.
-
-```solidity
-function getUserBlessings(address _user)
-    external view returns (Blessing[] memory)
-```
-
-#### `getBlessingCount(address _user, uint256 _seedId)`
-Get the number of times a user has blessed a specific seed.
-
-```solidity
-function getBlessingCount(address _user, uint256 _seedId)
-    external view returns (uint256)
-```
-
-#### `hasBlessed(address _user, uint256 _seedId)` (Legacy)
-Check if a user has blessed a specific seed at least once.
-
-```solidity
-function hasBlessed(address _user, uint256 _seedId)
-    external view returns (bool)
-```
-
-**Note:** This function is deprecated. Use `getBlessingCount()` for accurate blessing counts. This returns `true` if the user has blessed the seed at least once.
-
-#### `isDelegate(address _user, address _delegate)`
-Check if an address is an approved delegate for a user.
-
-```solidity
-function isDelegate(address _user, address _delegate)
-    external view returns (bool)
-```
-
-## Data Structures
-
-### Blessing Struct
-
-```solidity
-struct Blessing {
-    uint256 seedId;      // Seed being blessed
-    address blesser;     // User who gave the blessing
-    address actor;       // Account that executed the transaction
-    uint256 timestamp;   // When the blessing was submitted
-    bool isDelegated;    // True if submitted by delegate/relayer
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "eligible": true,
+    "nftCount": 5,
+    "maxBlessings": 5,
+    "usedBlessings": 2,
+    "remainingBlessings": 3,
+    "periodEnd": "2025-11-09T00:00:00.000Z"
+  }
 }
 ```
 
-### Seed Struct
+### Submit Blessing (Gasless)
 
-```solidity
-struct Seed {
-    uint256 id;
-    address creator;
-    string ipfsHash;
-    string title;
-    string description;
-    uint256 votes;
-    uint256 blessings;      // Total blessings received
-    uint256 createdAt;
-    bool minted;
-    uint256 mintedInRound;
+```http
+POST /api/blessings
+Authorization: Bearer <privy_token>
+Content-Type: application/json
+
+{
+  "seedId": 0
 }
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "seedId": 0,
+    "txHash": "0x...",
+    "blessingCount": 42,
+    "message": "Blessing submitted successfully"
+  }
+}
+```
+
+### Prepare Blessing Transaction (User-Signed)
+
+```http
+POST /api/blessings/prepare
+Authorization: Bearer <privy_token>
+Content-Type: application/json
+
+{
+  "seedId": 0
+}
+```
+
+Returns transaction data for client-side signing.
+
+### Check Delegation Status
+
+```http
+GET /api/blessings/delegation-status
+Authorization: Bearer <privy_token>
+```
+
+### Prepare Delegation Transaction
+
+```http
+POST /api/blessings/prepare-delegate
+Authorization: Bearer <privy_token>
+Content-Type: application/json
+
+{
+  "approved": true
+}
+```
+
+## Flow Diagrams
+
+### Gasless Blessing Flow
+
+```
+User                    API                     Backend              Blockchain
+ │                       │                        │                       │
+ │ 1. POST /blessings    │                        │                       │
+ ├──────────────────────>│                        │                       │
+ │                       │ 2. Verify auth         │                       │
+ │                       │ 3. Get Merkle proof    │                       │
+ │                       │ 4. Check eligibility   │                       │
+ │                       ├───────────────────────>│                       │
+ │                       │                        │ 5. Sign tx            │
+ │                       │                        ├──────────────────────>│
+ │                       │                        │                       │
+ │                       │                        │ 6. Tx confirmed       │
+ │                       │                        │<──────────────────────┤
+ │ 7. Return txHash      │                        │                       │
+ │<──────────────────────┤                        │                       │
+```
+
+### User-Signed Blessing Flow
+
+```
+User                    API                     Blockchain
+ │                       │                         │
+ │ 1. POST /prepare      │                         │
+ ├──────────────────────>│                         │
+ │                       │ 2. Build tx data        │
+ │ 3. Return tx          │                         │
+ │<──────────────────────┤                         │
+ │                       │                         │
+ │ 4. Sign & send tx     │                         │
+ ├────────────────────────────────────────────────>│
+ │                       │                         │
+ │                       │         5. Tx confirmed │
+ │<────────────────────────────────────────────────┤
 ```
 
 ## Events
 
-### `BlessingSubmitted`
 ```solidity
 event BlessingSubmitted(
     uint256 indexed seedId,
     address indexed blesser,
-    address indexed actor,
-    bool isDelegated,
-    uint256 timestamp
+    uint256 score
 );
-```
 
-### `DelegateApproval`
-```solidity
 event DelegateApproval(
     address indexed user,
     address indexed delegate,
@@ -290,306 +381,53 @@ event DelegateApproval(
 );
 ```
 
-### `OwnershipRootUpdated`
-```solidity
-event OwnershipRootUpdated(
-    bytes32 indexed newRoot,
-    uint256 timestamp,
-    uint256 blockNumber
-);
-```
+## Configuration
 
-## Backend Integration
+### Voting Period
 
-### Setup
-
-1. **Generate FirstWorks Snapshot:**
-```bash
-npm run snapshot:generate
-```
-
-2. **Generate Merkle Tree:**
-```bash
-npm run merkle:generate
-```
-
-3. **Deploy Contract:**
-```javascript
-const theSeeds = await deploy("TheSeeds", [adminAddress]);
-```
-
-4. **Update Merkle Root:**
-```bash
-cast send $CONTRACT_ADDRESS "updateOwnershipRoot(bytes32)" $MERKLE_ROOT \
-  --rpc-url $RPC_URL --private-key $ADMIN_KEY
-```
-
-5. **Add Backend as Relayer:**
-```javascript
-await theSeeds.addRelayer(backendServerAddress);
-```
-
-### Blessing Flow with On-Chain Verification
-
-#### Backend API Implementation
+Duration of each blessing/voting period.
 
 ```typescript
-app.post('/api/blessings', async (req, res) => {
-  const { seedId } = req.body;
-  const user = req.user; // From auth middleware
-
-  // 1. Get user's NFT token IDs from snapshot
-  const snapshot = await loadSnapshot();
-  const tokenIds = snapshot.holderIndex[user.address.toLowerCase()] || [];
-
-  if (tokenIds.length === 0) {
-    return res.status(403).json({ error: 'No NFTs owned' });
-  }
-
-  // 2. Get Merkle proof for user
-  const merkleTree = await loadMerkleTree();
-  const proof = merkleTree.proofs[user.address.toLowerCase()] || [];
-
-  // 3. Check if backend is approved delegate
-  const isApproved = await contract.isDelegate(
-    user.address,
-    BACKEND_WALLET_ADDRESS
-  );
-
-  if (!isApproved) {
-    return res.status(400).json({
-      error: 'Backend not approved as delegate',
-      action: 'APPROVE_DELEGATE_REQUIRED'
-    });
-  }
-
-  // 4. Submit blessing with NFT proof
-  // Contract will verify ownership and daily limits on-chain
-  // Users can bless the same seed multiple times (subject to daily limits)
-  try {
-    const tx = await contract.blessSeedFor(
-      seedId,
-      user.address,
-      tokenIds,
-      proof
-    );
-    await tx.wait();
-
-    // Get updated blessing count for this seed
-    const blessingCount = await contract.getBlessingCount(user.address, seedId);
-
-    res.json({
-      success: true,
-      txHash: tx.hash,
-      blessingCount: Number(blessingCount),
-      remainingBlessings: await calculateRemainingBlessings(user.address)
-    });
-  } catch (error) {
-    // Handle contract errors
-    if (error.message.includes('DailyBlessingLimitReached')) {
-      return res.status(429).json({ error: 'Daily blessing limit reached' });
-    }
-    if (error.message.includes('InvalidMerkleProof')) {
-      return res.status(400).json({ error: 'Invalid NFT proof' });
-    }
-    throw error;
-  }
+// Default: 1 day (86400 seconds)
+const period = await publicClient.readContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'votingPeriod'
 });
 ```
 
-### User Experience Flows
+### Blessings Per NFT
 
-#### Flow 1: First-Time User (With Delegation)
-1. User clicks "Bless" on frontend
-2. Frontend checks if backend is approved delegate
-3. If not approved, prompt user to approve (one transaction)
-4. User approves backend as delegate
-5. Backend API submits blessing with NFT proof
-6. Contract verifies ownership and daily limits on-chain
-7. UI updates showing blessing confirmed
-
-#### Flow 2: Returning User (Already Delegated)
-1. User clicks "Bless" on frontend
-2. API call to backend `/api/blessings`
-3. Backend fetches tokenIds and Merkle proof
-4. Backend submits blessing with proof
-5. Contract verifies eligibility on-chain
-6. UI updates immediately (gasless for user)
-
-#### Flow 3: Direct On-Chain (No Backend)
-1. User clicks "Bless" on frontend
-2. Frontend fetches user's tokenIds and proof from API
-3. Frontend calls `contract.blessSeed(seedId, tokenIds, proof)` directly
-4. User signs transaction in wallet
-5. Contract verifies eligibility on-chain
-6. UI updates after confirmation
-
-## Eligibility Rules
-
-### Daily Blessing Limits
-
-- **Formula:** `maxBlessings = nftCount * BLESSINGS_PER_NFT`
-- **Example:** Own 3 NFTs → 3 blessings per day
-- **Reset:** Automatic at midnight UTC (based on `block.timestamp / 1 days`)
-- **Tracking:** Contract maintains `userDailyBlessings[user][day]` mapping
-
-### Multiple Blessings Per Seed
-
-- Users can bless the same seed **multiple times** (subject to daily limits)
-- Each blessing counts against the user's daily total
-- Blessing count per user per seed tracked via `userSeedBlessingCount[user][seedId]` mapping
-- Example: User with 3 NFTs can use all 3 daily blessings on one seed, or distribute across multiple seeds
-
-### NFT Ownership Verification
-
-- Verified via Merkle proofs against `currentOwnershipRoot`
-- Admin must update root when FirstWorks ownership changes
-- Invalid proofs are rejected on-chain
-
-## Security Considerations
-
-### ✅ On-Chain Security
-
-1. **Trustless Verification**: NFT ownership verified on-chain via Merkle proofs
-2. **Tamper-Proof Limits**: Daily limits enforced by contract, not API
-3. **No API Bypass**: Even if API is compromised, contract enforces all rules
-4. **Transparent Logic**: All eligibility rules are public and auditable
-5. **Automatic Resets**: Time-based limits reset automatically via `block.timestamp`
-
-### ✅ Contract Protections
-
-1. **Role-Based Access Control**: Only authorized relayers can submit delegated blessings
-2. **Reentrancy Guards**: All state-changing functions protected
-3. **Daily Limit Tracking**: Per-day blessing limits enforced on-chain
-4. **Authorization Validation**: Strict delegate/relayer checks
-
-### 🔒 Best Practices
-
-1. **Merkle Root Updates**: Keep FirstWorks snapshot up-to-date
-2. **Rate Limiting**: Still implement API rate limits for DoS protection
-3. **Key Management**: Secure backend private key (AWS KMS, Azure Key Vault, etc.)
-4. **Monitoring**: Monitor `BlessingSubmitted` events for anomalies
-5. **User Consent**: Always get user consent before blessing on their behalf
-
-### ⚠️ Important Notes
-
-- **Delegation is Powerful**: Users trust delegates with their blessing rights
-- **Relayer Role is Privileged**: RELAYER_ROLE can bless for ANY user (with valid proof)
-- **Multiple Blessings Allowed**: Users can bless the same seed multiple times within their daily limit
-- **Merkle Root Currency**: Ensure root is updated when FirstWorks ownership changes
-
-## Error Messages
-
-### Contract Errors
-
-- `InvalidMerkleProof`: NFT ownership proof is invalid
-- `DailyBlessingLimitReached`: User has used all daily blessings
-- `NoVotingPower`: User owns no NFTs (0 tokenIds provided)
-- `NotAuthorized`: Caller not approved as delegate or relayer
-- `SeedNotFound`: Seed does not exist
-- `SeedAlreadyMinted`: Cannot bless minted seeds
-
-## Testing
-
-### Test Scenarios
-
-1. **NFT Ownership Verification**
-   - Valid proof → blessing succeeds
-   - Invalid proof → transaction reverts
-   - Zero NFTs → transaction reverts
-
-2. **Daily Blessing Limits**
-   - Own 3 NFTs → can bless 3 times per day (total across all seeds)
-   - 4th blessing same day → reverts with `DailyBlessingLimitReached`
-   - Next day → limit resets, can bless again
-   - Can use all 3 blessings on one seed or distribute across multiple
-
-3. **Multiple Blessings Per Seed**
-   - Bless seed #1 once → succeeds (2 blessings remaining)
-   - Bless seed #1 again → succeeds (1 blessing remaining)
-   - Bless seed #1 third time → succeeds (0 blessings remaining)
-   - Try to bless again → reverts with `DailyBlessingLimitReached`
-
-4. **Delegation**
-   - User approves delegate → delegate can bless
-   - User revokes delegate → delegate cannot bless
-   - Non-delegate tries → reverts
-
-5. **Relayer Role**
-   - Relayer with valid proof → succeeds
-   - Relayer with invalid proof → reverts
-   - Non-relayer tries `batchBlessSeedsFor` → reverts
-
-## Migration Guide
-
-### From Old System (API-Only Enforcement)
-
-1. **Generate Merkle Tree:**
-   ```bash
-   npm run snapshot:generate
-   npm run merkle:generate
-   ```
-
-2. **Deploy New Contract:**
-   ```bash
-   npx hardhat run scripts/deploy.ts --network baseSepolia
-   ```
-
-3. **Update Merkle Root:**
-   ```bash
-   cast send $CONTRACT "updateOwnershipRoot(bytes32)" $ROOT \
-     --rpc-url $RPC --private-key $ADMIN_KEY
-   ```
-
-4. **Update Backend:**
-   - Import `loadMerkleTree()` function
-   - Fetch tokenIds and proof for users
-   - Pass to `blessSeedFor()` function
-
-5. **Update Frontend:**
-   - Fetch tokenIds and proof from API
-   - Pass to `blessSeed()` when user blesses directly
-
-## Example Frontend Integration
+How many blessings each NFT grants per period.
 
 ```typescript
-// Get user's NFT data and proof
-const getUserNFTData = async (userAddress: string) => {
-  const response = await fetch(`/api/users/${userAddress}/nft-data`);
-  return response.json(); // { tokenIds, proof }
-};
-
-// Bless via backend API (gasless)
-const blessSeedGasless = async (seedId: number) => {
-  // Check if approval needed
-  if (await needsApproval(userAddress)) {
-    await approveBackend();
-  }
-
-  // Backend handles tokenIds and proof
-  const response = await fetch('/api/blessings', {
-    method: 'POST',
-    body: JSON.stringify({ seedId })
-  });
-
-  return response.json();
-};
-
-// Bless directly on-chain (user pays gas)
-const blessSeedDirect = async (seedId: number) => {
-  const { tokenIds, proof } = await getUserNFTData(userAddress);
-
-  const tx = await contract.blessSeed(seedId, tokenIds, proof);
-  await tx.wait();
-
-  return tx.hash;
-};
+// Default: 1 blessing per NFT
+const perNFT = await publicClient.readContract({
+  address: SEEDS_CONTRACT,
+  abi: abrahamSeedsABI,
+  functionName: 'blessingsPerNFT'
+});
 ```
 
-## Questions?
+## Updating Configuration (Admin Only)
 
-For implementation help or security questions, review:
-- OpenZeppelin AccessControl docs
-- Merkle tree generation and verification
-- Solidity security best practices
-- Meta-transaction patterns
+```typescript
+// Update via setConfig function
+await adminWallet.writeContract({
+  address: SEEDS_CONTRACT,
+  abi: edenAgentABI,
+  functionName: 'setConfig',
+  args: [{
+    periodDuration: 86400n,    // 1 day
+    reactionsPerToken: 1n,     // 1 blessing per NFT
+    messagesPerToken: 1n,      // 1 message per NFT
+    editionPrice: 0n           // Free editions
+  }]
+});
+```
+
+## See Also
+
+- [API Reference](./API_REFERENCE.md) - Full API documentation
+- [Seeds Contract Reference](./SEEDS_CONTRACT_REFERENCE.md) - Contract function details
+- [Deployment Guide](./DEPLOYMENT_GUIDE.md) - Contract deployment

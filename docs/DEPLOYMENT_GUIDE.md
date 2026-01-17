@@ -1,19 +1,23 @@
-# TheSeeds Contract Deployment & Setup Guide
+# AbrahamSeeds Contract Deployment & Setup Guide
 
 ## Overview
 
-This guide walks you through deploying TheSeeds contract and setting up all necessary roles for seed creation and blessing functionality.
+This guide walks you through deploying the AbrahamSeeds contract and MerkleGating module, and setting up all necessary roles for seed creation and blessing functionality.
+
+## Contract Architecture
+
+The deployment creates two contracts:
+1. **MerkleGating** - Handles cross-chain NFT ownership verification
+2. **AbrahamSeeds** - Main governance contract for seeds, blessings, and winner selection
 
 ## Understanding the Roles
 
-TheSeeds contract uses OpenZeppelin's AccessControl with three roles:
+AbrahamSeeds uses OpenZeppelin's AccessControl with these roles:
 
-### 1. ADMIN_ROLE (DEFAULT_ADMIN_ROLE)
+### 1. DEFAULT_ADMIN_ROLE
 **Powers:**
 - Grant/revoke all other roles
-- Update Merkle root for NFT ownership
-- Pause/unpause contract
-- Configure contract parameters
+- Full administrative control
 
 **Who gets it:**
 - The deployer wallet (automatically on deployment)
@@ -21,20 +25,21 @@ TheSeeds contract uses OpenZeppelin's AccessControl with three roles:
 ### 2. CREATOR_ROLE
 **Powers:**
 - Create seeds (submit artwork proposals)
-- That's it - just seed creation
 
 **Who should have it:**
 - Backend API wallet (for gasless seed creation)
-- Authorized creator wallets (for direct seed creation)
+- Authorized creator wallets
 - Curators or trusted community members
 
-### 3. RELAYER_ROLE
+### 3. OPERATOR_ROLE
 **Powers:**
-- Submit blessings on behalf of users (if user hasn't delegated)
-- Batch blessing operations
+- Select daily winners
+- Update contract settings
+- Administrative operations
 
 **Who should have it:**
-- Backend API wallet (for gasless blessings)
+- Backend API wallet (for automated operations)
+- Admin wallets
 
 ---
 
@@ -42,266 +47,193 @@ TheSeeds contract uses OpenZeppelin's AccessControl with three roles:
 
 ### Step 1: Prepare Environment
 
-Create `.env.local` with your deployment wallet:
+Create `.env.local` with required variables:
 
 ```bash
 # Deployment wallet (will become ADMIN)
-PRIVATE_KEY=0x...  # Your deployer wallet private key
+DEPLOYER_PRIVATE_KEY=0x...
+RELAYER_PRIVATE_KEY=0x...
 
-# Network RPCs
-BASE_SEPOLIA_RPC=https://sepolia.base.org
-BASE_MAINNET_RPC=https://mainnet.base.org
-```
-
-**⚠️ Important**: This wallet will be the initial ADMIN and control all roles.
-
-### Step 2: Deploy Contract
-
-```bash
-# Compile first
-npx hardhat compile
-
-# Deploy to Base Sepolia (testnet)
-npm run deployseeds:base-sepolia
-
-# Or deploy to Base Mainnet (production)
-npm run deployseeds:base
-```
-
-**What happens:**
-1. Contract deploys with your wallet as ADMIN
-2. You get the contract address (e.g., `0x878baad...`)
-3. Your wallet automatically gets `ADMIN_ROLE`
-
-**Output:**
-```
-=== Deployment Successful ===
-The Seeds deployed at: 0x878baad70577cf114a3c60fd01b5a036fd0c4bc8
-Owner: 0xYourDeployerAddress
-Block number: 12345678
-```
-
-### Step 3: Configure Backend API
-
-Add the deployed contract address to your API's `.env.local`:
-
-```bash
-# Contract Configuration
-CONTRACT_ADDRESS=0x878baad70577cf114a3c60fd01b5a036fd0c4bc8
+# Network Configuration
 NETWORK=baseSepolia  # or "base" for mainnet
 
-# Backend API wallet (needs CREATOR_ROLE + RELAYER_ROLE)
-RELAYER_PRIVATE_KEY=0x...  # Different from deployer!
-
-# Admin authentication
-ADMIN_KEY=your-secret-admin-key-here
-
 # RPC URLs
-BASE_SEPOLIA_RPC=https://sepolia.base.org
-BASE_MAINNET_RPC=https://mainnet.base.org
+BASE_SEPOLIA_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_KEY
+BASE_MAINNET_RPC_URL=https://base-mainnet.g.alchemy.com/v2/YOUR_KEY
 
-# Privy auth
-PRIVY_APP_ID=your-privy-app-id
-PRIVY_APP_SECRET=your-privy-app-secret
+# L1 FirstWorks NFT (for Merkle tree)
+FIRSTWORKS_CONTRACT_ADDRESS=0x9734c959A5FEC7BaD8b0b560AD94F9740B90Efd8
+FIRSTWORKS_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
+
+# API Keys
+ALCHEMY_API_KEY=your_alchemy_key
+BASESCAN_API_KEY=your_basescan_key
 ```
 
-**⚠️ Security Best Practice:**
-- Use a **different wallet** for `RELAYER_PRIVATE_KEY` (not the deployer)
-- Keep deployer key secure and separate
-- Never expose deployer key in API environment
+### Step 2: Generate Merkle Tree
+
+Before deployment, generate the FirstWorks NFT ownership Merkle tree:
+
+```bash
+# Generate NFT ownership snapshot
+npm run snapshot:generate
+
+# Generate Merkle tree from snapshot
+npm run merkle:generate
+```
+
+This creates `lib/snapshots/firstWorks_merkle.json` with:
+- Merkle root hash
+- Proofs for each NFT holder
+
+### Step 3: Compile Contracts
+
+```bash
+npm run compile
+```
+
+This compiles:
+- `contracts/src/agents/abraham/AbrahamSeeds.sol`
+- `contracts/src/modules/gating/MerkleGating.sol`
+- `contracts/src/core/EdenAgent.sol`
+
+And extracts ABIs to `lib/abi/`.
+
+### Step 4: Deploy Contracts
+
+```bash
+# Deploy to Base Sepolia (testnet)
+npm run deploy:abraham-seeds:base-sepolia
+
+# Or deploy to Base Mainnet (production)
+npm run deploy:abraham-seeds:base
+```
+
+**What the deployment script does:**
+1. Deploys MerkleGating module
+2. Deploys AbrahamSeeds contract with MerkleGating address
+3. Grants CREATOR_ROLE to relayer wallet
+4. Grants OPERATOR_ROLE to relayer wallet
+5. Updates MerkleGating with Merkle root
+6. Creates a test seed (optional)
+7. Saves contract addresses and ABIs
+
+**Expected Output:**
+```
+=== Deploying AbrahamSeeds Contract ===
+Network: baseSepolia
+Deployer: 0xYourDeployerAddress
+
+Step 1: Deploying MerkleGating...
+MerkleGating deployed at: 0x46657b69308d90a4756369094c5d78781f3f5979
+
+Step 2: Deploying AbrahamSeeds...
+AbrahamSeeds deployed at: 0x0b95d25463b7a937b3df28368456f2c40e95c730
+
+Step 3: Granting roles...
+CREATOR_ROLE granted to: 0xRelayerAddress
+OPERATOR_ROLE granted to: 0xRelayerAddress
+
+Step 4: Setting Merkle root...
+Merkle root set: 0xfd75a1bb...
+
+Step 5: Creating test seed...
+Test seed created with ID: 0
+
+=== Deployment Complete ===
+```
+
+### Step 5: Update Environment
+
+Add the deployed contract addresses to `.env.local`:
+
+```bash
+# AbrahamSeeds Contract (L2 Base)
+L2_SEEDS_CONTRACT=0x0b95d25463b7a937b3df28368456f2c40e95c730
+L2_GATING_CONTRACT=0x46657b69308d90a4756369094c5d78781f3f5979
+L2_SEEDS_DEPLOYMENT_BLOCK=36452477
+```
+
+### Step 6: Verify Contracts (Optional)
+
+```bash
+# Verify on BaseScan
+npm run verify:seeds:base-sepolia
+```
 
 ---
 
-## Step 4: Grant Roles to Backend API
+## Granting Additional Roles
 
-Your backend needs two roles:
-1. **CREATOR_ROLE** - to create seeds on behalf of users
-2. **RELAYER_ROLE** - to submit blessings on behalf of users
+### Grant CREATOR_ROLE to New Creators
 
-### Option A: Using Hardhat Console
+Using Hardhat script:
+```bash
+npm run grant-creator:base-sepolia -- --address 0xNewCreatorAddress
+```
 
+Or manually via Hardhat console:
 ```bash
 npx hardhat console --network baseSepolia
 ```
 
 ```javascript
-// Get contract
-const TheSeeds = await ethers.getContractAt(
-  "TheSeeds",
-  "0x878baad70577cf114a3c60fd01b5a036fd0c4bc8"
+const { ethers } = require("hardhat");
+
+const AbrahamSeeds = await ethers.getContractAt(
+  "AbrahamSeeds",
+  "0x0b95d25463b7a937b3df28368456f2c40e95c730"
 );
 
-// Get your backend wallet address
-const backendWallet = "0xYOUR_BACKEND_WALLET_ADDRESS";
+// Get CREATOR_ROLE hash
+const CREATOR_ROLE = await AbrahamSeeds.CREATOR_ROLE();
 
-// Grant CREATOR_ROLE
-console.log("Granting CREATOR_ROLE to backend...");
-let tx = await TheSeeds.addCreator(backendWallet);
+// Grant role
+const tx = await AbrahamSeeds.grantRole(CREATOR_ROLE, "0xNewCreatorAddress");
 await tx.wait();
-console.log("✅ CREATOR_ROLE granted");
-
-// Grant RELAYER_ROLE
-console.log("Granting RELAYER_ROLE to backend...");
-tx = await TheSeeds.addRelayer(backendWallet);
-await tx.wait();
-console.log("✅ RELAYER_ROLE granted");
-
-// Verify roles
-const CREATOR_ROLE = ethers.utils.keccak256(ethers.utils.toUtf8Bytes("CREATOR_ROLE"));
-const RELAYER_ROLE = ethers.utils.keccak256(ethers.utils.toUtf8Bytes("RELAYER_ROLE"));
-
-const hasCreator = await TheSeeds.hasRole(CREATOR_ROLE, backendWallet);
-const hasRelayer = await TheSeeds.hasRole(RELAYER_ROLE, backendWallet);
-
-console.log("Backend has CREATOR_ROLE:", hasCreator);
-console.log("Backend has RELAYER_ROLE:", hasRelayer);
-```
-
-### Option B: Using Cast (Foundry)
-
-```bash
-# Your contract address
-CONTRACT=0x878baad70577cf114a3c60fd01b5a036fd0c4bc8
-
-# Backend wallet address (from RELAYER_PRIVATE_KEY)
-BACKEND=0xYOUR_BACKEND_WALLET_ADDRESS
-
-# Your deployer private key (has ADMIN_ROLE)
-DEPLOYER_KEY=0x...
-
-# Grant CREATOR_ROLE
-cast send $CONTRACT \
-  "addCreator(address)" \
-  $BACKEND \
-  --rpc-url https://sepolia.base.org \
-  --private-key $DEPLOYER_KEY
-
-# Grant RELAYER_ROLE
-cast send $CONTRACT \
-  "addRelayer(address)" \
-  $BACKEND \
-  --rpc-url https://sepolia.base.org \
-  --private-key $DEPLOYER_KEY
-
-# Verify roles
-cast call $CONTRACT \
-  "hasRole(bytes32,address)(bool)" \
-  0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7 \
-  $BACKEND \
-  --rpc-url https://sepolia.base.org
-
-cast call $CONTRACT \
-  "hasRole(bytes32,address)(bool)" \
-  0x5e17fc5225d4a099df75359ce1f405503ca79498a8dc46a7d583235a0ee45c16 \
-  $BACKEND \
-  --rpc-url https://sepolia.base.org
-```
-
-**Role Hashes:**
-- `CREATOR_ROLE`: `0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7`
-- `RELAYER_ROLE`: `0x5e17fc5225d4a099df75359ce1f405503ca79498a8dc46a7d583235a0ee45c16`
-
-### Option C: Using Etherscan/Basescan
-
-1. Go to your contract on Basescan
-2. Navigate to "Contract" → "Write Contract"
-3. Connect wallet (must be ADMIN)
-4. Call `addCreator(address)` with backend wallet address
-5. Call `addRelayer(address)` with backend wallet address
-
----
-
-## Step 5: Grant CREATOR_ROLE to Individual Creators
-
-For creators who want to sign their own transactions:
-
-### Using Hardhat Console
-
-```javascript
-const TheSeeds = await ethers.getContractAt("TheSeeds", CONTRACT_ADDRESS);
-
-// Add a creator
-await TheSeeds.addCreator("0xCREATOR_WALLET_ADDRESS");
+console.log("CREATOR_ROLE granted");
 
 // Verify
-const CREATOR_ROLE = ethers.utils.keccak256(ethers.utils.toUtf8Bytes("CREATOR_ROLE"));
-const hasRole = await TheSeeds.hasRole(CREATOR_ROLE, "0xCREATOR_WALLET_ADDRESS");
+const hasRole = await AbrahamSeeds.hasRole(CREATOR_ROLE, "0xNewCreatorAddress");
 console.log("Has CREATOR_ROLE:", hasRole);
 ```
 
-### Using API Endpoint
+### Grant OPERATOR_ROLE
 
-If your backend has ADMIN_ROLE, you could add an admin endpoint:
-
-```typescript
-// Future enhancement: Admin endpoint to grant roles
-// POST /api/admin/creators
-// Body: { address: "0x..." }
+```javascript
+const OPERATOR_ROLE = await AbrahamSeeds.OPERATOR_ROLE();
+await AbrahamSeeds.grantRole(OPERATOR_ROLE, "0xNewOperatorAddress");
 ```
 
 ---
 
-## Role Management Commands Cheat Sheet
+## Updating Merkle Root
 
-### Check if Address Has Role
-
-```bash
-# Check CREATOR_ROLE
-cast call CONTRACT \
-  "hasRole(bytes32,address)(bool)" \
-  0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7 \
-  ADDRESS \
-  --rpc-url RPC_URL
-
-# Check RELAYER_ROLE
-cast call CONTRACT \
-  "hasRole(bytes32,address)(bool)" \
-  0x5e17fc5225d4a099df75359ce1f405503ca79498a8dc46a7d583235a0ee45c16 \
-  ADDRESS \
-  --rpc-url RPC_URL
-
-# Check ADMIN_ROLE
-cast call CONTRACT \
-  "hasRole(bytes32,address)(bool)" \
-  0x0000000000000000000000000000000000000000000000000000000000000000 \
-  ADDRESS \
-  --rpc-url RPC_URL
-```
-
-### Grant Roles
+When NFT ownership changes on L1, update the Merkle root:
 
 ```bash
-# Grant CREATOR_ROLE
-cast send CONTRACT "addCreator(address)" ADDRESS --rpc-url RPC --private-key ADMIN_KEY
+# Full pipeline: snapshot + merkle + contract update
+npm run update-snapshot
 
-# Grant RELAYER_ROLE
-cast send CONTRACT "addRelayer(address)" ADDRESS --rpc-url RPC --private-key ADMIN_KEY
-
-# Grant ADMIN_ROLE
-cast send CONTRACT "grantRole(bytes32,address)" 0x00...00 ADDRESS --rpc-url RPC --private-key ADMIN_KEY
+# Or step by step:
+npm run snapshot:generate
+npm run merkle:generate
+npm run update-root
 ```
 
-### Revoke Roles
-
-```bash
-# Revoke CREATOR_ROLE
-cast send CONTRACT "removeCreator(address)" ADDRESS --rpc-url RPC --private-key ADMIN_KEY
-
-# Revoke RELAYER_ROLE
-cast send CONTRACT "removeRelayer(address)" ADDRESS --rpc-url RPC --private-key ADMIN_KEY
-
-# Revoke ADMIN_ROLE (careful!)
-cast send CONTRACT "revokeRole(bytes32,address)" 0x00...00 ADDRESS --rpc-url RPC --private-key ADMIN_KEY
-```
+The `update-root` script:
+1. Reads the Merkle root from `lib/snapshots/firstWorks_merkle.json`
+2. Calls `setMerkleRoot()` on MerkleGating contract
+3. Verifies the update was successful
 
 ---
 
-## Testing Your Setup
+## Testing Your Deployment
 
-### 1. Test Backend Has Correct Roles
+### 1. Check Contract Configuration
 
 ```bash
-curl http://localhost:3000/api/seeds/creator/YOUR_BACKEND_ADDRESS/check
+curl http://localhost:3000/api/seeds/config
 ```
 
 Expected response:
@@ -309,176 +241,145 @@ Expected response:
 {
   "success": true,
   "data": {
-    "address": "0xYourBackendAddress",
+    "roundMode": { "value": 0, "name": "ROUND_BASED" },
+    "tieBreakingStrategy": { "value": 0, "name": "LOWEST_SEED_ID" },
+    "eligibleSeedsCount": 1
+  }
+}
+```
+
+### 2. Check Seed Count
+
+```bash
+curl http://localhost:3000/api/seeds/count
+```
+
+### 3. Check Backend Has Roles
+
+```bash
+curl http://localhost:3000/api/seeds/creator/0xYourRelayerAddress/check
+```
+
+Expected response:
+```json
+{
+  "success": true,
+  "data": {
+    "address": "0xYourRelayerAddress",
     "hasCreatorRole": true
   }
 }
 ```
 
-### 2. Test Backend Can Create Seeds
+### 4. Check Snapshot Status
 
 ```bash
-curl -X POST http://localhost:3000/api/seeds \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_PRIVY_TOKEN" \
-  -H "X-Admin-Key: your-admin-key" \
-  -d '{
-    "ipfsHash": "QmTest123",
-    "title": "Test Seed",
-    "description": "Testing deployment"
-  }'
-```
-
-Expected: Successful seed creation with transaction hash
-
-### 3. Test Individual Creator
-
-```bash
-# Check if they have role
-curl http://localhost:3000/api/seeds/creator/0xCREATOR_ADDRESS/check
-
-# They can get transaction to sign
-curl -X POST http://localhost:3000/api/seeds/prepare \
-  -H "Authorization: Bearer CREATOR_TOKEN" \
-  -d '{"ipfsHash": "QmX", "title": "Test"}'
+curl http://localhost:3000/api/admin/snapshot-status
 ```
 
 ---
 
-## Recommended Wallet Setup
+## Environment Variables Reference
 
-### Production Setup
+```bash
+# ============ L1 Configuration ============
+# FirstWorks NFT Contract (Ethereum Mainnet)
+FIRSTWORKS_CONTRACT_ADDRESS=0x9734c959A5FEC7BaD8b0b560AD94F9740B90Efd8
+FIRSTWORKS_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
 
-```
-Deployer Wallet (Cold Storage)
-├── Has: ADMIN_ROLE
-├── Purpose: Deploy contract, manage roles
-└── Security: Hardware wallet, rarely used
+# ============ L2 Configuration ============
+# AbrahamSeeds Contract (Base)
+L2_SEEDS_CONTRACT=0x0b95d25463b7a937b3df28368456f2c40e95c730
+L2_GATING_CONTRACT=0x46657b69308d90a4756369094c5d78781f3f5979
+L2_SEEDS_DEPLOYMENT_BLOCK=36452477
+NETWORK=baseSepolia
 
-Backend API Wallet (Hot Wallet)
-├── Has: CREATOR_ROLE + RELAYER_ROLE
-├── Purpose: Create seeds, submit blessings
-└── Security: Encrypted in environment, limited funds
+# RPC URLs
+BASE_SEPOLIA_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_KEY
+BASE_MAINNET_RPC_URL=https://base-mainnet.g.alchemy.com/v2/YOUR_KEY
+MAINNET_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
 
-Creator Wallets (Individual)
-├── Has: CREATOR_ROLE
-├── Purpose: Create their own seeds
-└── Security: User's personal wallet
-```
+# ============ Private Keys ============
+DEPLOYER_PRIVATE_KEY=0x...
+RELAYER_PRIVATE_KEY=0x...
 
-### Development/Testing Setup
+# ============ API Configuration ============
+ADMIN_KEY=your-secret-admin-key
+CRON_SECRET=your-cron-secret
+ALCHEMY_API_KEY=your_alchemy_key
+BASESCAN_API_KEY=your_basescan_key
 
-```
-Single Wallet (Easier for Testing)
-├── Has: ADMIN_ROLE + CREATOR_ROLE + RELAYER_ROLE
-├── Purpose: Everything
-└── Security: Test funds only
+# ============ Privy Auth ============
+PRIVY_APP_ID=your-privy-app-id
+PRIVY_APP_SECRET=your-privy-app-secret
 ```
 
 ---
 
-## Common Issues & Solutions
+## NPM Scripts Reference
 
-### ❌ "Relayer does not have CREATOR_ROLE"
+| Script | Description |
+|--------|-------------|
+| `npm run compile` | Compile Solidity contracts |
+| `npm run deploy:abraham-seeds:base-sepolia` | Deploy to Base Sepolia testnet |
+| `npm run deploy:abraham-seeds:base` | Deploy to Base mainnet |
+| `npm run grant-creator:base-sepolia` | Grant CREATOR_ROLE on testnet |
+| `npm run grant-creator:base` | Grant CREATOR_ROLE on mainnet |
+| `npm run update-root` | Update Merkle root on contract |
+| `npm run snapshot:generate` | Generate FirstWorks NFT snapshot |
+| `npm run merkle:generate` | Generate Merkle tree from snapshot |
+| `npm run verify:seeds:base-sepolia` | Verify contract on BaseScan |
 
-**Solution:**
+---
+
+## Troubleshooting
+
+### "Relayer does not have CREATOR_ROLE"
+
+Grant the role to your relayer wallet:
 ```bash
-# Grant role to backend wallet
-cast send CONTRACT "addCreator(address)" BACKEND_WALLET --rpc-url RPC --private-key ADMIN_KEY
+npm run grant-creator:base-sepolia -- --address 0xYourRelayerAddress
 ```
 
-### ❌ "AccessControl: account 0x... is missing role"
+### "Contract not initialized"
 
-**Cause:** Transaction signer doesn't have required role
+Check that `L2_SEEDS_CONTRACT` is set correctly in `.env.local` and the RPC URL is valid.
 
-**Solution:**
-1. Check which role is needed (CREATOR for seeds, RELAYER for blessings)
-2. Grant the role using admin wallet
+### "Merkle proof verification failed"
 
-### ❌ "Backend blessing service not configured"
+1. Regenerate the Merkle tree: `npm run merkle:generate`
+2. Update the contract: `npm run update-root`
 
-**Cause:** `RELAYER_PRIVATE_KEY` not set in `.env.local`
+### "Transaction reverted"
 
-**Solution:**
-1. Generate a new wallet or use existing
-2. Add `RELAYER_PRIVATE_KEY=0x...` to `.env.local`
-3. Grant CREATOR_ROLE and RELAYER_ROLE to that wallet
-
-### ❌ Can't grant roles
-
-**Cause:** You're not using the ADMIN wallet
-
-**Solution:** Use the deployer wallet (the one with ADMIN_ROLE) to grant roles
+Check:
+1. Relayer wallet has enough ETH for gas
+2. Relayer wallet has required roles
+3. Contract is not paused
 
 ---
 
 ## Security Checklist
 
-- [ ] Deployer wallet private key stored securely (hardware wallet recommended)
-- [ ] Backend wallet different from deployer wallet
+- [ ] Deployer private key stored securely (hardware wallet recommended)
+- [ ] Relayer wallet different from deployer wallet
 - [ ] `ADMIN_KEY` is a strong, random secret
 - [ ] Private keys never committed to git
 - [ ] `.env.local` in `.gitignore`
-- [ ] Deployer wallet only used for admin operations
-- [ ] Backend wallet has minimal funds (just for gas)
-- [ ] Role grants logged and audited
-- [ ] Contract verified on Basescan
+- [ ] Relayer wallet has minimal funds (just for gas)
+- [ ] Contract verified on BaseScan
+- [ ] Multi-sig for admin operations (production)
 
 ---
 
-## Quick Reference
+## Production Deployment Checklist
 
-### Environment Variables
-
-```bash
-# Deployment
-PRIVATE_KEY=0x...  # Deployer (becomes ADMIN)
-
-# API Backend
-RELAYER_PRIVATE_KEY=0x...  # Backend wallet
-CONTRACT_ADDRESS=0x...
-NETWORK=baseSepolia
-ADMIN_KEY=secret-key
-
-# RPCs
-BASE_SEPOLIA_RPC=https://sepolia.base.org
-BASE_MAINNET_RPC=https://mainnet.base.org
-```
-
-### Deployment Commands
-
-```bash
-npm run deployseeds:base-sepolia  # Testnet
-npm run deployseeds:base          # Mainnet
-```
-
-### Role Hashes
-
-```
-ADMIN_ROLE:   0x0000000000000000000000000000000000000000000000000000000000000000
-CREATOR_ROLE: 0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7
-RELAYER_ROLE: 0x5e17fc5225d4a099df75359ce1f405503ca79498a8dc46a7d583235a0ee45c16
-```
-
----
-
-## Next Steps After Deployment
-
-1. ✅ Deploy contract
-2. ✅ Grant roles to backend wallet
-3. ✅ Test seed creation
-4. ✅ Grant roles to individual creators
-5. ⏭️ Set up Merkle root for blessings (see FirstWorks snapshot guide)
-6. ⏭️ Configure daily snapshot updates
-7. ⏭️ Set up monitoring and alerting
-8. ⏭️ Verify contract on Basescan
-
----
-
-## Support
-
-If you encounter issues:
-1. Check this guide's "Common Issues" section
-2. Verify roles using the check commands
-3. Review contract events on Basescan
-4. Check API logs for detailed error messages
+1. [ ] Generate fresh Merkle tree from latest L1 snapshot
+2. [ ] Deploy MerkleGating and AbrahamSeeds to mainnet
+3. [ ] Grant roles to production relayer wallet
+4. [ ] Update production `.env` with new contract addresses
+5. [ ] Verify contracts on BaseScan
+6. [ ] Test all API endpoints
+7. [ ] Set up cron jobs for daily operations
+8. [ ] Configure monitoring and alerting
+9. [ ] Document all contract addresses
