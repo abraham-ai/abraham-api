@@ -65,8 +65,12 @@ async function main() {
   console.log(`   Contract Type: ${IS_NEW_CONTRACT ? "AbrahamSeeds" : "TheSeeds"}\n`);
 
   try {
-    // Check if signer has CREATOR_ROLE
-    const CREATOR_ROLE = "0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7";
+    // Check if signer has CREATOR_ROLE (get hash from contract to ensure accuracy)
+    const CREATOR_ROLE = await publicClient.readContract({
+      address: contractAddress as Address,
+      abi: SEEDS_ABI,
+      functionName: "CREATOR_ROLE",
+    }) as `0x${string}`;
     const hasRole = await publicClient.readContract({
       address: contractAddress as Address,
       abi: SEEDS_ABI,

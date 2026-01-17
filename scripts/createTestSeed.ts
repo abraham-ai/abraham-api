@@ -24,10 +24,8 @@ const theSeedsAbi = parseAbi([
   "function getSeed(uint256 _seedId) external view returns (uint256 id, address creator, string ipfsHash, uint256 votes, uint256 blessings, uint256 createdAt, bool minted, uint256 mintedInRound)",
   "function hasRole(bytes32 role, address account) external view returns (bool)",
   "function seedCount() external view returns (uint256)",
+  "function CREATOR_ROLE() external view returns (bytes32)",
 ]);
-
-// CREATOR_ROLE hash
-const CREATOR_ROLE = "0x828634d95e775031b9ff576c159e20a8a57946bda7a10f5b0e5f3b5f0e0ad4e7";
 
 // Test IPFS hash - can be overridden via command line argument
 const TEST_IPFS_HASH = process.argv[2] || "ipfs://QmTiAN3G6xvgnE6hEgUMbs8T2zCZzuwEm1zPvvn4iQgKNa";
@@ -100,6 +98,11 @@ async function main() {
 
   // Check if signer has CREATOR_ROLE
   console.log("Checking permissions...");
+  const CREATOR_ROLE = await publicClient.readContract({
+    address: contractAddress as Address,
+    abi: theSeedsAbi,
+    functionName: "CREATOR_ROLE",
+  });
   const hasCreatorRole = await publicClient.readContract({
     address: contractAddress as Address,
     abi: theSeedsAbi,
