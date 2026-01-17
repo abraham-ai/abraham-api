@@ -29,7 +29,15 @@ import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 dotenv.config();
 
-// Contract ABI
+// Contract ABIs
+// MerkleGating (new AbrahamSeeds architecture)
+const merkleGatingAbi = parseAbi([
+  "function merkleRoot() view returns (bytes32)",
+  "function rootTimestamp() view returns (uint256)",
+  "function updateRoot(bytes32 newRoot) external",
+]);
+
+// TheSeeds (legacy architecture)
 const theSeedsAbi = parseAbi([
   "function currentOwnershipRoot() view returns (bytes32)",
   "function rootTimestamp() view returns (uint256)",
@@ -148,6 +156,10 @@ async function generateMerkle(snapshotPath: string): Promise<{ root: string; pat
 
 /**
  * Step 3: Update Contract with New Merkle Root
+ *
+ * Supports two contract architectures:
+ * 1. MerkleGating (new AbrahamSeeds) - Uses L2_GATING_CONTRACT env var
+ * 2. TheSeeds (legacy) - Uses L2_SEEDS_CONTRACT env var
  */
 async function updateContract(merkleRoot: string): Promise<{ txHash: string; blockNumber: bigint }> {
   console.log("\n" + "=".repeat(60));
@@ -167,11 +179,37 @@ async function updateContract(merkleRoot: string): Promise<{ txHash: string; blo
   console.log(`Network: ${networkName}`);
   console.log(`Chain ID: ${networkConfig.chain.id}`);
 
-  // Get contract address from environment
-  const contractAddress = process.env.L2_SEEDS_CONTRACT as Address;
-  if (!contractAddress) {
-    throw new Error("L2_SEEDS_CONTRACT not set in environment");
+  // Determine which contract to use
+  // Priority: L2_GATING_CONTRACT (new architecture) > L2_SEEDS_CONTRACT (legacy)
+  const gatingContractAddress = process.env.L2_GATING_CONTRACT as Address | undefined;
+  const seedsContractAddress = process.env.L2_SEEDS_CONTRACT as Address | undefined;
+
+  let contractAddress: Address;
+  let contractAbi: typeof merkleGatingAbi | typeof theSeedsAbi;
+  let getRootFunction: "merkleRoot" | "currentOwnershipRoot";
+  let updateRootFunction: "updateRoot" | "updateOwnershipRoot";
+  let contractType: string;
+
+  if (gatingContractAddress) {
+    contractAddress = gatingContractAddress;
+    contractAbi = merkleGatingAbi;
+    getRootFunction = "merkleRoot";
+    updateRootFunction = "updateRoot";
+    contractType = "MerkleGating (AbrahamSeeds)";
+  } else if (seedsContractAddress) {
+    contractAddress = seedsContractAddress;
+    contractAbi = theSeedsAbi;
+    getRootFunction = "currentOwnershipRoot";
+    updateRootFunction = "updateOwnershipRoot";
+    contractType = "TheSeeds (legacy)";
+  } else {
+    throw new Error(
+      "No contract address set. Set L2_GATING_CONTRACT (for AbrahamSeeds) or L2_SEEDS_CONTRACT (for legacy TheSeeds)"
+    );
   }
+
+  console.log(`Contract Type: ${contractType}`);
+  console.log(`Contract Address: ${contractAddress}`);
 
   // Get deployer private key (admin role required to update merkle root)
   const privateKeyRaw = process.env.DEPLOYER_PRIVATE_KEY;
@@ -185,7 +223,6 @@ async function updateContract(merkleRoot: string): Promise<{ txHash: string; blo
   // Create account from private key
   const account = privateKeyToAccount(privateKey);
   console.log(`Signer: ${account.address}`);
-  console.log(`Contract Address: ${contractAddress}`);
   console.log(`Merkle Root: ${merkleRoot}`);
 
   // Create clients
@@ -201,11 +238,18 @@ async function updateContract(merkleRoot: string): Promise<{ txHash: string; blo
   });
 
   // Check current root
-  const currentRoot = await publicClient.readContract({
-    address: contractAddress,
-    abi: theSeedsAbi,
-    functionName: "currentOwnershipRoot",
-  });
+  let currentRoot: Hex;
+  try {
+    currentRoot = await publicClient.readContract({
+      address: contractAddress,
+      abi: contractAbi,
+      functionName: getRootFunction as any,
+    }) as Hex;
+  } catch (error: any) {
+    // Contract might be uninitialized
+    console.log("Warning: Could not read current root, contract may be uninitialized");
+    currentRoot = "0x0000000000000000000000000000000000000000000000000000000000000000";
+  }
 
   console.log(`\nCurrent Root: ${currentRoot}`);
 
@@ -219,8 +263,8 @@ async function updateContract(merkleRoot: string): Promise<{ txHash: string; blo
   console.log("\nUpdating Merkle root on contract...");
   const txHash = await walletClient.writeContract({
     address: contractAddress,
-    abi: theSeedsAbi,
-    functionName: "updateOwnershipRoot",
+    abi: contractAbi,
+    functionName: updateRootFunction as any,
     args: [merkleRoot as Hex],
   });
 
@@ -236,17 +280,18 @@ async function updateContract(merkleRoot: string): Promise<{ txHash: string; blo
   // Verify update
   const newRoot = await publicClient.readContract({
     address: contractAddress,
-    abi: theSeedsAbi,
-    functionName: "currentOwnershipRoot",
-  });
+    abi: contractAbi,
+    functionName: getRootFunction as any,
+  }) as Hex;
 
   const rootTimestamp = await publicClient.readContract({
     address: contractAddress,
-    abi: theSeedsAbi,
+    abi: contractAbi,
     functionName: "rootTimestamp",
-  });
+  }) as bigint;
 
   console.log("\n=== Contract Update Complete ===");
+  console.log(`Contract Type: ${contractType}`);
   console.log(`New Root: ${newRoot}`);
   console.log(`Timestamp: ${new Date(Number(rootTimestamp) * 1000).toISOString()}`);
   console.log(`Block Number: ${receipt.blockNumber}`);
