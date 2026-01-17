@@ -2,340 +2,294 @@
 
 ## Overview
 
-We've successfully implemented a **cross-chain NFT governance system** for the Abraham project. This system enables decentralized curation of daily NFT mints through community voting.
+We've implemented a **cross-chain NFT governance system** for the Abraham project using the new **AbrahamSeeds** contract architecture. This system enables decentralized curation of daily NFT mints through community voting (blessings).
 
-## What Was Built
+## Contract Architecture
 
-### 1. The Seeds Contract (L2 - Base)
+### 1. AbrahamSeeds Contract (L2 - Base)
 
-**Location**: [contracts/TheSeeds.sol](./contracts/TheSeeds.sol)
+**Location**: [contracts/src/agents/abraham/AbrahamSeeds.sol](./contracts/src/agents/abraham/AbrahamSeeds.sol)
 
-A governance contract that manages:
-- **Seed Submission**: Artists can propose artworks (Seeds)
-- **Merkle Proof Voting**: FirstWorks NFT holders vote using ownership proofs
-- **Daily Winner Selection**: Highest voted Seed wins each day
-- **Fraud Prevention**: Pause mechanism and owner controls
+The main governance contract that manages:
+- **Seed Submission**: Artists propose artworks (Seeds) via IPFS hash
+- **Blessings**: FirstWorks NFT holders vote using Merkle proofs
+- **Commandments**: Comments/feedback on seeds
+- **Daily Winner Selection**: Highest blessed Seed wins each period
+- **ERC1155 NFT Minting**: Winners are minted as edition NFTs
 
 **Key Features**:
-- ✅ Gas-efficient on L2 (Base)
-- ✅ No staking required (votes follow NFT ownership)
-- ✅ 24-hour voting periods
-- ✅ Merkle proof-based ownership verification
-- ✅ Comprehensive event emission for indexing
-- ✅ Admin controls (pause, unpause, update root)
+- Gas-efficient on L2 (Base)
+- ERC1155-based NFT minting for winners
+- Role-based access control (CREATOR_ROLE, OPERATOR_ROLE)
+- Modular gating system via MerkleGating
+- Comprehensive event emission for indexing
 
-### 2. Merkle Tree Generator
+### 2. MerkleGating Module (L2 - Base)
 
-**Location**: [lib/snapshots/merkleTreeGenerator.ts](./lib/snapshots/merkleTreeGenerator.ts)
+**Location**: [contracts/src/modules/gating/MerkleGating.sol](./contracts/src/modules/gating/MerkleGating.sol)
 
-Generates Merkle trees from FirstWorks NFT snapshots:
-- Reads existing snapshot data
-- Creates cryptographic proofs for each holder
-- Enables trustless ownership verification on L2
-- Outputs root hash + proofs for all holders
+A dedicated gating module for cross-chain NFT ownership verification:
+- Stores Merkle root of L1 NFT ownership
+- Verifies ownership proofs on-chain
+- Separates gating logic from main contract
+- Enables easy root updates without contract changes
 
-### 3. Deployment Infrastructure
+### 3. EdenAgent Base Contract
 
-**Hardhat Setup**:
-- [hardhat.config.ts](./hardhat.config.ts) - Network configuration
-- [deploy/001_deploy_seeds.ts](./deploy/001_deploy_seeds.ts) - Automated deployment
-- [scripts/updateMerkleRoot.ts](./scripts/updateMerkleRoot.ts) - Root update automation
+**Location**: [contracts/src/core/EdenAgent.sol](./contracts/src/core/EdenAgent.sol)
 
-**Supported Networks**:
-- Ethereum Mainnet & Sepolia
-- Base Mainnet & Base Sepolia
+The base contract that AbrahamSeeds inherits from:
+- ERC1155 implementation for edition NFTs
+- Edition management and pricing
+- Curator edition distribution
+- Base seed/blessing/commandment logic
 
-### 4. Test Suite
+## Deployed Contracts (Base Sepolia Testnet)
 
-**Location**: [test/TheSeeds.test.ts](./test/TheSeeds.test.ts)
+| Contract | Address | Description |
+|----------|---------|-------------|
+| AbrahamSeeds | `0x0b95d25463b7a937b3df28368456f2c40e95c730` | Main governance contract |
+| MerkleGating | `0x46657b69308d90a4756369094c5d78781f3f5979` | Cross-chain verification module |
 
-Comprehensive tests covering:
-- Deployment and initialization
-- Seed submission and retraction
-- Merkle root management
-- Pause functionality
-- View functions
-- Winner selection
-- Edge cases and error handling
-
-### 5. Documentation
-
-**Created Documents**:
-1. [ARCHITECTURE.md](./ARCHITECTURE.md) - Complete system design
-2. [SMART_CONTRACT_GUIDE.md](./SMART_CONTRACT_GUIDE.md) - Integration guide
-3. Updated [QUICKSTART.md](./QUICKSTART.md) - Quick start with contracts
-4. Updated [README.md](./README.md) - API + contract overview
+**Deployment Block**: 36452477
 
 ## Architecture Design
 
 ### Cross-Chain Flow
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Ethereum L1 (Mainnet)                     │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  Abraham's First Works (Already Deployed)                   │
-│  ├─ 2,500 NFTs (fully minted)                              │
-│  ├─ Each NFT = 1 vote on L2                                │
-│  └─ Votes follow ownership (no staking)                    │
-│                                                              │
-│  [Future] Abraham Covenant                                   │
-│  ├─ 4,074 NFTs (1 per day for 4,074 days)                 │
-│  ├─ Time-gated minting                                      │
-│  └─ Mints winning Seeds from L2                            │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            │ Daily Snapshot + Merkle Root
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                       Base L2 (L2)                           │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  The Seeds Contract ✅ IMPLEMENTED                           │
-│  ├─ Seed submission (IPFS + metadata)                       │
-│  ├─ Voting (with Merkle proof verification)                 │
-│  ├─ Daily winner selection                                  │
-│  └─ Event emission for L1 bridge                           │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|                    Ethereum L1 (Mainnet)                     |
++-------------------------------------------------------------+
+|                                                              |
+|  Abraham's First Works NFT                                  |
+|  Address: 0x9734c959A5FEC7BaD8b0b560AD94F9740B90Efd8        |
+|  - 2,044 NFTs (fully minted)                                |
+|  - Each NFT = 1 blessing per day on L2                      |
+|  - Ownership tracked via daily snapshots                     |
+|                                                              |
++-------------------------------------------------------------+
+                            |
+                            | Daily Snapshot -> Merkle Tree
+                            v
++-------------------------------------------------------------+
+|                       Base L2                                |
++-------------------------------------------------------------+
+|                                                              |
+|  MerkleGating Module                                        |
+|  - Stores Merkle root of L1 NFT ownership                   |
+|  - Verifies proofs on-chain                                 |
+|  - Updated daily via backend                                 |
+|                                                              |
+|  AbrahamSeeds Contract                                       |
+|  - Seed submission (IPFS hash)                              |
+|  - Blessing with Merkle proof verification                   |
+|  - Commandments (comments on seeds)                          |
+|  - Daily winner selection                                    |
+|  - ERC1155 NFT minting for winners                          |
+|                                                              |
++-------------------------------------------------------------+
 ```
 
 ### How It Works
 
 1. **Daily Snapshot** (Backend)
-   - Run `npm run snapshot:generate` to fetch FirstWorks ownership
-   - Run `npm run merkle:generate` to create Merkle tree
-   - Update contract with `npm run update-root`
+   ```bash
+   npm run snapshot:generate   # Fetch FirstWorks ownership from L1
+   npm run merkle:generate     # Create Merkle tree with proofs
+   npm run update-root         # Update MerkleGating contract
+   ```
 
-2. **Seed Submission** (Artists)
-   - Upload artwork to IPFS
-   - Submit Seed on-chain with IPFS hash + metadata
+2. **Seed Submission** (Creators with CREATOR_ROLE)
+   - Upload artwork metadata to IPFS
+   - Call `submitSeed(ipfsHash)` on AbrahamSeeds
    - Seed enters current voting period
 
-3. **Voting** (FirstWorks Holders)
-   - Request Merkle proof from API
-   - Submit vote on-chain with proof
-   - Contract verifies L1 ownership via Merkle proof
-   - Can change vote anytime during period
+3. **Blessing** (FirstWorks NFT Holders)
+   - Request Merkle proof from API: `GET /api/blessings/proof/:address`
+   - Submit blessing with proof: `blessSeedFor(seedId, user, tokenIds, proof)`
+   - Contract verifies L1 ownership via MerkleGating
+   - 1 NFT = 1 blessing per day (resets at midnight UTC)
 
-4. **Winner Selection** (Anyone)
-   - After 24 hours, anyone can call `selectDailyWinner()`
-   - Contract finds Seed with most votes
-   - Emits `WinnerSelected` event with proof
+4. **Commandments** (NFT Holders)
+   - Submit comments on seeds: `addCommandmentFor(seedId, user, ipfsHash, tokenIds, proof)`
+   - Stored on-chain with IPFS reference
+   - Requires NFT ownership proof
+
+5. **Winner Selection** (OPERATOR_ROLE)
+   - After voting period ends, call `selectDailyWinner()`
+   - Highest blessed seed wins
+   - Winner is minted as ERC1155 NFT
    - New voting period begins
-
-5. **L1 Minting** (Future Implementation)
-   - Relayer monitors L2 events
-   - Executes mint on L1 Abraham Covenant
-   - NFT minted with winning Seed's metadata
 
 ## Key Design Decisions
 
-### ✅ Merkle Proof Voting (Chosen Approach)
+### Modular Gating Architecture
 
-**Why?**
+**Why separate MerkleGating?**
+- Clean separation of concerns
+- Easy to update root without touching main contract
+- Reusable for other contracts
+- Simpler upgrade path
+
+### ERC1155 for Winner NFTs
+
+**Why ERC1155 over ERC721?**
+- Supports editions (multiple copies of same artwork)
+- More gas-efficient for batch operations
+- Built-in metadata URI support
+- Compatible with major marketplaces
+
+### Role-Based Access Control
+
+| Role | Permissions |
+|------|------------|
+| `CREATOR_ROLE` | Submit seeds |
+| `OPERATOR_ROLE` | Select winners, update settings |
+| `DEFAULT_ADMIN_ROLE` | Grant/revoke roles |
+
+### Merkle Proof Voting
+
+**Why Merkle proofs?**
 - Gas efficient: Only root hash stored on L2
 - Trustless: Cryptographically proven ownership
-- Scalable: Works with 2,500+ NFTs
+- Scalable: Works with 2,000+ NFTs
 - No bridging: NFTs stay on L1
 
-**How?**
-1. Daily snapshot of L1 ownership
-2. Generate Merkle tree (root + proofs)
-3. Post root to L2 contract
-4. Users prove ownership with Merkle proof
-5. Contract verifies proof on-chain
+## NPM Scripts
 
-### ❌ Alternative Approaches (Not Chosen)
+```bash
+# API
+npm run dev                              # Start dev server
+npm run snapshot:generate                # Generate FirstWorks snapshot
+npm run merkle:generate                  # Generate Merkle tree
+npm run update-snapshot                  # Full update pipeline
 
-1. **Storage Proofs**
-   - More trustless but very expensive
-   - Complex implementation
-   - Not worth the trade-off
+# Smart Contracts
+npm run compile                          # Compile contracts
+npm run deploy:abraham-seeds:base-sepolia  # Deploy to testnet
+npm run deploy:abraham-seeds:base          # Deploy to mainnet
+npm run update-root                       # Update Merkle root
+npm run test:contracts                    # Run contract tests
+npm run grant-creator:base-sepolia        # Grant CREATOR_ROLE
+```
 
-2. **Canonical OP-Stack Bridge**
-   - 7-day withdrawal period (too slow!)
-   - Over-engineered for daily cadence
+## Environment Variables
 
-3. **Staking NFTs on L2**
-   - Bad UX (users can't use/trade NFTs)
-   - Bridging costs money
-   - Defeats purpose of L2 governance
+```bash
+# L1 FirstWorks NFT (Ethereum Mainnet)
+FIRSTWORKS_CONTRACT_ADDRESS=0x9734c959A5FEC7BaD8b0b560AD94F9740B90Efd8
+FIRSTWORKS_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
+
+# L2 AbrahamSeeds (Base Sepolia)
+L2_SEEDS_CONTRACT=0x0b95d25463b7a937b3df28368456f2c40e95c730
+L2_GATING_CONTRACT=0x46657b69308d90a4756369094c5d78781f3f5979
+L2_SEEDS_DEPLOYMENT_BLOCK=36452477
+NETWORK=baseSepolia
+
+# RPC URLs
+BASE_SEPOLIA_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_KEY
+MAINNET_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
+
+# Private Keys
+RELAYER_PRIVATE_KEY=your_relayer_private_key
+DEPLOYER_PRIVATE_KEY=your_deployer_private_key
+
+# API Keys
+ADMIN_KEY=your_admin_key
+ALCHEMY_API_KEY=your_alchemy_key
+BASESCAN_API_KEY=your_basescan_key
+```
+
+## API Integration
+
+### Key Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/seeds` | List all seeds with metadata |
+| `GET /api/seeds/:id` | Get seed details |
+| `GET /api/seeds/count` | Total seed count |
+| `GET /api/seeds/stats` | Current round stats, leader |
+| `GET /api/seeds/config` | Contract configuration |
+| `POST /api/blessings` | Submit blessing (gasless) |
+| `POST /api/blessings/prepare` | Prepare blessing tx (user signs) |
+| `GET /api/blessings/seed/:id` | Blessings for a seed |
+| `GET /api/leaderboard` | User rankings |
+| `POST /api/admin/select-winner` | Trigger winner selection |
 
 ## Security Considerations
 
 ### Trust Assumptions
 
 1. **Snapshot Accuracy**
-   - Backend must generate accurate snapshots
-   - **Mitigation**: Open source, verifiable code
-   - **Future**: Multiple independent snapshot providers
+   - Backend generates accurate L1 ownership snapshots
+   - Mitigation: Open source, verifiable code
 
-2. **Owner Privileges**
-   - Owner can update Merkle root
-   - Owner can pause contract
-   - **Mitigation**: Use multisig for owner
-   - **Future**: Decentralize root updates
+2. **Role Privileges**
+   - OPERATOR_ROLE can select winners
+   - CREATOR_ROLE can submit seeds
+   - Mitigation: Use multisig for role management
 
 ### Attack Vectors & Mitigations
 
-| Attack | Risk | Mitigation |
-|--------|------|------------|
-| Fake Merkle Proof | User votes without owning NFTs | Cryptographic verification on-chain |
-| Snapshot Manipulation | Backend posts fake ownership data | Multiple verifiers, open source |
-| Vote Manipulation | Wash trading to accumulate votes | 24-hour snapshot delay makes this expensive |
-| Frontrunning | See winning Seed, copy it | Seeds are public; no pre-reveal needed |
-| DoS on selectWinner() | Prevent winner selection | Anyone can call; permissionless |
+| Attack | Mitigation |
+|--------|------------|
+| Fake Merkle Proof | Cryptographic verification on-chain |
+| Snapshot Manipulation | Open source, multiple verifiers |
+| Vote Manipulation | 24-hour snapshot delay |
+| DoS on selectWinner | Permissionless call, anyone can trigger |
 
-## What's Ready to Deploy
+## Contract Interfaces
 
-✅ **Ready Now**:
-- The Seeds contract (tested)
-- Merkle tree generation
-- Deployment scripts
-- Full documentation
-- Integration examples
+### AbrahamSeeds Key Functions
 
-⏳ **Future Work**:
-- L1 Abraham Covenant contract (optional)
-- Bridge relayer for L2→L1 minting
-- Frontend UI for voting
-- Mobile app integration
-- Analytics dashboard
+```solidity
+// Seed Management
+function submitSeed(string ipfsHash) external returns (uint256 seedId)
+function getSeed(uint256 seedId) external view returns (Seed memory)
+function getSeedCount() external view returns (uint256)
 
-## NPM Scripts
+// Blessing
+function blessSeedFor(uint256 seedId, address user, uint256[] tokenIds, bytes proof) external
+function getSeedBlessingScore(uint256 seedId) external view returns (uint256)
+function getUserDailyBlessingCount(address user) external view returns (uint256)
 
-```bash
-# API (Existing)
-npm run dev                    # Start API server
-npm run snapshot:generate      # Generate FirstWorks snapshot
+// Commandments
+function addCommandmentFor(uint256 seedId, address user, string ipfsHash, uint256[] tokenIds, bytes proof) external
 
-# Smart Contracts (New)
-npm run compile               # Compile contracts
-npm run merkle:generate       # Generate Merkle tree
-npm run deploy:base-sepolia   # Deploy to Base testnet
-npm run deploy:base           # Deploy to Base mainnet
-npm run update-root           # Update Merkle root
-npm run test:contracts        # Run contract tests
-npm run verify                # Verify on BaseScan
+// Winner Selection
+function selectDailyWinner() external returns (uint256 winningSeedId)
+function getCurrentLeader() external view returns (uint256 seedId, uint256 score)
+function getTimeUntilPeriodEnd() external view returns (uint256)
 ```
 
-## Environment Variables
+### MerkleGating Key Functions
 
-Add to `.env`:
-
-```bash
-# Smart Contract Variables
-DEPLOYER_PRIVATE_KEY=your_private_key
-OWNER_ADDRESS=your_owner_address
-ROOT_UPDATER_ADDRESS=your_backend_wallet
-
-# RPC URLs
-BASE_RPC_URL=https://mainnet.base.org
-BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
-
-# API Keys
-BASESCAN_API_KEY=your_basescan_key
-
-# Deployed Contract (after deployment)
-L2_SEEDS_CONTRACT=0x...
+```solidity
+function merkleRoot() external view returns (bytes32)
+function setMerkleRoot(bytes32 _root) external
+function isValidProof(address user, uint256[] tokenIds, bytes32[] proof) external view returns (bool)
 ```
 
-## Next Steps
+## Differences from Legacy TheSeeds Contract
 
-### 1. Deploy to Testnet
-
-```bash
-# Make sure Node.js 22+ is installed
-nvm use 22
-
-# Compile
-npm run compile
-
-# Deploy to Base Sepolia
-npm run deploy:base-sepolia
-
-# Save contract address to .env
-```
-
-### 2. Test Voting Flow
-
-```bash
-# Generate Merkle tree
-npm run merkle:generate
-
-# Update contract with root
-npm run update-root -- --network baseSepolia
-
-# Test from frontend or Hardhat console
-```
-
-### 3. Integrate with API
-
-Add routes to API:
-- `GET /api/seeds` - List all seeds
-- `GET /api/seeds/:id` - Get seed details
-- `POST /api/seeds/proof` - Get Merkle proof for voting
-- `GET /api/seeds/leader` - Get current leader
-
-### 4. Build Frontend
-
-Create UI for:
-- Seed submission
-- Voting interface
-- Leaderboard
-- Winner history
-
-### 5. Automate Daily Operations
-
-Set up cron jobs:
-- Daily snapshot generation
-- Merkle tree updates
-- Winner selection
-
-## Important Note: Node.js Version
-
-⚠️ **Hardhat requires Node.js 22 LTS**
-
-Your system currently has Node.js 23.5.0, which is not supported.
-
-**To fix**:
-```bash
-# Install nvm if not installed
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-
-# Install and use Node.js 22
-nvm install 22
-nvm use 22
-
-# Verify
-node --version  # Should show v22.x.x
-
-# Then compile contracts
-npm run compile
-```
-
-We've created `.nvmrc` file to specify the correct version.
+| Feature | TheSeeds (Legacy) | AbrahamSeeds (New) |
+|---------|------------------|-------------------|
+| NFT Standard | ERC721 | ERC1155 (editions) |
+| Gating | Built-in | Separate MerkleGating module |
+| Inheritance | Standalone | EdenAgent base |
+| Winner NFTs | Single mint | Edition-based |
+| Configuration | Hardcoded | Constructor params |
+| Role System | Owner-based | AccessControl roles |
 
 ## Resources
 
-- **Architecture**: [ARCHITECTURE.md](./ARCHITECTURE.md)
-- **Integration Guide**: [SMART_CONTRACT_GUIDE.md](./SMART_CONTRACT_GUIDE.md)
-- **Quick Start**: [QUICKSTART.md](./QUICKSTART.md)
-- **Contract Source**: [contracts/TheSeeds.sol](./contracts/TheSeeds.sol)
-- **Tests**: [test/TheSeeds.test.ts](./test/TheSeeds.test.ts)
-
-## Questions?
-
-See [SMART_CONTRACT_GUIDE.md](./SMART_CONTRACT_GUIDE.md) for:
-- Detailed deployment steps
-- API integration examples
-- Frontend integration
-- Troubleshooting guide
-- Security best practices
+- [QUICKSTART.md](./QUICKSTART.md) - Quick start guide
+- [API Reference](./docs/API_REFERENCE.md) - Complete API documentation
+- [Deployment Guide](./docs/DEPLOYMENT_GUIDE.md) - Deployment instructions
+- [Contract Source](./contracts/src/agents/abraham/AbrahamSeeds.sol) - Main contract
 
 ---
 
-**Status**: ✅ Smart contract implementation complete and ready for deployment!
+**Status**: Deployed to Base Sepolia and fully operational with API integration.

@@ -7,7 +7,7 @@ The Abraham API provides two ways to submit blessings:
 1. **Gasless (Backend-Signed)**: POST `/blessings` - Backend submits blessing on behalf of user
 2. **User-Signed**: POST `/blessings/prepare` - User signs and submits their own transaction
 
-> **📘 Looking for smart contract documentation?** See [Seeds Contract Reference](./SEEDS_CONTRACT_REFERENCE.md) for a complete guide to all TheSeeds.sol contract functions with code examples.
+> **📘 Looking for smart contract documentation?** See [Seeds Contract Reference](./SEEDS_CONTRACT_REFERENCE.md) for a complete guide to all AbrahamSeeds contract functions with code examples.
 
 ## Table of Contents
 
@@ -40,9 +40,9 @@ Submit a blessing with backend signing (gasless for user).
 
 **Requirements:**
 - User must be authenticated
-- User must own FirstWorks NFTs
-- User must not have already blessed this seed
-- Backend must have RELAYER_ROLE **OR** user must approve backend as delegate
+- User must own FirstWorks NFTs (verified via Merkle proof)
+- User must not have used all daily blessings
+- Backend must have OPERATOR_ROLE **OR** user must approve backend as delegate
 
 **Request:**
 ```json
@@ -149,7 +149,7 @@ Prepare a blessing transaction for client-side signing (user pays gas).
 **Requirements:**
 - User must be authenticated
 - User must own FirstWorks NFTs
-- User must not have already blessed this seed
+- User must have remaining blessings today
 
 **Request:**
 ```json
@@ -168,7 +168,7 @@ Content-Type: application/json
   "success": true,
   "data": {
     "transaction": {
-      "to": "0x878baad70577cf114a3c60fd01b5a036fd0c4bc8",
+      "to": "0x0b95d25463b7a937b3df28368456f2c40e95c730",
       "data": "0x...",
       "from": "0xUser...",
       "chainId": 84532
@@ -350,7 +350,7 @@ Content-Type: application/json
   "success": true,
   "data": {
     "transaction": {
-      "to": "0x878baad70577cf114a3c60fd01b5a036fd0c4bc8",
+      "to": "0x0b95d25463b7a937b3df28368456f2c40e95c730",
       "data": "0x...",
       "from": "0xUser...",
       "chainId": 84532
@@ -478,7 +478,7 @@ Authorization: Bearer <privy_token>
 
 ### GET `/blessings/seed/:seedId`
 
-Get all blessings for a specific seed (from blockchain).
+Get all blessings for a specific seed (from blockchain events).
 
 **Request:**
 ```
@@ -495,20 +495,16 @@ GET /blessings/seed/0
       "title": "My Seed",
       "creator": "0xCreator...",
       "blessings": 42,
-      "votes": 100
+      "score": 100
     },
     "blessings": [
       {
         "blesser": "0xUser1...",
-        "actor": "0xBackend...",
-        "timestamp": 1699564800,
-        "isDelegated": true
+        "timestamp": 1699564800
       },
       {
         "blesser": "0xUser2...",
-        "actor": "0xUser2...",
-        "timestamp": 1699564900,
-        "isDelegated": false
+        "timestamp": 1699564900
       }
     ],
     "count": 42
@@ -518,7 +514,7 @@ GET /blessings/seed/0
 
 ### GET `/blessings/user/:address`
 
-Get all blessings by a specific user (from blockchain).
+Get all blessings by a specific user (from blockchain events).
 
 **Request:**
 ```
@@ -534,15 +530,11 @@ GET /blessings/user/0x1234...
     "blessings": [
       {
         "seedId": 0,
-        "actor": "0xBackend...",
-        "timestamp": 1699564800,
-        "isDelegated": true
+        "timestamp": 1699564800
       },
       {
         "seedId": 1,
-        "actor": "0x1234...",
-        "timestamp": 1699564900,
-        "isDelegated": false
+        "timestamp": 1699564900
       }
     ],
     "count": 2
@@ -597,6 +589,104 @@ GET /blessings/firstworks/snapshot
 
 ---
 
+## Seed Endpoints
+
+### GET `/seeds`
+
+Get all seeds (paginated).
+
+**Request:**
+```
+GET /seeds?page=1&limit=20
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "seeds": [...],
+    "total": 100,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+### GET `/seeds/count`
+
+Get total seed count.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "count": 100
+  }
+}
+```
+
+### GET `/seeds/stats`
+
+Get seed statistics.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "totalSeeds": 100,
+    "eligibleSeeds": 85,
+    "currentRound": 15,
+    "timeUntilRoundEnd": 43200
+  }
+}
+```
+
+### GET `/seeds/config`
+
+Get current contract configuration.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "roundMode": { "value": 0, "name": "ROUND_BASED" },
+    "tieBreakingStrategy": { "value": 0, "name": "LOWEST_SEED_ID" },
+    "eligibleSeedsCount": 85,
+    "blessingsPerNFT": 1,
+    "votingPeriod": 86400
+  }
+}
+```
+
+### GET `/seeds/:seedId`
+
+Get a specific seed by ID.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 0,
+    "creator": "0x...",
+    "ipfsHash": "Qm...",
+    "blessings": 42,
+    "score": 100,
+    "commandmentCount": 5,
+    "createdAt": 1699564800,
+    "submittedInRound": 1,
+    "creationRound": 0,
+    "isRetracted": false
+  }
+}
+```
+
+---
+
 ## Configuration Endpoints
 
 ### GET `/config`
@@ -620,7 +710,7 @@ GET /config
     "currentRound": 5,
     "timeUntilPeriodEnd": 43200,
     "contract": {
-      "address": "0x878baad70577cf114a3c60fd01b5a036fd0c4bc8",
+      "address": "0x0b95d25463b7a937b3df28368456f2c40e95c730",
       "network": "Base Sepolia"
     }
   }
@@ -635,136 +725,6 @@ const { data } = await fetch('/config').then(r => r.json());
 console.log(`Voting period: ${data.votingPeriodDays} day(s)`);
 console.log(`Blessings per NFT: ${data.blessingsPerNFT}`);
 console.log(`Time until round ends: ${data.timeUntilPeriodEnd}s`);
-```
-
-### POST `/admin/config/voting-period`
-
-Update the voting period duration (admin only).
-
-**Requirements:**
-- Admin role on the contract
-- Authenticated with admin wallet
-
-**Request:**
-```json
-POST /admin/config/voting-period
-Authorization: Bearer <admin_token>
-Content-Type: application/json
-
-{
-  "votingPeriod": 43200  // 12 hours in seconds
-}
-```
-
-**Valid Range:** 3600 (1 hour) to 604800 (7 days)
-
-**Success Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "previousPeriod": 86400,
-    "newPeriod": 43200,
-    "txHash": "0x123...",
-    "message": "Voting period updated successfully"
-  }
-}
-```
-
-**Error Responses:**
-
-**400 - Invalid Period**
-```json
-{
-  "success": false,
-  "error": "Voting period must be between 1 hour and 7 days"
-}
-```
-
-**403 - Not Admin**
-```json
-{
-  "success": false,
-  "error": "Unauthorized: Admin role required"
-}
-```
-
-### POST `/admin/config/blessings-per-nft`
-
-Update the number of blessings each NFT grants per day (admin only).
-
-**Requirements:**
-- Admin role on the contract
-- Authenticated with admin wallet
-
-**Request:**
-```json
-POST /admin/config/blessings-per-nft
-Authorization: Bearer <admin_token>
-Content-Type: application/json
-
-{
-  "blessingsPerNFT": 3
-}
-```
-
-**Valid Range:** 1 to 100
-
-**Success Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "previousAmount": 1,
-    "newAmount": 3,
-    "txHash": "0x123...",
-    "message": "Blessings per NFT updated successfully"
-  }
-}
-```
-
-**Error Responses:**
-
-**400 - Invalid Amount**
-```json
-{
-  "success": false,
-  "error": "Blessings per NFT must be between 1 and 100"
-}
-```
-
-**403 - Not Admin**
-```json
-{
-  "success": false,
-  "error": "Unauthorized: Admin role required"
-}
-```
-
-### Configuration Events
-
-The contract emits events when configuration changes. Monitor these via WebSocket or polling:
-
-**VotingPeriodUpdated Event:**
-```typescript
-contract.on('VotingPeriodUpdated', (previousPeriod, newPeriod) => {
-  console.log('Voting period changed:', {
-    from: Number(previousPeriod),
-    to: Number(newPeriod)
-  });
-  // Notify users, update UI, etc.
-});
-```
-
-**BlessingsPerNFTUpdated Event:**
-```typescript
-contract.on('BlessingsPerNFTUpdated', (previousAmount, newAmount) => {
-  console.log('Blessings per NFT changed:', {
-    from: Number(previousAmount),
-    to: Number(newAmount)
-  });
-  // Update user's available blessings display
-});
 ```
 
 ---
@@ -820,14 +780,6 @@ All endpoints follow a consistent error response format:
 }
 ```
 
-**Already Blessed:**
-```json
-{
-  "success": false,
-  "error": "You have already blessed this seed"
-}
-```
-
 **Backend Not Authorized (Needs Delegation):**
 ```json
 {
@@ -854,12 +806,13 @@ PRIVY_APP_SECRET=your_privy_secret
 
 # Blockchain Network
 NETWORK=baseSepolia  # or "base" for mainnet
-L2_RPC_URL=https://sepolia.base.org
-L2_SEEDS_CONTRACT=0x878baad70577cf114a3c60fd01b5a036fd0c4bc8
+L2_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_KEY
+L2_SEEDS_CONTRACT=0x0b95d25463b7a937b3df28368456f2c40e95c730
+L2_GATING_CONTRACT=0x46657b69308d90a4756369094c5d78781f3f5979
 
 # FirstWorks NFT (L1)
-MAINNET_RPC_URL=https://eth.llamarpc.com
-FIRSTWORKS_CONTRACT_ADDRESS=0x...
+MAINNET_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY
+FIRSTWORKS_CONTRACT_ADDRESS=0x9734c959A5FEC7BaD8b0b560AD94F9740B90Efd8
 ```
 
 ### Optional (for Gasless Blessings)
@@ -891,9 +844,9 @@ RELAYER_PRIVATE_KEY=0x...  # Backend wallet private key
      │                │    (NFTs, quota)│                  │
      │                │<────────────────┤                  │
      │                │                 │                  │
-     │          3. Verify not already blessed              │
+     │          3. Verify Merkle proof  │                  │
      │                ├────────────────────────────────────>│
-     │                │                 │         hasBlessed?
+     │                │                 │         verify() │
      │                │<───────────────────────────────────┤
      │                │                 │                  │
      │          4. Check authorization  │                  │
@@ -927,10 +880,7 @@ RELAYER_PRIVATE_KEY=0x...  # Backend wallet private key
      │                │                  │
      │          2. Check eligibility     │
      │                │                  │
-     │          3. Verify not blessed    │
-     │                ├─────────────────>│
-     │                │        hasBlessed?
-     │                │<────────────────┤
+     │          3. Build transaction     │
      │                │                  │
      │      4. Return transaction data   │
      │<───────────────┤                  │
@@ -1054,6 +1004,33 @@ RELAYER_PRIVATE_KEY=0x...  # Backend wallet private key
      timestamp: new Date().toISOString()
    });
    ```
+
+---
+
+## Contract Architecture
+
+### AbrahamSeeds Contract
+
+The AbrahamSeeds contract is an ERC1155-based NFT contract that:
+- Manages seed submissions and blessings
+- Uses quadratic (sqrt) scoring for anti-whale protection
+- Mints ERC1155 editions when seeds win
+- Integrates with MerkleGating for cross-chain NFT verification
+
+### MerkleGating Module
+
+The MerkleGating module verifies FirstWorks NFT ownership using Merkle proofs:
+- Snapshot of L1 NFT ownership is taken periodically
+- Merkle tree is generated from snapshot
+- Users prove ownership with Merkle proofs on L2
+
+### Role System
+
+| Role | Description |
+|------|-------------|
+| `DEFAULT_ADMIN_ROLE` | Full admin access, can grant/revoke roles |
+| `CREATOR_ROLE` | Can submit seeds |
+| `OPERATOR_ROLE` | Can perform operations (relayer functions, winner selection) |
 
 ---
 
