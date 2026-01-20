@@ -336,6 +336,8 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
         _checkAndUpdateCommandmentLimit(_author, _tokenIds.length);
         _processCommandment(_seedId, _author, msg.sender, true, _ipfsHash);
 
+        emit CommandmentSubmitted(commandmentId, _seedId, _author, _actor, true, _ipfsHash, block.timestamp);
+
         // Refund excess payment
         if (msg.value > commandmentCost) {
             (bool success, ) = payable(msg.sender).call{value: msg.value - commandmentCost}("");
@@ -660,6 +662,9 @@ contract TheSeeds is AccessControl, ReentrancyGuard, ERC721, ERC721Holder {
             scaleFactorCommandments: scoringConfig.scaleFactorCommandments
         });
         pendingScoringUpdate = true;
+
+    emit ScoringConfigUpdated(_blessingWeight, _commandmentWeight, _timeDecayMin, _timeDecayBase);
+
     }
 
     function setBaseURI(string memory baseURI_) external onlyRole(ADMIN_ROLE) {
