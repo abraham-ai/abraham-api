@@ -32,6 +32,19 @@ contract AbrahamCovenant is ERC721, ERC721Holder, Ownable, ReentrancyGuard {
     event CovenantBreached(uint256 timestamp, uint256 lastCommitTimestamp);
     event CovenantStarted(uint256 timestamp);
     event AbrahamAddressUpdated(address indexed previousAbraham, address indexed newAbraham);
+    event SalesTransfer(
+    address indexed from,        // Always address(this) - covenant contract
+    address indexed to,          // Buyer
+    uint256 indexed tokenId,     // Token being transferred
+    address salesMechanic        // Which mechanic performed the sale
+);
+
+event BulkSalesTransfer(
+    address indexed from,        // Always address(this)
+    address indexed to,          // Buyer
+    uint256[] tokenIds,          // Multiple tokens transferred
+    address salesMechanic        // Which mechanic performed the sale
+);
 
     // ============ Errors ============
 
@@ -203,6 +216,36 @@ contract AbrahamCovenant is ERC721, ERC721Holder, Ownable, ReentrancyGuard {
             revert CovenantBroken();
         }
     }
+
+function _update(
+    address to,
+    uint256 tokenId,
+    address auth
+) internal virtual override returns (address) {
+    address from = _ownerOf(tokenId);
+    
+    // Call parent _update first to perform the actual transfer
+    address updatedFrom = super._update(to, tokenId, auth);
+    
+    // Check if this is a transfer FROM the covenant contract (sales mechanic transfer)
+    // from == address(this) means token is leaving the covenant
+    if (from == address(this) && to != address(0)) {
+        // Only emit if salesMechanic is set
+        if (salesMechanic != address(0)) {
+            // Check if caller is salesMechanic or approved by salesMechanic
+            bool isMechanicOrApproved = 
+                msg.sender == salesMechanic || 
+                isApprovedForAll(salesMechanic, msg.sender) ||
+                isApprovedForAll(address(this), salesMechanic);
+            
+            if (isMechanicOrApproved) {
+                emit SalesTransfer(address(this), to, tokenId, salesMechanic);
+            }
+        }
+    }
+    
+    return updatedFrom;
+}
 
     // ============ External Functions - Daily Covenant ============
 
@@ -474,6 +517,65 @@ contract AbrahamCovenant is ERC721, ERC721Holder, Ownable, ReentrancyGuard {
         emit SalesMechanicRotated(prev, _newMechanic, approveNew);
     }
 
+// ============ External Functions - Sales Mechanism ============
+
+/**
+ * @notice Sales mechanic transfer function with proper event emission
+ * @dev Must be used instead of direct transferFrom for sales to emit proper events
+ * @param to Address to receive the token
+ * @param tokenId Token ID to transfer
+ */
+function salesTransfer(address to, uint256 tokenId) external {
+    if (salesMechanic == address(0)) revert SalesMechanicNotSet();
+    
+    // Check if caller is authorized
+    if (msg.sender != salesMechanic && !isApprovedForAll(salesMechanic, msg.sender)) {
+        revert OnlyAbraham();
+    }
+    
+    // Ensure sales mechanic has operator approval
+    if (!isApprovedForAll(address(this), salesMechanic)) {
+        revert SalesMechanicNotSet();
+    }
+    
+    // Transfer token (will also call _update)
+    safeTransferFrom(address(this), to, tokenId);
+    
+    // Emit event (also emitted in _update, but explicit here)
+    emit SalesTransfer(address(this), to, tokenId, salesMechanic);
+}
+
+/**
+ * @notice Sales mechanic bulk transfer function
+ * @dev More gas efficient than multiple single transfers
+ * @param to Address to receive the tokens
+ * @param tokenIds Array of token IDs to transfer
+ */
+function salesBulkTransfer(address to, uint256[] calldata tokenIds) external {
+    if (salesMechanic == address(0)) revert SalesMechanicNotSet();
+    
+    // Check if caller is authorized
+    if (msg.sender != salesMechanic && !isApprovedForAll(salesMechanic, msg.sender)) {
+        revert OnlyAbraham();
+    }
+    
+    // Ensure sales mechanic has operator approval
+    if (!isApprovedForAll(address(this), salesMechanic)) {
+        revert SalesMechanicNotSet();
+    }
+    
+    // Track token IDs for bulk event
+    uint256[] memory transferredTokenIds = new uint256[](tokenIds.length);
+    
+    for (uint256 i = 0; i < tokenIds.length; i++) {
+        // Transfer each token
+        safeTransferFrom(address(this), to, tokenIds[i]);
+        transferredTokenIds[i] = tokenIds[i];
+    }
+    
+    // Emit bulk event
+    emit BulkSalesTransfer(address(this), to, transferredTokenIds, salesMechanic);
+}
     /**
      * @notice Update the work cycle (days of work before rest)
      * @dev Can only be called by Abraham
